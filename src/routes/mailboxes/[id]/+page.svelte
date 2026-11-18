@@ -53,6 +53,10 @@
 			{/if}
 		{/if}
 		{#if mailbox.itemCount > 0}
+			<form method="GET" action={resolve('/search')}>
+				<input type="hidden" name="mailbox" value={mailbox.id} />
+				<Button type="submit" variant="secondary">Search this mailbox</Button>
+			</form>
 			<Button variant="ghost" onclick={() => (deleteOpen = true)}>Delete backup…</Button>
 		{/if}
 	{/snippet}

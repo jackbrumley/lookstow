@@ -20,6 +20,27 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.4.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'In Entra, add the application permissions MailboxFolder.Read.All, MailboxItem.Read.All and MailboxItem.Export.All to the Lookstow app and grant admin consent',
+				'Pick a mailbox that has an online archive: its archive syncs too, and its page lists the archive folders and a growing message count',
+				'Without those permissions, the archive fails with a message naming them, and the mailbox itself still syncs',
+				'Open Search: find a message by sender, by To, by subject words and by date; open it, see its history, and download the .eml (it opens in Outlook)',
+				'Move a message to another folder in Outlook, sync the mailbox, and its history shows the move; its file stays where it was'
+			]
+		},
+		changes: [
+			'Online archives are copied, auxiliary (auto-expanded) archives included, through Microsoft’s mailbox export API. Each item is stored as Exchange’s full-fidelity export (.fts). This needs three more Graph permissions: see the testing steps',
+			'New messages are filed by date (mailbox/yyyy/mm/date_subject_id.eml) and never move again; folder moves, deletes and restores are kept as each message’s history. Files stored by earlier versions stay where they are',
+			'Search: find stored messages by words, sender, To or Cc, subject, folder, Message-ID, date and mailbox, then open one to see its details and history and download it',
+			'A mailbox stopped by Pause or a restart starts again at once instead of waiting for its next turn',
+			'The dashboard shows how many mailboxes wait for their next turn, and when the next one is due',
+			'The Updates page follows an update started anywhere (automatic ones too) and reloads when it is installed; any open page offers a reload when a new version is running'
+		]
+	},
+	{
 		version: '0.3.0',
 		testing: {
 			kind: 'steps',

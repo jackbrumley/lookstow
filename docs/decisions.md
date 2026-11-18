@@ -53,3 +53,11 @@ The maintainer wants to iterate quickly. Releases are signed and roll back by th
 ## Icon and colours: the mail crate, rose and amber (2026-11-18)
 
 A letter dropping into a crate says what the app does ("stow": put away safely), and the dark body with a coloured band echoes ComTap and RawTap without copying their window shape. Rose (#e11d48) is unused in the family; amber (#f59e0b) stays a small accent, away from RawTap's amber. One SVG is the app icon, favicon and install-page icon. The nine other options are kept in `docs/design/icon-options.html`.
+
+## Files filed by date, folders in the index (2026-11-18)
+
+Folder-based paths meant a message moved in Outlook had to move on disk, or the tree lied. Now each file goes under `<mailbox>/<yyyy>/<mm>/` by its received date and is never moved; the folder it is in, and every move, delete and restore, live in the index as its history. Files from earlier versions keep their paths: moving thousands of files during an upgrade risks more than it gains.
+
+## Online archives as FTS through the beta export API (2026-11-18)
+
+Only the beta Mailbox Import/Export API reads online archives (Graph v1.0 cannot; EWS is retiring). It exports Exchange's full-fidelity stream, not MIME. Lookstow stores that stream as it comes (`.fts`), so nothing is lost and it can be imported back; converting it to .eml is later work. It needs three more application permissions, which Microsoft asks for separately.
