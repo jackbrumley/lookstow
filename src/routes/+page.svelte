@@ -127,10 +127,24 @@
 				? 'paused'
 				: formatRelative(data.engine.nextDiscoveryAt)}
 		</dd>
-		<dt>Last sync of every mailbox</dt>
-		<dd>{formatDateTime(data.engine.lastPassAt)}</dd>
+		<dt>Sync of every mailbox</dt>
+		<dd>
+			{#if data.engine.passStartedAt !== null}
+				Running since {formatDateTime(data.engine.passStartedAt)}
+			{:else}
+				Last finished {formatDateTime(data.engine.lastPassAt)}
+			{/if}
+		</dd>
 		<dt>Next</dt>
-		<dd>{data.engine.nextPassAt === null ? 'paused' : formatRelative(data.engine.nextPassAt)}</dd>
+		<dd>
+			{#if data.engine.passStartedAt !== null}
+				When this one finishes
+			{:else if data.engine.nextPassAt === null}
+				Paused
+			{:else}
+				{formatRelative(data.engine.nextPassAt)}
+			{/if}
+		</dd>
 	</dl>
 </Card>
 

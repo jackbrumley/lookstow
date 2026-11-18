@@ -20,6 +20,26 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.1.1',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'From 0.1.0, let the install update itself (or choose Update now): the Updates page reloads into 0.1.1',
+				'Settings > What is backed up > Only the mailboxes I pick, then Pick two mailboxes on the Mailboxes page: only those two are copied',
+				'Test connection on a tenant whose first users have no mailbox: it skips them and passes, naming the mailbox it tested on',
+				'Move between pages after finishing the setup: the "Enter the tenant ID" banner is gone everywhere'
+			]
+		},
+		changes: [
+			'Back up only the mailboxes you pick: Settings > What is backed up, then Pick on the Mailboxes page',
+			'Test connection skips users without a mailbox (inactive, soft-deleted or on-premises) instead of failing on them',
+			'Discovery starts as soon as Microsoft 365 is connected, not hours later',
+			'The page frame refreshes on every page, so an old setup warning no longer lingers; the dashboard says when a sync of every mailbox is running',
+			'An empty reply from Microsoft Graph is asked for again instead of failing the mailbox',
+			'The app icon sits on a light tile in the sidebar, so it stands out'
+		]
+	},
+	{
 		version: '0.1.0',
 		testing: {
 			kind: 'steps',

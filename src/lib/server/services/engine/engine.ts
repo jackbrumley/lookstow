@@ -58,6 +58,10 @@ export class Engine {
 	>();
 	#phase: EngineStatus['phase'] = 'idle';
 	#problem: string | null = null;
+	/** What is missing from the setup; cleared as soon as the setup is complete. */
+	#setupProblem: string | null = null;
+	/** When the running sync of every mailbox started, or null. */
+	#passStartedAt: number | null = null;
 	#lastDiscoveryAt: number | null = null;
 	#lastPassAt: number | null = null;
 
@@ -113,11 +117,15 @@ export class Engine {
 		return {
 			phase: this.#phase,
 			paused: schedule.paused,
-			problem: this.#problem,
+			problem: this.#setupProblem ?? this.#problem,
 			lastDiscoveryAt: iso(this.#lastDiscoveryAt),
 			nextDiscoveryAt: schedule.paused ? null : iso((this.#lastDiscoveryAt ?? 0) + discoverEveryMs),
 			lastPassAt: iso(this.#lastPassAt),
-			nextPassAt: schedule.paused ? null : iso((this.#lastPassAt ?? 0) + syncEveryMs),
+			passStartedAt: iso(this.#passStartedAt),
+			nextPassAt:
+				schedule.paused || this.#passStartedAt !== null
+					? null
+					: iso((this.#lastPassAt ?? 0) + syncEveryMs),
 			queued: this.#queue.length,
 			syncing: [...this.#live.entries()].map(([id, live]) => ({
 				mailboxId: id,
@@ -183,9 +191,10 @@ export class Engine {
 	#client(): GraphClient | null {
 		const found = graphCredentials(this.#deps.db, this.#deps.secretsKey);
 		if ('missing' in found) {
-			this.#problem = found.missing;
+			this.#setupProblem = found.missing;
 			return null;
 		}
+		this.#setupProblem = null;
 		return new GraphClient(new TokenSource(found.credentials));
 	}
 
@@ -291,6 +300,9 @@ export class Engine {
 			.filter((row): row is MailboxRow => row !== undefined)
 			.filter((row) => row.goneAt === null && row.kind !== 'archive' && inScope(row, scope));
 		let failed = 0;
+		if (job.mailboxIds === null) {
+			this.#passStartedAt = now();
+		}
 		await forEachLimited(targets, schedule.parallelMailboxes, async (mailbox) => {
 			if (this.#stopping) {
 				return;
@@ -302,6 +314,7 @@ export class Engine {
 		});
 		if (job.mailboxIds === null) {
 			this.#lastPassAt = now();
+			this.#passStartedAt = null;
 		}
 		this.#problem =
 			failed > 0 ? `${failed} mailbox${failed === 1 ? '' : 'es'} failed in the last pass` : null;

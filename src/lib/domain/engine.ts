@@ -7,6 +7,9 @@ export type EngineStatus = {
 	lastDiscoveryAt: string | null;
 	nextDiscoveryAt: string | null;
 	lastPassAt: string | null;
+	/** When the running sync of every mailbox started; null when none is running. */
+	passStartedAt: string | null;
+	/** Null while a pass runs or while paused. */
 	nextPassAt: string | null;
 	queued: number;
 	syncing: {

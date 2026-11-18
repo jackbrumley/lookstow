@@ -31,6 +31,19 @@ describe('the Graph client', () => {
 		expect(sleeps).toHaveLength(5);
 	});
 
+	it('asks again when Graph sends an empty reply, and fails clearly if it keeps doing so', async () => {
+		let calls = 0;
+		const graph = new FakeGraph().withToken().on('/v1.0/me', () => {
+			calls += 1;
+			return calls === 1 ? new Response('', { status: 200 }) : json({ ok: true });
+		});
+		await expect(client(graph).getJson('/v1.0/me')).resolves.toEqual({ ok: true });
+		const empty = new FakeGraph()
+			.withToken()
+			.on('/v1.0/me', () => new Response('', { status: 200 }));
+		await expect(client(empty).getJson('/v1.0/me')).rejects.toMatchObject({ code: 'empty-reply' });
+	});
+
 	it('does not retry a refusal', async () => {
 		const graph = new FakeGraph()
 			.withToken()

@@ -9,6 +9,7 @@ import type { FetchLike, TokenSource } from './token.ts';
 export const GRAPH_ROOT = 'https://graph.microsoft.com';
 
 const MAX_ATTEMPTS = 6;
+const EMPTY_REPLY_ATTEMPTS = 3;
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 /** Graph asks for no more than 4 concurrent requests per mailbox; callers keep to that. */
 export const PER_MAILBOX_CONCURRENCY = 4;
@@ -45,8 +46,23 @@ export class GraphClient {
 
 	/** A GET that must answer JSON. `path` is relative to the Graph root or a full nextLink. */
 	async getJson(path: string): Promise<unknown> {
-		const response = await this.request(path, { accept: 'application/json' });
-		return response.json();
+		for (let attempt = 1; ; attempt++) {
+			const response = await this.request(path, { accept: 'application/json' });
+			const text = await response.text();
+			if (text.trim() !== '') {
+				return JSON.parse(text);
+			}
+			// Graph sometimes answers 200 with no body under load. Asking again gets a real
+			// reply; failing the whole mailbox sync over it would not.
+			if (attempt >= EMPTY_REPLY_ATTEMPTS) {
+				throw new GraphError(
+					response.status,
+					'empty-reply',
+					`Microsoft Graph sent an empty reply ${attempt} times in a row`
+				);
+			}
+			await this.#sleep(backoffMs(attempt, null));
+		}
 	}
 
 	/** A GET of raw bytes, e.g. a message's MIME (`/messages/{id}/$value`). */
