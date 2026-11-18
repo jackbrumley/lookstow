@@ -1,0 +1,112 @@
+/*
+ * Element resets and shared form styles. Component styles live in each
+ * component's scoped <style> block and read the tokens.
+ */
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	min-height: 100%;
+}
+
+body {
+	font-family: var(--font-base);
+	font-size: var(--font-size-base);
+	color: var(--colour-text);
+	background: var(--colour-bg);
+	line-height: var(--line-height-normal);
+}
+
+h1,
+h2,
+h3,
+p {
+	margin: 0;
+}
+
+h1 {
+	font-size: var(--font-size-2xl);
+	font-weight: var(--font-weight-semibold);
+	line-height: var(--line-height-tight);
+}
+
+h2 {
+	font-size: var(--font-size-lg);
+	font-weight: var(--font-weight-semibold);
+}
+
+a {
+	color: var(--colour-brand);
+}
+
+code {
+	font-family: var(--font-mono);
+	font-size: 0.92em;
+}
+
+table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+th,
+td {
+	text-align: left;
+	padding: var(--space-2) var(--space-3);
+	border-bottom: 1px solid var(--colour-border);
+	vertical-align: top;
+}
+
+th {
+	font-size: var(--font-size-xs);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--colour-text-muted);
+}
+
+input,
+select,
+textarea {
+	font: inherit;
+	color: var(--colour-text);
+	background: var(--colour-surface);
+	border: 1px solid var(--colour-border-strong);
+	border-radius: var(--radius-md);
+	padding: var(--space-2) var(--space-3);
+	min-height: 2.5rem;
+}
+
+input[type='checkbox'] {
+	width: 1.125rem;
+	height: 1.125rem;
+	min-height: 0;
+	/* Beside long text in a flex row, keep its size */
+	flex: none;
+	accent-color: var(--colour-brand);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+
+label {
+	font-weight: var(--font-weight-medium);
+}
+
+.muted {
+	color: var(--colour-text-muted);
+}
+
+.small {
+	font-size: var(--font-size-sm);
+}

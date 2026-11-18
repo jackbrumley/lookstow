@@ -1,0 +1,51 @@
+/** Formatting the console uses everywhere: sizes, counts and times, in plain words. */
+
+const UNITS = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+
+export function formatBytes(bytes: number): string {
+	let value = bytes;
+	let unit = 0;
+	while (value >= 1024 && unit < UNITS.length - 1) {
+		value /= 1024;
+		unit += 1;
+	}
+	const digits = unit === 0 || value >= 100 ? 0 : 1;
+	return `${value.toFixed(digits)} ${UNITS[unit] ?? 'bytes'}`;
+}
+
+export function formatCount(count: number): string {
+	return count.toLocaleString('en-AU');
+}
+
+export function formatDateTime(iso: string | null): string {
+	if (iso === null) {
+		return 'never';
+	}
+	return new Date(iso).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/** "3 minutes ago", "in 2 hours": for times near now. */
+export function formatRelative(iso: string | null, now = Date.now()): string {
+	if (iso === null) {
+		return 'never';
+	}
+	const diff = new Date(iso).getTime() - now;
+	const minutes = Math.round(Math.abs(diff) / 60_000);
+	let text: string;
+	if (minutes < 1) {
+		return diff > 0 ? 'in under a minute' : 'just now';
+	} else if (minutes < 60) {
+		text = `${minutes} minute${minutes === 1 ? '' : 's'}`;
+	} else if (minutes < 48 * 60) {
+		const hours = Math.round(minutes / 60);
+		text = `${hours} hour${hours === 1 ? '' : 's'}`;
+	} else {
+		const days = Math.round(minutes / 1440);
+		text = `${days} day${days === 1 ? '' : 's'}`;
+	}
+	return diff > 0 ? `in ${text}` : `${text} ago`;
+}
+
+export function plural(count: number, one: string, many = `${one}s`): string {
+	return `${formatCount(count)} ${count === 1 ? one : many}`;
+}

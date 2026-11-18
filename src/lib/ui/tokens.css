@@ -1,0 +1,95 @@
+/*
+ * Design tokens. Every colour, space, size and radius in the components comes
+ * from here. Light by default, dark when the system asks for it.
+ */
+:root {
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.25rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+	--space-10: 2.5rem;
+
+	--font-size-xs: 0.75rem;
+	--font-size-sm: 0.875rem;
+	--font-size-base: 0.9375rem;
+	--font-size-lg: 1.125rem;
+	--font-size-xl: 1.375rem;
+	--font-size-2xl: 1.75rem;
+	--font-weight-normal: 400;
+	--font-weight-medium: 500;
+	--font-weight-semibold: 600;
+	--line-height-tight: 1.25;
+	--line-height-normal: 1.5;
+	--font-base: 'Segoe UI', system-ui, sans-serif;
+	--font-mono: 'Cascadia Mono', Consolas, monospace;
+
+	--radius-sm: 0.25rem;
+	--radius-md: 0.375rem;
+	--radius-lg: 0.625rem;
+
+	--colour-brand: #6d28d9;
+	--colour-brand-hover: #5b21b6;
+	--colour-brand-soft: #f1ebfd;
+	--colour-sidebar: #1e1438;
+	--colour-sidebar-text: #e9f3f8;
+	--colour-sidebar-muted: rgba(233, 243, 248, 0.62);
+	--colour-sidebar-active: rgba(14, 165, 233, 0.22);
+
+	--colour-bg: #f4f6f8;
+	--colour-surface: #ffffff;
+	--colour-surface-alt: #f1f4f7;
+	/* An email preview: white in both themes, as mail programs show it */
+	--colour-email-paper: #ffffff;
+	--colour-text: #0f2230;
+	--colour-text-muted: #4a5d6b;
+	--colour-text-inverse: #ffffff;
+	--colour-border: #dde3e9;
+	--colour-border-strong: #c3ccd5;
+
+	--colour-ok: #1b8f5a;
+	--colour-ok-soft: #e1f5ea;
+	--colour-ok-text: #0b5234;
+	--colour-warn: #c97d0c;
+	--colour-warn-soft: #fdf1dc;
+	--colour-warn-text: #6f4405;
+	--colour-bad: #cf4343;
+	--colour-bad-hover: #b23636;
+	--colour-bad-soft: #fde6e6;
+	--colour-bad-text: #7b2424;
+	--colour-info: #2a7fa8;
+	--colour-info-soft: #def0f9;
+	--colour-info-text: #114f6a;
+
+	--shadow-sm: 0 1px 2px rgba(15, 34, 48, 0.06);
+	--shadow-md: 0 6px 24px rgba(15, 34, 48, 0.14);
+	--focus-ring: 0 0 0 3px rgba(8, 91, 141, 0.35);
+	--sidebar-width: 15rem;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--colour-brand: #a78bfa;
+		--colour-brand-hover: #c4b5fd;
+		--colour-brand-soft: #12324a;
+		--colour-bg: #0d161d;
+		--colour-surface: #142029;
+		--colour-surface-alt: #1a2832;
+		--colour-text: #e6eef3;
+		--colour-text-muted: #9fb2bf;
+		--colour-text-inverse: #0d161d;
+		--colour-border: #263845;
+		--colour-border-strong: #355060;
+		--colour-ok-soft: #12352a;
+		--colour-ok-text: #7fdcae;
+		--colour-warn-soft: #3a2a10;
+		--colour-warn-text: #f2c27a;
+		--colour-bad-soft: #3d1c1c;
+		--colour-bad-text: #f3a5a5;
+		--colour-info-soft: #13303f;
+		--colour-info-text: #8fd0ee;
+		--focus-ring: 0 0 0 3px rgba(74, 168, 222, 0.45);
+	}
+}
