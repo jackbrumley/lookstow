@@ -463,14 +463,13 @@ export class Engine {
 
 	async #syncOne(client: GraphClient, mailbox: MailboxRow, backupRoot: string): Promise<void> {
 		const { db, now } = this.#deps;
+		// An archive has its owner's address: say which one it is.
+		const name =
+			mailbox.kind === 'archive' ? `${mailbox.address} (online archive)` : mailbox.address;
 		const runId = startRun(db, 'sync', mailbox.id, now());
 		markSyncStarted(db, mailbox.id, now());
 		const started = now();
-		serverLog(
-			'info',
-			'sync',
-			`${mailbox.address}: ${mailbox.firstCopyDone ? 'sync' : 'first copy'} started`
-		);
+		serverLog('info', 'sync', `${name}: ${mailbox.firstCopyDone ? 'sync' : 'first copy'} started`);
 		try {
 			const outcome = await syncMailbox(
 				{
@@ -520,14 +519,14 @@ export class Engine {
 			serverLog(
 				'info',
 				'sync',
-				`${mailbox.address}: ${outcome.stoppedEarly ? 'stopped after a page' : 'done'} in ${Math.round((now() - started) / 1000)} s, ${plural(outcome.added, 'message')} stored (${formatBytes(outcome.byteCount)}), ${outcome.removed} deleted at the source`
+				`${name}: ${outcome.stoppedEarly ? 'stopped after a page' : 'done'} in ${Math.round((now() - started) / 1000)} s, ${plural(outcome.added, 'message')} stored (${formatBytes(outcome.byteCount)}), ${outcome.removed} deleted at the source`
 			);
 			if (!mailbox.firstCopyDone && outcome.firstCopyDone) {
 				recordActivity(db, {
 					level: 'info',
 					kind: 'first-copy',
 					actor: 'system',
-					summary: `First full copy of ${mailbox.address} finished`,
+					summary: `First full copy of ${name} finished`,
 					mailboxId: mailbox.id
 				});
 			}
@@ -536,7 +535,7 @@ export class Engine {
 					level: 'info',
 					kind: 'sync',
 					actor: 'system',
-					summary: `${mailbox.address} syncs again`,
+					summary: `${name} syncs again`,
 					mailboxId: mailbox.id
 				});
 			}
@@ -558,10 +557,18 @@ export class Engine {
 					level: 'error',
 					kind: 'sync',
 					actor: 'system',
-					summary: `Sync of ${mailbox.address} failed`,
+					summary: `Sync of ${name} failed`,
 					detail: message,
 					mailboxId: mailbox.id
 				});
+			} else {
+				// Activity keeps one entry; the log still shows every attempt, so a start line
+				// is never left without its end.
+				serverLog(
+					'warn',
+					'sync',
+					`${name}: failed again in ${Math.round((now() - started) / 1000)} s (${message})`
+				);
 			}
 		}
 	}

@@ -44,6 +44,44 @@ describe('the Graph client', () => {
 		await expect(client(empty).getJson('/v1.0/me')).rejects.toMatchObject({ code: 'empty-reply' });
 	});
 
+	it('asks again when a reply is cut off, garbled or ends early', async () => {
+		const cutOff = () =>
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode('{"value":'));
+						controller.error(new TypeError('terminated'));
+					}
+				})
+			);
+		let calls = 0;
+		const graph = new FakeGraph().withToken().on('/v1.0/me', () => {
+			calls += 1;
+			if (calls === 1) return cutOff();
+			if (calls === 2) return new Response('{"value": [', { status: 200 });
+			return json({ ok: true });
+		});
+		await expect(client(graph).getJson('/v1.0/me')).resolves.toEqual({ ok: true });
+		expect(calls).toBe(3);
+		const broken = new FakeGraph().withToken().on('/v1.0/me', cutOff);
+		await expect(client(broken).getBytes('/v1.0/me')).rejects.toMatchObject({
+			code: 'broken-reply'
+		});
+	});
+
+	it('asks again when signing in times out', async () => {
+		let tries = 0;
+		const graph = new FakeGraph()
+			.on(/\/oauth2\/v2\.0\/token$/, () => {
+				tries += 1;
+				if (tries === 1) throw new TypeError('fetch failed');
+				return json({ access_token: 'token', expires_in: 3600 });
+			})
+			.on('/v1.0/me', () => json({ ok: true }));
+		await expect(client(graph).getJson('/v1.0/me')).resolves.toEqual({ ok: true });
+		expect(tries).toBe(2);
+	});
+
 	it('does not retry a refusal', async () => {
 		const graph = new FakeGraph()
 			.withToken()

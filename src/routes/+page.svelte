@@ -203,7 +203,10 @@
 			<tbody>
 				{#each data.needsAttention as mailbox (mailbox.id)}
 					<tr>
-						<td><a href={resolve('/mailboxes/[id]', { id: mailbox.id })}>{mailbox.address}</a></td>
+						<td>
+							<a href={resolve('/mailboxes/[id]', { id: mailbox.id })}>{mailbox.address}</a>
+							{#if mailbox.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
+						</td>
 						<td>{mailbox.lastSyncError}</td>
 						<td>{formatRelative(mailbox.lastSyncFinishedAt)}</td>
 					</tr>

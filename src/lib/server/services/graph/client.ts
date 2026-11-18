@@ -9,7 +9,8 @@ import type { FetchLike, TokenSource } from './token.ts';
 export const GRAPH_ROOT = 'https://graph.microsoft.com';
 
 const MAX_ATTEMPTS = 6;
-const EMPTY_REPLY_ATTEMPTS = 3;
+/** How many times a reply that arrives empty, cut off or garbled is asked for again. */
+const REPLY_ATTEMPTS = 3;
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 /** Graph asks for no more than 4 concurrent requests per mailbox; callers keep to that. */
 export const PER_MAILBOX_CONCURRENCY = 4;
@@ -24,6 +25,26 @@ export class GraphError extends Error {
 		this.status = status;
 		this.code = code;
 	}
+}
+
+async function readJson(response: Response): Promise<unknown> {
+	const text = await response.text();
+	if (text.trim() === '') {
+		throw new GraphError(response.status, 'empty-reply', 'Microsoft Graph sent an empty reply');
+	}
+	return JSON.parse(text);
+}
+
+/**
+ * A reply that broke on the way: empty, cut off or garbled while reading the body (fetch
+ * throws TypeError), or JSON that ends early (SyntaxError).
+ */
+function isBrokenReply(error: unknown): error is Error {
+	return (
+		error instanceof TypeError ||
+		error instanceof SyntaxError ||
+		(error instanceof GraphError && error.code === 'empty-reply')
+	);
 }
 
 export type Sleep = (ms: number) => Promise<void>;
@@ -56,29 +77,50 @@ export class GraphClient {
 
 	/** A GET that must answer JSON. `path` is relative to the Graph root or a full nextLink. */
 	async getJson(path: string): Promise<unknown> {
-		for (let attempt = 1; ; attempt++) {
-			const response = await this.request(path, { accept: 'application/json' });
-			const text = await response.text();
-			if (text.trim() !== '') {
-				return JSON.parse(text);
-			}
-			// Graph sometimes answers 200 with no body under load. Asking again gets a real
-			// reply; failing the whole mailbox sync over it would not.
-			if (attempt >= EMPTY_REPLY_ATTEMPTS) {
-				throw new GraphError(
-					response.status,
-					'empty-reply',
-					`Microsoft Graph sent an empty reply ${attempt} times in a row`
-				);
-			}
-			await this.#sleep(backoffMs(attempt, null));
-		}
+		return this.#read(path, { accept: 'application/json' }, { method: 'GET' }, readJson);
 	}
 
 	/** A GET of raw bytes, e.g. a message's MIME (`/messages/{id}/$value`). */
 	async getBytes(path: string): Promise<Buffer> {
-		const response = await this.request(path, { accept: '*/*' });
-		return Buffer.from(await response.arrayBuffer());
+		return this.#read(path, { accept: '*/*' }, { method: 'GET' }, async (response) =>
+			Buffer.from(await response.arrayBuffer())
+		);
+	}
+
+	/**
+	 * Sends a request and reads its reply, asking again when the reply breaks on the way: Graph
+	 * sometimes answers 200 with no body under load, and a long download can be cut off or
+	 * arrive garbled ("terminated", a bad compressed stream, JSON that ends early). Asking again
+	 * gets a whole reply; failing the mailbox sync over one would not.
+	 */
+	async #read<T>(
+		path: string,
+		headers: Record<string, string>,
+		init: { method: 'GET' | 'POST'; body?: string },
+		read: (response: Response) => Promise<T>
+	): Promise<T> {
+		for (let attempt = 1; ; attempt++) {
+			const response = await this.request(path, headers, init);
+			try {
+				return await read(response);
+			} catch (error) {
+				if (!isBrokenReply(error)) {
+					throw error;
+				}
+				if (attempt >= REPLY_ATTEMPTS) {
+					const empty = error instanceof GraphError;
+					throw new GraphError(
+						response.status,
+						empty ? 'empty-reply' : 'broken-reply',
+						empty
+							? `Microsoft Graph sent an empty reply ${attempt} times in a row`
+							: `Microsoft Graph's reply broke off ${attempt} times in a row (${error.message})`,
+						{ cause: error }
+					);
+				}
+				await this.#sleep(backoffMs(attempt, null));
+			}
+		}
 	}
 
 	/** Every item of a collection, page by page. */
@@ -98,16 +140,12 @@ export class GraphClient {
 	 * export changes nothing in the mailbox.
 	 */
 	async postJson(path: string, body: unknown): Promise<unknown> {
-		const response = await this.request(
+		return this.#read(
 			path,
 			{ accept: 'application/json', 'content-type': 'application/json' },
-			{ method: 'POST', body: JSON.stringify(body) }
+			{ method: 'POST', body: JSON.stringify(body) },
+			readJson
 		);
-		const text = await response.text();
-		if (text.trim() === '') {
-			throw new GraphError(response.status, 'empty-reply', 'Microsoft Graph sent an empty reply');
-		}
-		return JSON.parse(text);
 	}
 
 	async request(
@@ -120,9 +158,11 @@ export class GraphClient {
 			throw new Error(`Refusing to send the Graph token to ${new URL(url).host}`);
 		}
 		for (let attempt = 1; ; attempt++) {
-			const token = await this.#tokens.accessToken();
 			let response: Response;
 			try {
+				// Signing in reaches login.microsoftonline.com, which can time out like Graph can;
+				// a refusal (TokenError) is not a network error and is not asked again.
+				const token = await this.#tokens.accessToken();
 				// Graph answers 308 for folders and items in an auxiliary archive; fetch follows it
 				// (same host, so the token goes with it, and the body is sent again).
 				response = await this.#fetch(url, {
@@ -135,6 +175,9 @@ export class GraphClient {
 					}
 				});
 			} catch (error) {
+				if (!(error instanceof TypeError)) {
+					throw error;
+				}
 				if (attempt >= MAX_ATTEMPTS) {
 					throw new GraphError(0, 'network', `Could not reach Microsoft Graph`, {
 						cause: error

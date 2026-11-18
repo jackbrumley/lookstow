@@ -20,6 +20,23 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.4.1',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Settings > Test connection shows an Online archive permissions step: it lists any of the three archive permissions not granted yet',
+				'After adding them and granting admin consent, Test connection passes that step, and the next archive sync copies items',
+				'Open Log: every failed sync now has a line, and archives are named "(online archive)"'
+			]
+		},
+		changes: [
+			'A reply from Microsoft that is cut off, garbled or ends early is asked for again, instead of failing the mailbox ("terminated", "invalid bit length repeat", "Unexpected end of JSON input")',
+			'A timeout while signing in to Microsoft Entra is retried, instead of failing the mailbox',
+			'Test connection shows which online archive permissions Microsoft has granted, and which are missing',
+			'The log shows every failed sync, not only the first of a run of failures, and names online archives as such (here and on the dashboard)'
+		]
+	},
+	{
 		version: '0.4.0',
 		testing: {
 			kind: 'steps',

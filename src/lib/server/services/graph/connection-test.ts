@@ -20,12 +20,24 @@ export async function testConnection(
 ): Promise<TestStep[]> {
 	const steps: TestStep[] = [];
 	const tokens = new TokenSource(credentials, fetchImpl);
+	let roles: string[] | null;
 	try {
-		await tokens.accessToken();
+		roles = grantedRoles(await tokens.accessToken());
 		steps.push({ name: 'Sign in to Microsoft Entra', ok: true, detail: 'Signed in as the app.' });
 	} catch (error) {
 		steps.push({ name: 'Sign in to Microsoft Entra', ok: false, detail: message(error) });
 		return steps;
+	}
+	if (roles !== null) {
+		const missing = ARCHIVE_PERMISSIONS.filter((permission) => !roles.includes(permission));
+		steps.push({
+			name: 'Online archive permissions',
+			ok: missing.length === 0,
+			detail:
+				missing.length === 0
+					? `Granted: ${ARCHIVE_PERMISSIONS.join(', ')}.`
+					: `Not granted yet: ${missing.join(', ')}. Add them as Microsoft Graph application permissions and grant admin consent; until then archives cannot be copied. The app has: ${roles.length === 0 ? 'no application permissions' : [...roles].sort().join(', ')}.`
+		});
 	}
 	const client = new GraphClient(tokens, fetchImpl);
 	let candidates: { id: string; mail: string }[];
@@ -101,6 +113,31 @@ export async function testConnection(
 		});
 	}
 	return steps;
+}
+
+const ARCHIVE_PERMISSIONS = [
+	'MailboxFolder.Read.All',
+	'MailboxItem.Read.All',
+	'MailboxItem.Export.All'
+] as const;
+
+/**
+ * The application permissions Entra put in the access token (its `roles` claim): exactly what
+ * Microsoft will allow, after consent. Null when the token cannot be read (it is opaque to
+ * apps by contract, though Graph tokens are JWTs today).
+ */
+export function grantedRoles(accessToken: string): string[] | null {
+	const payload = accessToken.split('.')[1];
+	if (payload === undefined) {
+		return null;
+	}
+	try {
+		const claims = asRecord(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')));
+		const roles = claims['roles'];
+		return Array.isArray(roles) ? roles.filter((role) => typeof role === 'string') : [];
+	} catch {
+		return null;
+	}
 }
 
 function message(error: unknown): string {
