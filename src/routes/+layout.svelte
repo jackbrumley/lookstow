@@ -8,6 +8,7 @@
 	import IconMailbox from '@tabler/icons-svelte-runes/icons/mailbox';
 	import IconListDetails from '@tabler/icons-svelte-runes/icons/list-details';
 	import IconSettings from '@tabler/icons-svelte-runes/icons/settings';
+	import IconTerminal2 from '@tabler/icons-svelte-runes/icons/terminal-2';
 	import IconCloudDownload from '@tabler/icons-svelte-runes/icons/cloud-download';
 	import ToastHost from '#lib/ui/toast-host.svelte';
 	import IconPlayerPause from '@tabler/icons-svelte-runes/icons/player-pause';
@@ -22,6 +23,7 @@
 		{ path: '/', href: resolve('/'), label: 'Dashboard', icon: IconLayoutDashboard },
 		{ path: '/mailboxes', href: resolve('/mailboxes'), label: 'Mailboxes', icon: IconMailbox },
 		{ path: '/activity', href: resolve('/activity'), label: 'Activity', icon: IconListDetails },
+		{ path: '/log', href: resolve('/log'), label: 'Log', icon: IconTerminal2 },
 		{ path: '/settings', href: resolve('/settings'), label: 'Settings', icon: IconSettings },
 		{ path: '/updates', href: resolve('/updates'), label: 'Updates', icon: IconCloudDownload }
 	];

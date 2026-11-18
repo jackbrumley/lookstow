@@ -9,13 +9,17 @@ const PAGE = 200;
 /** The activity log, newest first; `?level=error` shows only problems. */
 export const load = (({ url }) => {
 	const level = url.searchParams.get('level');
+	const beforeText = url.searchParams.get('before');
+	const before = beforeText === null ? undefined : Date.parse(beforeText);
 	const filter: ActivityLevel | undefined =
 		level === 'error' || level === 'warn' || level === 'info' ? level : undefined;
 	return {
 		level: filter ?? 'all',
+		paged: before !== undefined,
 		entries: listActivity(database, {
 			limit: PAGE,
-			...(filter === undefined ? {} : { level: filter })
+			...(filter === undefined ? {} : { level: filter }),
+			...(before === undefined || Number.isNaN(before) ? {} : { before })
 		}),
 		discoveries: recentRuns(database, { limit: 10, kind: 'discovery' })
 	};

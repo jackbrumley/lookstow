@@ -191,7 +191,8 @@
 			>.
 		</li>
 		<li>
-			<strong>{settings.schedule.parallelMailboxes}</strong> mailboxes are synced at the same time.
+			<strong>{settings.schedule.parallelMailboxes}</strong> mailboxes at most are synced at the same
+			time; Lookstow uses fewer while Microsoft asks it to slow down.
 		</li>
 	</ul>
 </Card>
@@ -389,7 +390,7 @@
 		/>
 	</label>
 	<label>
-		Mailboxes at the same time
+		At most this many mailboxes at the same time
 		<input
 			name="parallelMailboxes"
 			type="number"

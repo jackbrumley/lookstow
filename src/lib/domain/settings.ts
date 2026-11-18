@@ -47,7 +47,7 @@ export type ScheduleSettings = {
 	syncEveryMinutes: number;
 	/** Hours between discovery runs. */
 	discoverEveryHours: number;
-	/** Mailboxes synced at the same time. */
+	/** At most this many mailboxes sync at the same time (fewer while Graph throttles). */
 	parallelMailboxes: number;
 	/** While paused nothing syncs, not even Sync now, and running syncs stop after their page. */
 	paused: boolean;
@@ -87,7 +87,7 @@ export const SCOPE_DEFAULTS: ScopeSettings = {
 export const SCHEDULE_DEFAULTS: ScheduleSettings = {
 	syncEveryMinutes: 15,
 	discoverEveryHours: 6,
-	parallelMailboxes: 3,
+	parallelMailboxes: 8,
 	paused: false,
 	pausedReason: null,
 	pausedAt: null
@@ -98,7 +98,7 @@ export const UPDATE_DEFAULTS: UpdateSettings = { automatic: true };
 export const SCHEDULE_LIMITS = {
 	syncEveryMinutes: { min: 5, max: 1440 },
 	discoverEveryHours: { min: 1, max: 168 },
-	parallelMailboxes: { min: 1, max: 8 }
+	parallelMailboxes: { min: 1, max: 32 }
 } as const;
 
 /** Exchange purposes Lookstow treats as resources (rooms, equipment). */

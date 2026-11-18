@@ -47,6 +47,65 @@
 			);
 		})
 	);
+	type SortKey = 'address' | 'kind' | 'state' | 'itemCount' | 'byteCount' | 'lastSync';
+	const PAGE_SIZE = 100;
+	let sortKey = $state<SortKey>('address');
+	let descending = $state<boolean>(false);
+	let pageIndex = $state(0);
+
+	function sortValue(mailbox: MailboxSummary, key: SortKey): string | number {
+		switch (key) {
+			case 'address':
+				return mailbox.address;
+			case 'kind':
+				return mailbox.kind;
+			case 'state':
+				return STATE_LABELS[mailbox.state];
+			case 'itemCount':
+				return mailbox.itemCount;
+			case 'byteCount':
+				return mailbox.byteCount;
+			case 'lastSync':
+				return mailbox.lastSyncFinishedAt ?? '';
+		}
+	}
+
+	const sorted = $derived(
+		[...shown].sort((a, b) => {
+			const left = sortValue(a, sortKey);
+			const right = sortValue(b, sortKey);
+			const order =
+				typeof left === 'number' && typeof right === 'number'
+					? left - right
+					: String(left).localeCompare(String(right));
+			return descending ? -order : order;
+		})
+	);
+	const pageCount = $derived(Math.max(1, Math.ceil(sorted.length / PAGE_SIZE)));
+	// A narrower filter can leave fewer pages than the one open: show the last there is.
+	const page = $derived(Math.min(pageIndex, pageCount - 1));
+	const pageRows = $derived(sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+
+	function sortBy(key: SortKey): void {
+		pageIndex = 0;
+		if (sortKey === key) {
+			descending = !descending;
+		} else {
+			sortKey = key;
+			// Numbers and dates read best largest and newest first.
+			descending = key === 'itemCount' || key === 'byteCount' || key === 'lastSync';
+		}
+	}
+
+	const columns: { key: SortKey; label: string }[] = [
+		{ key: 'address', label: 'Mailbox' },
+		{ key: 'kind', label: 'Kind' },
+		{ key: 'state', label: 'State' },
+		{ key: 'itemCount', label: 'Messages' },
+		{ key: 'byteCount', label: 'Size' },
+		{ key: 'lastSync', label: 'Last sync' }
+	];
+
 	const states = Object.keys(STATE_LABELS).filter(
 		(key): key is MailboxState => key in STATE_LABELS
 	);
@@ -99,14 +158,30 @@
 		<div class="scroll">
 			<table>
 				<thead>
-					<tr
-						><th>Mailbox</th><th>Kind</th><th>State</th><th>Messages</th><th>Size</th><th
-							>Last sync</th
-						>{#if data.picking}<th>Backed up</th>{/if}</tr
-					>
+					<tr>
+						{#each columns as column (column.key)}
+							<th
+								aria-sort={sortKey === column.key
+									? descending
+										? 'descending'
+										: 'ascending'
+									: 'none'}
+							>
+								<button
+									type="button"
+									class="sort"
+									onclick={() => {
+										sortBy(column.key);
+									}}
+									>{column.label}{sortKey === column.key ? (descending ? ' ↓' : ' ↑') : ''}</button
+								>
+							</th>
+						{/each}
+						{#if data.picking}<th>Backed up</th>{/if}
+					</tr>
 				</thead>
 				<tbody>
-					{#each shown as mailbox (mailbox.id)}
+					{#each pageRows as mailbox (mailbox.id)}
 						<tr>
 							<td>
 								<a href={resolve('/mailboxes/[id]', { id: mailbox.id })}>{mailbox.address}</a>
@@ -147,6 +222,19 @@
 				</tbody>
 			</table>
 		</div>
+		{#if pageCount > 1}
+			<nav class="pages" aria-label="Pages">
+				<button type="button" disabled={page === 0} onclick={() => (pageIndex = page - 1)}
+					>Previous</button
+				>
+				<span>Page {page + 1} of {pageCount}</span>
+				<button
+					type="button"
+					disabled={page >= pageCount - 1}
+					onclick={() => (pageIndex = page + 1)}>Next</button
+				>
+			</nav>
+		{/if}
 	{/if}
 </Card>
 
@@ -178,6 +266,40 @@
 
 	.filters input {
 		flex: 1 1 16rem;
+	}
+
+	.sort {
+		font: inherit;
+		color: inherit;
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		text-transform: inherit;
+		letter-spacing: inherit;
+	}
+
+	.pages {
+		display: flex;
+		gap: var(--space-3);
+		align-items: center;
+		justify-content: center;
+		margin-top: var(--space-4);
+	}
+
+	.pages button {
+		font: inherit;
+		color: var(--colour-text);
+		background: var(--colour-surface);
+		border: 1px solid var(--colour-border);
+		border-radius: 999px;
+		padding: var(--space-1) var(--space-4);
+		cursor: pointer;
+	}
+
+	.pages button:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 
 	.scroll {

@@ -45,10 +45,13 @@ export function isNoMailbox(error: unknown): boolean {
 	return error instanceof GraphError && (error.status === 404 || NO_MAILBOX_CODES.has(error.code));
 }
 
+export type DiscoveryProgress = { usersTotal: number | null; usersChecked: number; found: number };
+
 export async function discoverMailboxes(
 	client: GraphClient,
-	options: { includeArchives: boolean }
+	options: { includeArchives: boolean; progress?: (progress: DiscoveryProgress) => void }
 ): Promise<DiscoveryResult> {
+	const report = options.progress ?? (() => undefined);
 	const users: { id: string; address: string; displayName: string }[] = [];
 	for await (const page of client.pages(
 		'/v1.0/users?$select=id,displayName,mail,userPrincipalName&$top=999'
@@ -70,10 +73,24 @@ export async function discoverMailboxes(
 
 	const mailboxes: DiscoveredMailbox[] = [];
 	const warnings: string[] = [];
+	let checked = 0;
+	report({ usersTotal: users.length, usersChecked: 0, found: 0 });
 	// Several users are checked at once, so this changes between awaits; read it through a call.
 	let archivesRefused = false;
 	const archiveLookupBroken = (): boolean => archivesRefused;
 	await forEachLimited(users, USER_CONCURRENCY, async (user) => {
+		await checkUser(user);
+		checked += 1;
+		report({ usersTotal: users.length, usersChecked: checked, found: mailboxes.length });
+	});
+	mailboxes.sort((a, b) => a.address.localeCompare(b.address) || a.kind.localeCompare(b.kind));
+	return { mailboxes, usersChecked: users.length, warnings };
+
+	async function checkUser(user: {
+		id: string;
+		address: string;
+		displayName: string;
+	}): Promise<void> {
 		const purpose = await mailboxPurpose(client, user.id).catch((error: unknown) => {
 			warnings.push(`${user.address}: could not read its mailbox settings (${describe(error)})`);
 			return null;
@@ -118,9 +135,7 @@ export async function discoverMailboxes(
 				warnings.push(`${user.address}: could not check for an archive (${describe(error)})`);
 			}
 		}
-	});
-	mailboxes.sort((a, b) => a.address.localeCompare(b.address) || a.kind.localeCompare(b.kind));
-	return { mailboxes, usersChecked: users.length, warnings };
+	}
 }
 
 /** Exchange's purpose for the user's mailbox, or `none` when the user has no mailbox. */

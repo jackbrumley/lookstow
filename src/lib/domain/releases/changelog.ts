@@ -20,6 +20,26 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.3.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'With a few mailboxes syncing, the dashboard shows a download rate that moves, and how many mailboxes sync at a time',
+				'Press Discover now: the dashboard counts users checked and mailboxes found while it runs',
+				'Open Log: new lines appear every two seconds; search, the level filter and Copy work',
+				'With many mailboxes picked, watch Microsoft throttling on the dashboard: when it appears, fewer mailboxes sync at once',
+				'On Mailboxes, sort by Size and move between pages; on Activity, Older entries pages back'
+			]
+		},
+		changes: [
+			'Live download rate (MB/s and messages/s, last minute and last 15 minutes) and Microsoft throttling on the dashboard',
+			'Lookstow adjusts how many mailboxes sync at once: more while Microsoft allows it, fewer when it asks to slow down (Settings sets the most, now up to 32)',
+			'Discovery shows its progress: users checked and mailboxes found so far',
+			'A Log page: the service log, live, with search, a level filter and copy',
+			'Mailboxes sort by any column and come in pages of 100; Activity pages back with Older entries'
+		]
+	},
+	{
 		version: '0.2.0',
 		testing: {
 			kind: 'steps',

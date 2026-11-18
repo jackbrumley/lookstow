@@ -59,6 +59,15 @@
 	{/if}
 </Card>
 
+{#if data.entries.length > 0}
+	<form class="older" method="GET">
+		{#if data.level !== 'all'}<input type="hidden" name="level" value={data.level} />{/if}
+		<input type="hidden" name="before" value={data.entries.at(-1)?.at ?? ''} />
+		{#if data.paged}<a href={resolve('/activity')}>Newest</a>{/if}
+		<button type="submit">Older entries</button>
+	</form>
+{/if}
+
 <Card title="Discovery runs">
 	{#if data.discoveries.length === 0}
 		<p class="muted">Discovery has not run yet.</p>
@@ -104,6 +113,23 @@
 		background: var(--colour-brand);
 		border-color: var(--colour-brand);
 		color: var(--colour-text-inverse);
+	}
+
+	.older {
+		display: flex;
+		gap: var(--space-4);
+		justify-content: center;
+		align-items: center;
+	}
+
+	.older button {
+		font: inherit;
+		color: var(--colour-text);
+		background: var(--colour-surface);
+		border: 1px solid var(--colour-border);
+		border-radius: 999px;
+		padding: var(--space-1) var(--space-4);
+		cursor: pointer;
 	}
 
 	.when {

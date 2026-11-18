@@ -4,7 +4,7 @@ import { runs } from '../../database/schema.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { recordActivity } from '../activity/activity.ts';
 import { GraphClient } from '../graph/client.ts';
-import { discoverMailboxes } from '../graph/discovery.ts';
+import { discoverMailboxes, type DiscoveryProgress } from '../graph/discovery.ts';
 import { TokenSource } from '../graph/token.ts';
 import {
 	allMailboxes,
@@ -27,9 +27,10 @@ import {
 import { diskStatus, measureDisk } from '../storage/disk.ts';
 import { inScope } from './scope.ts';
 import { planSyncs } from './scheduler.ts';
+import { AdaptiveSlots, Throughput } from './throughput.ts';
 import { syncMailbox } from './mailbox-sync.ts';
 import type { DiskStatus, EngineStatus } from '../../../domain/engine.ts';
-import { formatPercent } from '../../../utils/format.ts';
+import { formatBytes, formatPercent, plural } from '../../../utils/format.ts';
 
 /**
  * The backup engine: one per process. Every few seconds it measures the backup drive, starts
@@ -78,9 +79,15 @@ export class Engine {
 	#setupProblem: string | null = null;
 	#waiting = { requested: 0, due: 0, firstCopy: 0 };
 	#disk: DiskStatus | null = null;
+	readonly #meter = new Throughput();
+	readonly #slots: AdaptiveSlots;
+	#currentSlots = 1;
+	#discoveryProgress: DiscoveryProgress | null = null;
 
 	constructor(deps: EngineDeps) {
 		this.#deps = { now: Date.now, ...deps };
+		// Start below the maximum and grow while Graph does not throttle.
+		this.#slots = new AdaptiveSlots(3, this.#deps.now());
 	}
 
 	start(): void {
@@ -197,6 +204,7 @@ export class Engine {
 			problem: this.#setupProblem ?? this.#problem,
 			discovery: {
 				running: this.#discovery !== null,
+				progress: this.#discovery === null ? null : this.#discoveryProgress,
 				lastAt: iso(this.#lastDiscoveryAt),
 				nextAt:
 					schedule.paused || this.#discovery !== null
@@ -213,7 +221,18 @@ export class Engine {
 				firstCopy: live.firstCopy
 			})),
 			waiting: this.#waiting,
-			slots: schedule.parallelMailboxes,
+			slots: {
+				current: Math.min(this.#currentSlots, schedule.parallelMailboxes),
+				maximum: schedule.parallelMailboxes
+			},
+			rates: {
+				lastMinute: this.#meter.rates(this.#deps.now(), 60_000),
+				last15Minutes: this.#meter.rates(this.#deps.now(), 15 * 60_000)
+			},
+			throttled: {
+				lastMinute: this.#meter.rates(this.#deps.now(), 60_000).throttled,
+				last15Minutes: this.#meter.rates(this.#deps.now(), 15 * 60_000).throttled
+			},
 			disk: this.#disk ?? this.#measureDisk()
 		};
 	}
@@ -275,6 +294,12 @@ export class Engine {
 			});
 		}
 
+		this.#currentSlots = this.#slots.adjust(
+			schedule.parallelMailboxes,
+			this.#meter.rates(time, 60_000).throttled,
+			this.#running.size > 0,
+			time
+		);
 		const scope = readScope(db);
 		const eligible = allMailboxes(db).filter(
 			(row) => row.goneAt === null && row.kind !== 'archive' && !row.paused && inScope(row, scope)
@@ -291,7 +316,7 @@ export class Engine {
 			allRequestedAt: this.#allRequestedAt,
 			now: time,
 			intervalMs: schedule.syncEveryMinutes * 60_000,
-			slots: schedule.parallelMailboxes
+			slots: this.#currentSlots
 		});
 		this.#waiting = plan.waiting;
 		const byId = new Map(eligible.map((row) => [row.id, row]));
@@ -315,7 +340,19 @@ export class Engine {
 			return null;
 		}
 		this.#setupProblem = null;
-		return new GraphClient(new TokenSource(found.credentials));
+		return new GraphClient(
+			new TokenSource(found.credentials),
+			fetch,
+			undefined,
+			(status, waitMs) => {
+				this.#meter.record(this.#deps.now(), { throttled: 1 });
+				serverLog(
+					'warn',
+					'graph',
+					`Microsoft Graph asked Lookstow to slow down (${status}); waiting ${Math.round(waitMs / 1000)} s`
+				);
+			}
+		);
 	}
 
 	async #discover(client: GraphClient): Promise<void> {
@@ -323,7 +360,13 @@ export class Engine {
 		const runId = startRun(db, 'discovery', null, now());
 		try {
 			const scope = readScope(db);
-			const result = await discoverMailboxes(client, { includeArchives: scope.includeArchives });
+			this.#discoveryProgress = { usersTotal: null, usersChecked: 0, found: 0 };
+			const result = await discoverMailboxes(client, {
+				includeArchives: scope.includeArchives,
+				progress: (progress) => {
+					this.#discoveryProgress = progress;
+				}
+			});
 			const changes = applyDiscovery(db, result.mailboxes, now());
 			finishRun(
 				db,
@@ -416,6 +459,12 @@ export class Engine {
 		const { db, now } = this.#deps;
 		const runId = startRun(db, 'sync', mailbox.id, now());
 		markSyncStarted(db, mailbox.id, now());
+		const started = now();
+		serverLog(
+			'info',
+			'sync',
+			`${mailbox.address}: ${mailbox.firstCopyDone ? 'sync' : 'first copy'} started`
+		);
 		try {
 			const outcome = await syncMailbox(
 				{
@@ -431,6 +480,10 @@ export class Engine {
 					progress: (update) => {
 						const live = this.#running.get(mailbox.id);
 						if (live !== undefined) {
+							this.#meter.record(now(), {
+								bytes: update.bytes - live.bytes,
+								messages: update.stored - live.stored
+							});
 							Object.assign(live, update);
 						}
 					}
@@ -452,6 +505,11 @@ export class Engine {
 					error: null
 				},
 				now()
+			);
+			serverLog(
+				'info',
+				'sync',
+				`${mailbox.address}: ${outcome.stoppedEarly ? 'stopped after a page' : 'done'} in ${Math.round((now() - started) / 1000)} s, ${plural(outcome.added, 'message')} stored (${formatBytes(outcome.byteCount)}), ${outcome.removed} deleted at the source`
 			);
 			if (!mailbox.firstCopyDone && outcome.firstCopyDone) {
 				recordActivity(db, {

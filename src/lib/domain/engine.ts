@@ -20,6 +20,8 @@ export type EngineStatus = {
 	problem: string | null;
 	discovery: {
 		running: boolean;
+		/** While running: users checked of all users, and mailboxes found so far. */
+		progress: { usersTotal: number | null; usersChecked: number; found: number } | null;
 		lastAt: string | null;
 		/** Null while paused or running. */
 		nextAt: string | null;
@@ -36,6 +38,14 @@ export type EngineStatus = {
 	}[];
 	/** Mailboxes waiting for a free slot, by queue. */
 	waiting: { requested: number; due: number; firstCopy: number };
-	slots: number;
+	/** Mailboxes synced at once now (adjusted to Graph's throttling) and the setting's maximum. */
+	slots: { current: number; maximum: number };
+	/** Download rates over the last minute and the last 15 minutes. */
+	rates: {
+		lastMinute: { bytesPerSecond: number; messagesPerSecond: number };
+		last15Minutes: { bytesPerSecond: number; messagesPerSecond: number };
+	};
+	/** Replies where Graph asked Lookstow to slow down, in the last minute and 15 minutes. */
+	throttled: { lastMinute: number; last15Minutes: number };
 	disk: DiskStatus;
 };

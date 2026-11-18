@@ -118,8 +118,30 @@
 		<p>No mailbox is syncing right now.</p>
 	{/if}
 	<dl class="facts">
+		<dt>Download rate</dt>
+		<dd>
+			{formatBytes(data.engine.rates.lastMinute.bytesPerSecond)}/s,
+			{data.engine.rates.lastMinute.messagesPerSecond.toFixed(1)} messages/s over the last minute
+			<span class="muted small"
+				>({formatBytes(data.engine.rates.last15Minutes.bytesPerSecond)}/s over 15 minutes)</span
+			>
+		</dd>
 		<dt>Syncing</dt>
-		<dd>{data.engine.syncing.length} of {data.engine.slots} at a time</dd>
+		<dd>
+			{data.engine.syncing.length} mailboxes now; up to {data.engine.slots.current} at a time (most
+			{data.engine.slots.maximum})
+		</dd>
+		<dt>Microsoft throttling</dt>
+		<dd>
+			{#if data.engine.throttled.lastMinute > 0}
+				<Badge tone="warn">{data.engine.throttled.lastMinute} in the last minute</Badge> Lookstow slows
+				down by itself.
+			{:else}
+				None in the last minute{data.engine.throttled.last15Minutes > 0
+					? ` (${data.engine.throttled.last15Minutes} in 15 minutes)`
+					: ''}
+			{/if}
+		</dd>
 		<dt>Waiting</dt>
 		<dd>
 			{plural(data.engine.waiting.requested, 'asked for')},
@@ -129,7 +151,13 @@
 		<dt>Discovery</dt>
 		<dd>
 			{#if data.engine.discovery.running}
-				Running now
+				{@const progress = data.engine.discovery.progress}
+				{#if progress !== null && progress.usersTotal !== null}
+					Checked {formatCount(progress.usersChecked)} of {formatCount(progress.usersTotal)} users, found
+					{plural(progress.found, 'mailbox', 'mailboxes')}
+				{:else}
+					Listing users
+				{/if}
 			{:else}
 				Last {formatDateTime(data.engine.discovery.lastAt)}{data.lastDiscovery !== null &&
 				data.lastDiscovery.outcome === 'failed'

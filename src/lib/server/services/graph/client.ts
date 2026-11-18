@@ -28,6 +28,9 @@ export class GraphError extends Error {
 
 export type Sleep = (ms: number) => Promise<void>;
 
+/** Told about every throttled or busy reply the client waits out (status, wait in ms). */
+export type ThrottleListener = (status: number, waitMs: number) => void;
+
 const realSleep: Sleep = (ms) =>
 	new Promise((resolve) => {
 		setTimeout(resolve, ms);
@@ -37,11 +40,18 @@ export class GraphClient {
 	readonly #tokens: TokenSource;
 	readonly #fetch: FetchLike;
 	readonly #sleep: Sleep;
+	readonly #onThrottle: ThrottleListener;
 
-	constructor(tokens: TokenSource, fetchImpl: FetchLike = fetch, sleep: Sleep = realSleep) {
+	constructor(
+		tokens: TokenSource,
+		fetchImpl: FetchLike = fetch,
+		sleep: Sleep = realSleep,
+		onThrottle: ThrottleListener = () => undefined
+	) {
 		this.#tokens = tokens;
 		this.#fetch = fetchImpl;
 		this.#sleep = sleep;
+		this.#onThrottle = onThrottle;
 	}
 
 	/** A GET that must answer JSON. `path` is relative to the Graph root or a full nextLink. */
@@ -114,7 +124,9 @@ export class GraphClient {
 			if (RETRY_STATUSES.has(response.status) && attempt < MAX_ATTEMPTS) {
 				// Drain the body so the connection can be reused.
 				await response.arrayBuffer().catch(() => undefined);
-				await this.#sleep(backoffMs(attempt, response.headers.get('retry-after')));
+				const waitMs = backoffMs(attempt, response.headers.get('retry-after'));
+				this.#onThrottle(response.status, waitMs);
+				await this.#sleep(waitMs);
 				continue;
 			}
 			throw await graphError(response);
