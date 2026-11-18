@@ -1,0 +1,378 @@
+# Builds the Lookstow release and, for a tag, publishes it (docs/RELEASE.md).
+#
+#   Tag push (vX.Y.Z, equal to package.json's and launcher/Cargo.toml's
+#     version, with a changelog entry): builds the launcher on each platform
+#     (Linux against glibc 2.31), then each target's whole-install bundle
+#     (lookstow-app-<target>.tar.gz) on native runners, signs its manifest
+#     (lookstow-app-<target>.json) with the offline release key, plus the
+#     Windows zip for install.ps1; writes SHA256SUMS; install-tests the Linux
+#     and Windows archives with the installers from this commit (install.sh
+#     checks the signature); runs the scratch update test (A to B, a broken B
+#     rolled back); and only then creates the GitHub release with every file
+#     at once, so the installers' and updaters' "latest" never sees a
+#     half-filled release. Nothing is published unsigned.
+#   Manual run (Actions tab, or `gh workflow run release.yml --ref <branch>`):
+#     a dry run of everything but the release; the files stay as workflow
+#     artifacts.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Pinned so a release is reproducible; Linux binaries link against glibc 2.31.
+  ZIGLANG_VERSION: '0.17.1'
+  CARGO_ZIGBUILD_VERSION: '0.24.1'
+  GLIBC_FLOOR: '2.31'
+
+jobs:
+  check:
+    name: Check the version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      # The tag must be v + package.json's and launcher/Cargo.toml's version,
+      # with a changelog entry for the release notes. A manual run checks the
+      # version the branch would release.
+      - name: The tag, the versions and the changelog agree
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            node scripts/release-check.ts "$GITHUB_REF_NAME"
+          else
+            node scripts/release-check.ts "v$(node -p "require('./package.json').version")"
+          fi
+
+      - name: The release key agrees everywhere
+        run: node scripts/release-key.ts --check
+
+  launcher:
+    name: Launcher (${{ matrix.target }})
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust if missing
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Add the Rust target
+        run: rustup target add "${{ matrix.target }}"
+
+      # The runner's own glibc is newer than Debian 11 or Ubuntu 20.04; zig
+      # links against an older one instead.
+      - name: Install zig and cargo-zigbuild (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m pip install --target "$RUNNER_TEMP/zig" "ziglang==$ZIGLANG_VERSION" "cargo-zigbuild==$CARGO_ZIGBUILD_VERSION"
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+          echo "PYTHONPATH=$RUNNER_TEMP/zig" >> "$GITHUB_ENV"
+
+      - name: Build (Linux, glibc ${{ env.GLIBC_FLOOR }})
+        if: runner.os == 'Linux'
+        working-directory: launcher
+        run: cargo-zigbuild zigbuild --release --target "${{ matrix.target }}.$GLIBC_FLOOR" -p lookstow
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        working-directory: launcher
+        run: cargo build --release --target "${{ matrix.target }}" -p lookstow
+
+      - name: Collect
+        run: |
+          ext=""
+          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; fi
+          mkdir -p "launcher-bin/${{ matrix.target }}"
+          cp "launcher/target/${{ matrix.target }}/release/lookstow${ext}" "launcher-bin/${{ matrix.target }}/"
+
+      - name: Check the glibc floor (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          file="launcher-bin/${{ matrix.target }}/lookstow"
+          newest="$(objdump -T "$file" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n 1)"
+          echo "$file needs glibc $newest"
+          highest="$(printf '%s\n%s\n' "$newest" "$GLIBC_FLOOR" | sort -V | tail -n 1)"
+          if [ "$highest" != "$GLIBC_FLOOR" ]; then
+            echo "::error::$file needs glibc $newest, above the $GLIBC_FLOOR floor"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: launcher-${{ matrix.target }}
+          path: launcher-bin/
+          retention-days: 7
+
+  package:
+    name: Archive (${{ matrix.platform }})
+    needs: launcher
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x64
+            target: x86_64-unknown-linux-gnu
+            exe: ''
+          - runner: windows-latest
+            platform: windows-x64
+            target: x86_64-pc-windows-msvc
+            exe: '.exe'
+    # Native runners: node_modules holds a native module for its platform.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: launcher-${{ matrix.target }}
+          path: dist/launcher
+
+      - name: Build the archive
+        run: node scripts/release-server.ts --launcher "dist/launcher/${{ matrix.target }}/lookstow${{ matrix.exe }}"
+
+      # The manifest install.sh, the launcher's updater and the console check.
+      # Without the offline key there is no release.
+      - name: Sign the release
+        env:
+          LOOKSTOW_RELEASE_KEY: ${{ secrets.LOOKSTOW_RELEASE_KEY }}
+        run: node scripts/server-update-sign.ts --target "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: archive-${{ matrix.platform }}
+          path: dist/release/*
+          retention-days: 7
+
+  sums:
+    name: Checksums
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: archive-*
+          path: release
+          merge-multiple: true
+
+      - name: Write SHA256SUMS
+        working-directory: release
+        run: |
+          for target in x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+            test -s "lookstow-app-$target.tar.gz" && test -s "lookstow-app-$target.json"
+          done
+          test -s lookstow-windows-x64.zip
+          sha256sum lookstow-windows-x64.zip lookstow-app-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: release/
+          retention-days: 14
+
+  # Installs, upgrades and removes the archives as users will, with the
+  # installers from this commit (the ones brumley.info/lookstow serves once
+  # merged to main).
+  install-test-linux:
+    name: Install test (Linux)
+    needs: sums
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+
+      - name: Install (install.sh checks the manifest signature)
+        run: sudo sh docs/install.sh --archive release/lookstow-app-x86_64-unknown-linux-gnu.tar.gz
+
+      - name: Ready on 127.0.0.1 only, with the updater units in place
+        run: |
+          curl -fsS http://127.0.0.1:8030/readyz
+          curl -fsS http://127.0.0.1:8030/healthz
+          address="$(hostname -I | awk '{ print $1 }')"
+          if curl -fsS --max-time 3 "http://$address:8030/readyz"; then
+            echo "::error::the console answers on $address, not only on 127.0.0.1"
+            exit 1
+          fi
+          test "$(sudo stat -c %U /var/lib/lookstow)" = "lookstow"
+          sudo test -f /var/lib/lookstow/lookstow.db
+          version="$(cat /opt/lookstow/current/VERSION)"
+          test "$(readlink /opt/lookstow/current)" = "releases/$version"
+          /opt/lookstow/current/lookstow --version | grep -q "$version"
+          systemctl is-enabled lookstow-update.path
+          systemctl is-active lookstow-update.path
+          systemctl is-enabled lookstow-recover.service
+          test -f /etc/systemd/system/lookstow-update.service
+
+      - name: A tampered archive is refused
+        run: |
+          mkdir tampered
+          cp release/lookstow-app-x86_64-unknown-linux-gnu.* tampered/
+          printf 'x' >> tampered/lookstow-app-x86_64-unknown-linux-gnu.tar.gz
+          if sudo sh docs/install.sh --archive tampered/lookstow-app-x86_64-unknown-linux-gnu.tar.gz; then
+            echo "::error::a tampered archive was installed"
+            exit 1
+          fi
+
+      - name: Upgrade keeps the data
+        run: |
+          key="$(sudo grep '^SECRETS_KEY=' /var/lib/lookstow/server.env)"
+          sudo sh docs/install.sh --archive release/lookstow-app-x86_64-unknown-linux-gnu.tar.gz
+          test "$(sudo grep '^SECRETS_KEY=' /var/lib/lookstow/server.env)" = "$key"
+          sudo test -f /var/lib/lookstow/lookstow.db
+          curl -fsS http://127.0.0.1:8030/readyz
+
+      - name: Uninstall
+        run: |
+          sudo /opt/lookstow/current/lookstow uninstall --purge
+          test ! -e /opt/lookstow
+          test ! -e /var/lib/lookstow
+          test ! -e /etc/systemd/system/lookstow.service
+          test ! -e /etc/systemd/system/lookstow-update.path
+          test ! -e /etc/systemd/system/lookstow-update.service
+          test ! -e /etc/systemd/system/lookstow-recover.service
+          if id lookstow; then
+            echo "::error::the lookstow user is still there"
+            exit 1
+          fi
+
+  # The launcher's updater end to end without root: scratch folders, a
+  # release folder signed with a throwaway key, A to B, then a broken B
+  # rolled back and an incompatible broken B stopped
+  # (scripts/server-update-scratch-test.ts).
+  update-test-linux:
+    name: Scratch update test (Linux)
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Update A to B, roll back a broken B
+        run: node scripts/server-update-scratch-test.ts
+
+  install-test-windows:
+    name: Install test (Windows)
+    needs: sums
+    runs-on: windows-latest
+    defaults:
+      run:
+        # Windows PowerShell 5.1, the one `irm | iex` users have.
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+
+      - name: Install
+        run: '& .\docs\install.ps1 -Archive release\lookstow-windows-x64.zip'
+
+      - name: Ready
+        run: |
+          curl.exe -fsS http://127.0.0.1:8030/readyz
+          if ($LASTEXITCODE -ne 0) { throw 'not ready' }
+          if ((Get-Service Lookstow).Status -ne 'Running') { throw 'service not running' }
+          if (-not (Test-Path 'C:\ProgramData\Lookstow\lookstow.db')) { throw 'no database' }
+
+      - name: Upgrade keeps the data
+        run: |
+          $key = Select-String '^SECRETS_KEY=' 'C:\ProgramData\Lookstow\server.env'
+          & .\docs\install.ps1 -Archive release\lookstow-windows-x64.zip
+          $again = Select-String '^SECRETS_KEY=' 'C:\ProgramData\Lookstow\server.env'
+          if ($key.Line -ne $again.Line) { throw 'the secrets key changed' }
+          curl.exe -fsS http://127.0.0.1:8030/readyz
+          if ($LASTEXITCODE -ne 0) { throw 'not ready after the upgrade' }
+
+      - name: Uninstall
+        run: |
+          & 'C:\Program Files\Lookstow\current\lookstow.exe' uninstall --purge
+          if ($LASTEXITCODE -ne 0) { throw 'uninstall failed' }
+          Start-Sleep -Seconds 8
+          if (Get-Service Lookstow -ErrorAction SilentlyContinue) { throw 'service still there' }
+          if (Test-Path 'C:\Program Files\Lookstow') { throw 'program folder still there' }
+          if (Test-Path 'C:\ProgramData\Lookstow') { throw 'data folder still there' }
+
+  publish:
+    name: Publish the release
+    needs: [check, install-test-linux, install-test-windows, update-test-linux]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+
+      # What changed and what to test on real machines, from the changelog
+      # entry for this version (scripts/release/notes.ts); GitHub appends its
+      # own list of commits and pull requests after it.
+      - name: Write the release notes
+        run: node scripts/release-notes.ts "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --verify-tag \
+            --title "Lookstow $GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --generate-notes

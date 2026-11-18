@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lookstow · Install</title>
+  <meta name="description" content="Lookstow is a free, open-source service for Windows and Linux that backs up Microsoft 365 mailboxes, shared mailboxes and online archives to a folder on your own disk, and keeps them up to date. Install it with one command." />
+  <link rel="icon" href="assets/icon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://brumley.info/shared/v1/app-page.css" />
+  <style>:root { --app-accent: #7c3aed; --app-accent-2: #0ea5e9; --app-accent-dark: #a78bfa; }</style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <nav class="crumb"><a href="/">← All apps</a><a href="/">by Jack Brumley</a></nav>
+      <div class="hero-row">
+        <div class="hero-copy">
+          <span class="hero-tile"><img src="assets/icon.png" alt="" width="64" height="64" /></span>
+          <h1>Lookstow</h1>
+          <p class="tagline">Back up Microsoft 365 mailboxes to a folder on your own disk, and keep the copy up to date, on Windows and Linux.</p>
+        </div>
+        <svg class="hero-art" viewBox="0 0 420 340" aria-hidden="true">
+          <defs>
+            <linearGradient id="h1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#a78bfa" stop-opacity="0.8" />
+              <stop offset="1" stop-color="#0ea5e9" stop-opacity="0.12" />
+            </linearGradient>
+            <linearGradient id="h2" x1="1" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#0ea5e9" stop-opacity="0.7" />
+              <stop offset="1" stop-color="#7c3aed" stop-opacity="0.06" />
+            </linearGradient>
+            <linearGradient id="h3" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0" stop-color="#1b2330" stop-opacity="0.05" />
+              <stop offset="1" stop-color="#7c3aed" stop-opacity="0.45" />
+            </linearGradient>
+          </defs>
+          <rect x="130" y="50" width="250" height="210" rx="28" fill="url(#h3)" />
+          <rect x="70" y="170" width="150" height="130" rx="22" fill="url(#h1)" />
+          <rect x="300" y="24" width="100" height="90" rx="18" fill="url(#h2)" />
+          <path d="M175 100 H335 Q345 100 345 110 V190 Q345 200 335 200 H175 Q165 200 165 190 V110 Q165 100 175 100 Z" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="3" stroke-linejoin="round" />
+          <polyline points="167,104 255,160 343,104" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="3" stroke-linejoin="round" />
+          <path d="M100 215 H190 V270 Q190 280 180 280 H110 Q100 280 100 270 Z M100 215 L112 200 H178 L190 215" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="3" stroke-linejoin="round" />
+        </svg>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="install" aria-label="Install">
+      <div class="platform-labels" id="platform-labels" role="tablist">
+        <button type="button" class="platform-label" data-platform="linux" role="tab">Linux</button>
+        <button type="button" class="platform-label" data-platform="windows" role="tab">Windows</button>
+        <div class="platform-tab-indicator" id="platform-tab-indicator"></div>
+      </div>
+
+      <p class="install-hint" id="install-hint" aria-live="polite"></p>
+
+      <div class="install-code-wrapper">
+        <pre class="install-code-block" id="install-code"></pre>
+        <button type="button" class="install-copy-btn" id="install-copy-btn" aria-label="Copy command"></button>
+      </div>
+      <div class="install-variants" id="install-variants"></div>
+      <p class="install-note" id="install-note"></p>
+
+      <div class="install-manual">
+        <a class="manual-btn" href="https://github.com/jackbrumley/lookstow/releases/latest">
+          <svg class="manual-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" /><path d="M7 11l5 5l5 -5" /><path d="M12 4l0 12" /></svg>
+          <span>Manual Download</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="features">
+      <h2>What it does</h2>
+      <p class="features-lead">Lookstow is a service for Windows and Linux that keeps a copy of your Microsoft 365 mail on a disk you control. It finds the mailboxes in your tenant, copies every message, and keeps the copy up to date. You run it from a console in your browser at http://127.0.0.1:8030, on the computer it is installed on.</p>
+      <ul>
+        <li>Backs up user mailboxes, shared mailboxes and online archives</li>
+        <li>Finds new mailboxes in your tenant by itself, and keeps up with new mail</li>
+        <li>Stores everything in a folder on this computer, so the copy is yours</li>
+        <li>Runs as a service (Windows service or systemd): starts at boot with no login</li>
+        <li>The console answers on this computer only (127.0.0.1)</li>
+        <li>Updates itself from GitHub with signed releases, and keeps your data and settings</li>
+      </ul>
+    </section>
+
+    <footer class="site-footer">
+      <nav class="other-apps" aria-label="Other apps by Jack Brumley">
+        <div class="other-apps-head">
+          <p class="section-title">Other apps</p>
+          <a class="all-apps" href="https://brumley.info/">All apps &rarr;</a>
+        </div>
+        <ul class="app-tiles" data-other-apps data-current="lookstow"></ul>
+      </nav>
+      <p class="footer-meta">
+        <span>&copy; Jack Brumley</span>
+        <span aria-hidden="true">&middot;</span>
+        <a href="https://github.com/jackbrumley/lookstow">Source on GitHub</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU AGPLv3</a>
+      </p>
+    </footer>
+  </main>
+
+  <script type="application/json" id="install-config">
+  {
+    "linux": {
+      "install": {
+        "label": "System Wide",
+        "command": "curl -fsSL https://brumley.info/lookstow/install.sh | sudo sh",
+        "hint": "Open <strong>Terminal</strong> and run:",
+        "note": "Checks the release signature, installs Lookstow and its systemd service, then prints the console's address (http://127.0.0.1:8030). Running it again updates Lookstow and keeps your data in /var/lib/lookstow."
+      },
+      "uninstall": {
+        "label": "Uninstall",
+        "command": "sudo /opt/lookstow/current/lookstow uninstall",
+        "hint": "Open <strong>Terminal</strong> and run:",
+        "note": "Removes the service and the program. Your backups and settings stay in /var/lib/lookstow; add --purge to delete them too."
+      }
+    },
+    "windows": {
+      "install": {
+        "label": "System Wide",
+        "command": "irm https://brumley.info/lookstow/install.ps1 | iex",
+        "hint": "Open <strong>PowerShell as Administrator</strong> and run:",
+        "note": "Checks the download, installs the Lookstow service for this PC, then prints the console's address (http://127.0.0.1:8030). Running it again updates Lookstow and keeps your data in C:\\ProgramData\\Lookstow."
+      },
+      "uninstall": {
+        "label": "Uninstall",
+        "command": "& 'C:\\Program Files\\Lookstow\\current\\lookstow.exe' uninstall",
+        "hint": "Open <strong>PowerShell as Administrator</strong> and run:",
+        "note": "Removes the service and the program. Your backups and settings stay in C:\\ProgramData\\Lookstow; add --purge to delete them too."
+      }
+    }
+  }
+  </script>
+  <script src="https://brumley.info/shared/v1/install-widget.js" defer></script>
+  <script src="https://brumley.info/shared/v1/apps.js" defer></script>
+  <script src="https://brumley.info/shared/v1/other-apps.js" defer></script>
+</body>
+</html>

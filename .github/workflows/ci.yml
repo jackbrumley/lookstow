@@ -1,0 +1,114 @@
+# Checks every push and pull request on Linux and Windows: the app's verify
+# (format, lint, type check, tests, build), the launcher's Rust gate, the
+# installers' syntax and the release key's copies (docs/RELEASE.md).
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify
+        run: npm run verify
+
+      - name: The release key agrees everywhere
+        run: node scripts/release-key.ts --check
+
+      - name: The changelog has notes for this version
+        shell: bash
+        run: node scripts/release-notes.ts "v$(node -p "require('./package.json').version")" > /dev/null
+
+  launcher:
+    name: Launcher (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: launcher
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust if missing
+        working-directory: .
+        run: |
+          if ! command -v rustup > /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Add rustfmt and clippy
+        run: rustup component add rustfmt clippy
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+  installers:
+    name: Installers
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install.sh is POSIX sh (shellcheck, dash)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck dash
+          shellcheck -s sh docs/install.sh
+          dash -n docs/install.sh
+
+      - name: install.ps1 parses (PowerShell 7)
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/docs/install.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
+
+  installers-windows:
+    name: Installers (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install.ps1 parses
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\docs\install.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
