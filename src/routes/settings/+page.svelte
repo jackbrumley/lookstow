@@ -113,8 +113,9 @@
 			</li>
 			<li>
 				Under <strong>API permissions</strong>, add Microsoft Graph <em>application</em> permissions
-				<code>User.Read.All</code>, <code>Mail.Read</code> and <code>MailboxSettings.Read</code>,
-				then
+				<code>User.Read.All</code>, <code>Mail.Read</code> and <code>MailboxSettings.Read</code>.
+				For online archives also add <code>MailboxFolder.Read.All</code>,
+				<code>MailboxItem.Read.All</code> and <code>MailboxItem.Export.All</code>. Then
 				<strong>Grant admin consent</strong>.
 			</li>
 			<li>
@@ -156,7 +157,6 @@
 			</li>
 			<li>
 				Online archives: <strong>{settings.scope.includeArchives ? 'yes' : 'no'}</strong>
-				<span class="muted small">(found by discovery; copying them is not built yet)</span>
 			</li>
 			<li>
 				Never backed up:

@@ -13,7 +13,8 @@ import { openDatabase } from '../../database/connection.ts';
 import { GraphClient } from '../graph/client.ts';
 import { TokenSource } from '../graph/token.ts';
 import { applyDiscovery, foldersOf, mailboxById } from '../mailboxes/repository.ts';
-import { messages } from '../../database/schema.ts';
+import { messageEvents, messages } from '../../database/schema.ts';
+import { eq } from 'drizzle-orm';
 import { syncMailbox, withUniqueStoragePaths, type SyncContext } from './mailbox-sync.ts';
 
 const USER = 'u1';
@@ -114,7 +115,7 @@ describe('syncing one mailbox', () => {
 		expect(stored).toHaveLength(3);
 		const first = stored.find((m) => m.graphId === 'm1');
 		expect(first?.filePath).toMatch(
-			/^ann@example.com\/Inbox\/2026\/2026-03-04_050607_First_[0-9a-f]{10}\.eml$/
+			/^ann@example.com\/2026\/03\/2026-03-04_050607_First_[0-9a-f]{10}\.eml$/
 		);
 		expect(
 			await readFile(join(backupRoot, ...(first?.filePath ?? '').split('/')), 'utf8')
@@ -175,6 +176,22 @@ describe('syncing one mailbox', () => {
 		);
 		const projects = foldersOf(db, row.id).find((f) => f.graphId === 'proj');
 		expect(byId.get('m1')?.deletedAt).not.toBeNull();
+		const history = (graphId: string) =>
+			db
+				.select()
+				.from(messageEvents)
+				.where(eq(messageEvents.messageId, byId.get(graphId)?.id ?? ''))
+				.orderBy(messageEvents.at)
+				.all()
+				.map((event) => [event.kind, event.fromFolderPath, event.toFolderPath]);
+		expect(history('m1')).toEqual([
+			['stored', null, 'Inbox'],
+			['deleted', 'Inbox', null]
+		]);
+		expect(history('m2')).toEqual([
+			['stored', null, 'Inbox'],
+			['moved', 'Inbox', 'Inbox/Projects']
+		]);
 		expect(byId.get('m2')).toMatchObject({ deletedAt: null, folderId: projects?.id });
 	});
 

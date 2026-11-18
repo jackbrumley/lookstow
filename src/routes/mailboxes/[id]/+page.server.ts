@@ -41,9 +41,6 @@ export const actions = {
 		if (mailbox === undefined) {
 			return refused('No such mailbox', 404);
 		}
-		if (mailbox.kind === 'archive') {
-			return refused('Copying online archives is not built yet.');
-		}
 		backupEngine().requestSync([mailbox.id]);
 		recordActivity(database, {
 			level: 'info',

@@ -3,11 +3,15 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 
 /**
- * How backups sit on disk: plain .eml files anyone can open, in folders named like the
- * mailbox's own folders, so a restore never needs Lookstow.
+ * How backups sit on disk: plain .eml files anyone can open, filed by mailbox and date.
  *
- *   <backup root>/<address>/<folder path>/<yyyy>/<yyyy-mm-dd>_<hhmmss>_<subject>_<id>.eml
- *   <backup root>/<address> (archive)/...
+ *   <backup root>/<address>/<yyyy>/<mm>/<yyyy-mm-dd>_<hhmmss>_<subject>_<id>.eml
+ *   <backup root>/<address> (archive)/<yyyy>/<mm>/<...>_<message class>_<id>.fts
+ *
+ * A file is written once and never moved or renamed, so its SHA-256 stays valid for ever and a
+ * move in the mailbox costs nothing. Which folder a message is in, and every move, is in the
+ * database (message_events); folder views are built from it, not from the disk. Files stored
+ * before 0.4.0 sit under folder paths and stay where they are: the database records each path.
  *
  * Every name is made safe for Windows and Linux alike, and kept short enough that a deep
  * folder tree stays inside Windows' path limits.
@@ -57,11 +61,30 @@ export function messageFileName(
 	graphId: string
 ): string {
 	const when = new Date(receivedAt ?? 0);
-	const year = String(when.getUTCFullYear()).padStart(4, '0');
-	const stamp = when.toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '');
 	const tag = createHash('sha256').update(graphId).digest('hex').slice(0, 10);
 	const title = safeSegment(subject === '' ? 'no subject' : subject, MAX_SUBJECT);
-	return `${year}/${stamp}_${title}_${tag}.eml`;
+	return `${datePath(when)}_${title}_${tag}.eml`;
+}
+
+/**
+ * An online-archive item's file name: Exchange's full-fidelity export (`.fts`), which the export
+ * API gives without a subject, so the name is the item's date, its message class and a short
+ * hash of its id.
+ */
+export function archiveItemFileName(
+	createdAt: number | null,
+	type: string,
+	graphId: string
+): string {
+	const tag = createHash('sha256').update(graphId).digest('hex').slice(0, 10);
+	return `${datePath(new Date(createdAt ?? 0))}_${safeSegment(type, 30)}_${tag}.fts`;
+}
+
+/** `yyyy/mm/yyyy-mm-dd_hhmmss`: where and under what date a message file is written (UTC). */
+function datePath(when: Date): string {
+	const iso = when.toISOString();
+	const stamp = iso.slice(0, 19).replace('T', '_').replaceAll(':', '');
+	return `${iso.slice(0, 4)}/${iso.slice(5, 7)}/${stamp}`;
 }
 
 /** Joins forward-slash relative parts onto a root, for this platform. */

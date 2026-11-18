@@ -43,9 +43,7 @@
 			</form>
 		{:else if mailbox.goneAt === null}
 			<form method="POST" action="?/syncNow" use:enhance>
-				<Button type="submit" disabled={mailbox.kind === 'archive' || mailbox.paused}
-					>Sync now</Button
-				>
+				<Button type="submit" disabled={mailbox.paused}>Sync now</Button>
 			</form>
 			<form method="POST" action={mailbox.paused ? '?/resume' : '?/pause'} use:enhance>
 				<Button type="submit" variant="secondary">{mailbox.paused ? 'Resume' : 'Pause'}</Button>
@@ -71,8 +69,9 @@
 		{#if mailbox.kind === 'archive'}
 			<dt>Archive</dt>
 			<dd>
-				Found by discovery. Copying online archives waits on the archive test (see the project's
-				to-do list).
+				Copied through Microsoft's mailbox export API. Each item is stored as Exchange's own
+				full-fidelity export (<code>.fts</code>): nothing is lost, and it can be imported back into
+				a mailbox, but mail programs cannot open it.
 			</dd>
 		{/if}
 		<dt>Messages</dt>

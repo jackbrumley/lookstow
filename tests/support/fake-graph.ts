@@ -44,7 +44,8 @@ export class FakeGraph {
 	readonly fetch = (input: string, init?: RequestInit): Promise<Response> => {
 		const url = new URL(input);
 		this.requests.push(decodeURIComponent(`${url.pathname}${url.search}`));
-		const route = this.#routes.find((candidate) => candidate.match(url, init));
+		// The last matching route wins, so a test can override one set up earlier.
+		const route = this.#routes.findLast((candidate) => candidate.match(url, init));
 		if (route === undefined) {
 			return Promise.resolve(
 				graphError(404, 'ResourceNotFound', `No fake route for ${url.pathname}${url.search}`)

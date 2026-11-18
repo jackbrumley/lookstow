@@ -1,4 +1,5 @@
 import type { Queryable } from '../../database/connection.ts';
+import { syncArchive } from './archive-sync.ts';
 import { GraphError, PER_MAILBOX_CONCURRENCY, type GraphClient } from '../graph/client.ts';
 import { forEachLimited } from '../graph/discovery.ts';
 import { folderChanges, listFolders, messageMime, type MessageChange } from '../graph/mail.ts';
@@ -45,13 +46,38 @@ export type SyncOutcome = {
 	stoppedEarly: boolean;
 };
 
+/** A message a folder's delta says left it, applied once every folder has been read. */
+export type PendingRemoval = { folderId: string; graphId: string };
+
+/**
+ * Records deletions at the end of a sync, not as each folder reports them. A moved message
+ * leaves its old folder (that folder's delta says removed) and arrives in the new one; reading
+ * every folder first means a move is recorded as a move, and only a message still filed where it
+ * left is recorded as deleted at the source.
+ */
+export function applyRemovals(
+	context: SyncContext,
+	mailboxId: string,
+	pending: readonly PendingRemoval[]
+): number {
+	let removed = 0;
+	for (const removal of pending) {
+		if (
+			markMessageDeleted(context.db, mailboxId, removal.folderId, removal.graphId, context.now())
+		) {
+			removed += 1;
+		}
+	}
+	return removed;
+}
+
 export class StopRequested extends Error {
 	override name = 'StopRequested';
 }
 
 export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Promise<SyncOutcome> {
 	if (mailbox.kind === 'archive') {
-		throw new Error('Copying online archives is not built yet');
+		return syncArchive(context, mailbox);
 	}
 	const graphFolders = await listFolders(context.client, mailbox.userId);
 	const folders = syncFolderList(
@@ -68,17 +94,19 @@ export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Pr
 		firstCopyDone: true,
 		stoppedEarly: false
 	};
+	const pending: PendingRemoval[] = [];
 	for (const folder of folders) {
 		if (context.stopping()) {
 			totals.stoppedEarly = true;
 			totals.firstCopyDone = false;
 			break;
 		}
-		const done = await syncFolder(context, mailbox, mailboxRoot, folder, totals);
+		const done = await syncFolder(context, mailbox, mailboxRoot, folder, totals, pending);
 		if (!done) {
 			totals.firstCopyDone = false;
 		}
 	}
+	totals.removed += applyRemovals(context, mailbox.id, pending);
 	return totals;
 }
 
@@ -88,7 +116,8 @@ async function syncFolder(
 	mailbox: MailboxRow,
 	mailboxRoot: string,
 	folder: FolderRow,
-	totals: SyncOutcome
+	totals: SyncOutcome,
+	pending: PendingRemoval[]
 ): Promise<boolean> {
 	let resumeLink = folder.deltaLink;
 	let firstCopyDone = folder.firstCopyDone;
@@ -100,7 +129,7 @@ async function syncFolder(
 				folder.graphId,
 				resumeLink
 			)) {
-				await applyChanges(context, mailbox, mailboxRoot, folder, page.changes, totals);
+				await applyChanges(context, mailbox, mailboxRoot, folder, page.changes, totals, pending);
 				// The next page's link while a round is under way, the delta link at its end: either
 				// way, where the next sync picks up.
 				resumeLink = page.deltaLink ?? page.nextLink ?? resumeLink;
@@ -145,25 +174,24 @@ async function applyChanges(
 	mailboxRoot: string,
 	folder: FolderRow,
 	changes: readonly MessageChange[],
-	totals: SyncOutcome
+	totals: SyncOutcome,
+	pending: PendingRemoval[]
 ): Promise<void> {
 	await forEachLimited(changes, PER_MAILBOX_CONCURRENCY, async (change) => {
 		if (change.kind === 'removed') {
-			if (markMessageDeleted(context.db, mailbox.id, folder.id, change.graphId, context.now())) {
-				totals.removed += 1;
-			}
+			pending.push({ folderId: folder.id, graphId: change.graphId });
 			return;
 		}
 		const existing = storedMessage(context.db, mailbox.id, change.graphId);
 		if (existing !== undefined) {
 			// Already stored: a flag change or a move. The file is the same message either way.
 			if (existing.folderId !== folder.id || existing.deletedAt !== null) {
-				moveMessage(context.db, existing.id, folder.id);
+				moveMessage(context.db, existing, folder.id, context.now());
 			}
 			return;
 		}
 		const mime = await messageMime(context.client, mailbox.userId, change.graphId);
-		const relative = `${mailboxRoot}/${folder.storagePath}/${messageFileName(change.receivedAt, change.subject, change.graphId)}`;
+		const relative = `${mailboxRoot}/${messageFileName(change.receivedAt, change.subject, change.graphId)}`;
 		const stored = await writeMessageFile(resolveStoragePath(context.backupRoot, relative), mime);
 		insertMessage(context.db, {
 			mailboxId: mailbox.id,
@@ -172,6 +200,7 @@ async function applyChanges(
 			internetMessageId: change.internetMessageId,
 			subject: change.subject,
 			sender: change.sender,
+			recipients: change.recipients.join(' '),
 			receivedAt: change.receivedAt === null ? null : new Date(change.receivedAt),
 			filePath: relative,
 			byteCount: stored.byteCount,

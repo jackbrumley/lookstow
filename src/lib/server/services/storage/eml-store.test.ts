@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	folderStoragePath,
 	mailboxFolderName,
+	archiveItemFileName,
 	messageFileName,
 	resolveStoragePath,
 	safeSegment,
@@ -29,8 +30,11 @@ describe('backup file names', () => {
 
 	it('names a message by date, subject and a short id hash', () => {
 		const name = messageFileName(Date.UTC(2026, 0, 2, 3, 4, 5), 'Hello / world', 'AAMk-id');
-		expect(name).toMatch(/^2026\/2026-01-02_030405_Hello _ world_[0-9a-f]{10}\.eml$/);
-		expect(messageFileName(0, '', 'id')).toMatch(/^1970\/1970-01-01_000000_no subject_/);
+		expect(name).toMatch(/^2026\/01\/2026-01-02_030405_Hello _ world_[0-9a-f]{10}\.eml$/);
+		expect(messageFileName(0, '', 'id')).toMatch(/^1970\/01\/1970-01-01_000000_no subject_/);
+		expect(archiveItemFileName(Date.UTC(2019, 6, 1), 'IPM.Note', 'x')).toMatch(
+			/^2019\/07\/2019-07-01_000000_IPM.Note_[0-9a-f]{10}\.fts$/
+		);
 	});
 
 	it('refuses a path that would leave the backup folder', () => {

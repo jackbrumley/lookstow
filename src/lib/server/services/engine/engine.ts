@@ -308,7 +308,7 @@ export class Engine {
 		);
 		const scope = readScope(db);
 		const eligible = allMailboxes(db).filter(
-			(row) => row.goneAt === null && row.kind !== 'archive' && !row.paused && inScope(row, scope)
+			(row) => row.goneAt === null && !row.paused && inScope(row, scope)
 		);
 		const plan = planSyncs({
 			candidates: eligible.map((row) => ({

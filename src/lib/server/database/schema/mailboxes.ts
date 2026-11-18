@@ -84,6 +84,8 @@ export const messages = sqliteTable(
 		internetMessageId: text(),
 		subject: text().notNull(),
 		sender: text().notNull(),
+		/** To and Cc addresses, lower case, separated by spaces (for search). */
+		recipients: text().notNull().default(''),
 		receivedAt: integer({ mode: 'timestamp_ms' }),
 		/** The .eml file, relative to the backup root. */
 		filePath: text().notNull(),
@@ -96,4 +98,26 @@ export const messages = sqliteTable(
 		uniqueIndex('messages_mailbox_graph').on(table.mailboxId, table.graphId),
 		index('messages_folder').on(table.folderId)
 	]
+);
+
+/**
+ * Everything that happened to a stored message, in order: stored (first seen, in which folder),
+ * moved between folders, deleted at the source, back again. The files never move, so this is
+ * the record of where each message was and when; folder paths are copied in, so a later
+ * rename of a folder does not change the history.
+ */
+export const messageEvents = sqliteTable(
+	'message_events',
+	{
+		id: text().primaryKey(),
+		messageId: text()
+			.notNull()
+			.references(() => messages.id, { onDelete: 'cascade' }),
+		mailboxId: text().notNull(),
+		at: integer({ mode: 'timestamp_ms' }).notNull(),
+		kind: text({ enum: ['stored', 'moved', 'deleted', 'restored'] }).notNull(),
+		fromFolderPath: text(),
+		toFolderPath: text()
+	},
+	(table) => [index('message_events_message').on(table.messageId, table.at)]
 );

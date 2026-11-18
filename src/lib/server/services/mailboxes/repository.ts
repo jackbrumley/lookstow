@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
-import { mailboxes, mailFolders, messages, runs } from '../../database/schema.ts';
+import { mailboxes, mailFolders, messageEvents, messages, runs } from '../../database/schema.ts';
 import type { DiscoveredMailbox } from '../graph/discovery.ts';
 import type { RunSummary } from '../../../domain/mailboxes.ts';
 
@@ -106,6 +106,7 @@ export function setExcluded(db: Queryable, id: string, excluded: boolean): void 
 
 /** Forgets everything stored for a mailbox (its files are deleted by the caller). */
 export function clearMailboxBackup(db: Queryable, id: string): void {
+	db.delete(messageEvents).where(eq(messageEvents.mailboxId, id)).run();
 	db.delete(messages).where(eq(messages.mailboxId, id)).run();
 	db.delete(mailFolders).where(eq(mailFolders.mailboxId, id)).run();
 	db.update(mailboxes)
@@ -229,7 +230,12 @@ export function saveFolderProgress(
 
 export function storedMessage(db: Queryable, mailboxId: string, graphId: string) {
 	return db
-		.select({ id: messages.id, folderId: messages.folderId, deletedAt: messages.deletedAt })
+		.select({
+			id: messages.id,
+			mailboxId: messages.mailboxId,
+			folderId: messages.folderId,
+			deletedAt: messages.deletedAt
+		})
 		.from(messages)
 		.where(and(eq(messages.mailboxId, mailboxId), eq(messages.graphId, graphId)))
 		.get();
@@ -237,19 +243,61 @@ export function storedMessage(db: Queryable, mailboxId: string, graphId: string)
 
 export type NewMessage = Omit<typeof messages.$inferInsert, 'id' | 'deletedAt'>;
 
-export function insertMessage(db: Queryable, message: NewMessage): void {
-	db.insert(messages)
-		.values({ ...message, id: randomUUID(), deletedAt: null })
-		.onConflictDoUpdate({
-			target: [messages.mailboxId, messages.graphId],
-			set: { ...message, deletedAt: null }
-		})
+function folderPathOf(db: Queryable, folderId: string): string | null {
+	return (
+		db
+			.select({ path: mailFolders.path })
+			.from(mailFolders)
+			.where(eq(mailFolders.id, folderId))
+			.get()?.path ?? null
+	);
+}
+
+function recordEvent(db: Queryable, event: Omit<typeof messageEvents.$inferInsert, 'id'>): void {
+	db.insert(messageEvents)
+		.values({ ...event, id: randomUUID() })
 		.run();
 }
 
-/** A message moved between folders: same file (it is the same message), new folder. */
-export function moveMessage(db: Queryable, id: string, folderId: string): void {
-	db.update(messages).set({ folderId, deletedAt: null }).where(eq(messages.id, id)).run();
+/** A message stored for the first time: its row, and a `stored` event naming its folder. */
+export function insertMessage(db: Queryable, message: NewMessage): string {
+	const id = randomUUID();
+	db.insert(messages)
+		.values({ ...message, id, deletedAt: null })
+		.run();
+	recordEvent(db, {
+		messageId: id,
+		mailboxId: message.mailboxId,
+		at: message.storedAt,
+		kind: 'stored',
+		fromFolderPath: null,
+		toFolderPath: folderPathOf(db, message.folderId)
+	});
+	return id;
+}
+
+/**
+ * A message moved between folders, or came back after being deleted: same file (the files never
+ * move), new folder in the index, and the move in its history.
+ */
+export function moveMessage(
+	db: Queryable,
+	message: { id: string; mailboxId: string; folderId: string; deletedAt: Date | null },
+	toFolderId: string,
+	now: number
+): void {
+	db.update(messages)
+		.set({ folderId: toFolderId, deletedAt: null })
+		.where(eq(messages.id, message.id))
+		.run();
+	recordEvent(db, {
+		messageId: message.id,
+		mailboxId: message.mailboxId,
+		at: new Date(now),
+		kind: message.deletedAt === null ? 'moved' : 'restored',
+		fromFolderPath: folderPathOf(db, message.folderId),
+		toFolderPath: folderPathOf(db, toFolderId)
+	});
 }
 
 /**
@@ -264,20 +312,34 @@ export function markMessageDeleted(
 	graphId: string,
 	now: number
 ): boolean {
-	return (
-		db
-			.update(messages)
-			.set({ deletedAt: new Date(now) })
-			.where(
-				and(
-					eq(messages.mailboxId, mailboxId),
-					eq(messages.folderId, folderId),
-					eq(messages.graphId, graphId),
-					isNull(messages.deletedAt)
-				)
+	const message = db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.mailboxId, mailboxId),
+				eq(messages.folderId, folderId),
+				eq(messages.graphId, graphId),
+				isNull(messages.deletedAt)
 			)
-			.run().changes > 0
-	);
+		)
+		.get();
+	if (message === undefined) {
+		return false;
+	}
+	db.update(messages)
+		.set({ deletedAt: new Date(now) })
+		.where(eq(messages.id, message.id))
+		.run();
+	recordEvent(db, {
+		messageId: message.id,
+		mailboxId,
+		at: new Date(now),
+		kind: 'deleted',
+		fromFolderPath: folderPathOf(db, folderId),
+		toFolderPath: null
+	});
+	return true;
 }
 
 export function folderItemCounts(db: Queryable, mailboxId: string): Map<string, number> {

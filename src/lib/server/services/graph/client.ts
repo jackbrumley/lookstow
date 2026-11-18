@@ -93,7 +93,28 @@ export class GraphClient {
 		}
 	}
 
-	async request(path: string, headers: Record<string, string>): Promise<Response> {
+	/**
+	 * A POST with a JSON body that answers JSON (the mailbox export API). Safe to retry: an
+	 * export changes nothing in the mailbox.
+	 */
+	async postJson(path: string, body: unknown): Promise<unknown> {
+		const response = await this.request(
+			path,
+			{ accept: 'application/json', 'content-type': 'application/json' },
+			{ method: 'POST', body: JSON.stringify(body) }
+		);
+		const text = await response.text();
+		if (text.trim() === '') {
+			throw new GraphError(response.status, 'empty-reply', 'Microsoft Graph sent an empty reply');
+		}
+		return JSON.parse(text);
+	}
+
+	async request(
+		path: string,
+		headers: Record<string, string>,
+		init: { method: 'GET' | 'POST'; body?: string } = { method: 'GET' }
+	): Promise<Response> {
 		const url = path.startsWith('https://') ? path : `${GRAPH_ROOT}${path}`;
 		if (!url.startsWith(`${GRAPH_ROOT}/`)) {
 			throw new Error(`Refusing to send the Graph token to ${new URL(url).host}`);
@@ -102,7 +123,11 @@ export class GraphClient {
 			const token = await this.#tokens.accessToken();
 			let response: Response;
 			try {
+				// Graph answers 308 for folders and items in an auxiliary archive; fetch follows it
+				// (same host, so the token goes with it, and the body is sent again).
 				response = await this.#fetch(url, {
+					method: init.method,
+					...(init.body === undefined ? {} : { body: init.body }),
 					headers: {
 						...headers,
 						authorization: `Bearer ${token}`,

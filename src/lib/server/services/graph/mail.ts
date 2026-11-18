@@ -17,6 +17,8 @@ export type MessageChange =
 			internetMessageId: string | null;
 			subject: string;
 			sender: string;
+			/** To and Cc addresses, lower case. */
+			recipients: string[];
 			receivedAt: number | null;
 	  }
 	| { kind: 'removed'; graphId: string };
@@ -70,7 +72,7 @@ export async function* folderChanges(
 ): AsyncGenerator<{ changes: MessageChange[]; deltaLink: string | null; nextLink: string | null }> {
 	const start =
 		deltaLink ??
-		`/v1.0/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderGraphId)}/messages/delta?$select=id,internetMessageId,subject,from,receivedDateTime`;
+		`/v1.0/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderGraphId)}/messages/delta?$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime`;
 	for await (const page of client.pages(start)) {
 		const changes = page.items.map(toChange).filter((change) => change !== null);
 		const delta = stringField(page.reply, '@odata.deltaLink');
@@ -97,8 +99,19 @@ function toChange(item: unknown): MessageChange | null {
 		internetMessageId: stringField(message, 'internetMessageId'),
 		subject: stringField(message, 'subject') ?? '',
 		sender: stringField(from, 'address') ?? stringField(from, 'name') ?? '',
+		recipients: [...addresses(message['toRecipients']), ...addresses(message['ccRecipients'])],
 		receivedAt: Number.isFinite(receivedAt) ? receivedAt : null
 	};
+}
+
+function addresses(list: unknown): string[] {
+	if (!Array.isArray(list)) {
+		return [];
+	}
+	return list
+		.map((entry) => stringField(asRecord(asRecord(entry)['emailAddress']), 'address'))
+		.filter((address) => address !== null)
+		.map((address) => address.toLowerCase());
 }
 
 /** The message exactly as Exchange holds it, attachments included (RFC 822 / MIME). */
