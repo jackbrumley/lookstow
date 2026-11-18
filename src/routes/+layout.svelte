@@ -10,6 +10,11 @@
 	import IconSettings from '@tabler/icons-svelte-runes/icons/settings';
 	import IconCloudDownload from '@tabler/icons-svelte-runes/icons/cloud-download';
 	import ToastHost from '#lib/ui/toast-host.svelte';
+	import IconPlayerPause from '@tabler/icons-svelte-runes/icons/player-pause';
+	import IconPlayerPlay from '@tabler/icons-svelte-runes/icons/player-play';
+	import { refreshAll } from '$app/navigation';
+	import { toast } from '#lib/runes/toast.svelte.ts';
+	import { formatPercent } from '#lib/utils/format.ts';
 
 	let { data, children }: LayoutProps = $props();
 
@@ -26,14 +31,44 @@
 	}
 
 	const phaseText = $derived(
-		data.enginePhase === 'discovering'
-			? 'Finding mailboxes'
-			: data.enginePhase === 'syncing'
-				? 'Backing up'
-				: data.paused
-					? 'Paused'
+		data.pause.paused
+			? 'Paused'
+			: data.discovering
+				? 'Finding mailboxes'
+				: data.syncingCount > 0
+					? `Backing up ${data.syncingCount} mailbox${data.syncingCount === 1 ? '' : 'es'}`
 					: 'Idle'
 	);
+
+	let switching = $state(false);
+
+	/** Pause or Resume everything, from any page. */
+	async function togglePause(): Promise<void> {
+		switching = true;
+		try {
+			const response = await fetch('/control', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ action: data.pause.paused ? 'resume' : 'pause' })
+			});
+			const reply: unknown = await response.json().catch(() => null);
+			const message =
+				typeof reply === 'object' &&
+				reply !== null &&
+				'message' in reply &&
+				typeof reply.message === 'string'
+					? reply.message
+					: `Lookstow answered ${response.status}`;
+			if (response.ok) {
+				toast.success(message);
+			} else {
+				toast.error(message);
+			}
+			await refreshAll();
+		} finally {
+			switching = false;
+		}
+	}
 </script>
 
 <div class="shell">
@@ -55,12 +90,36 @@
 				</li>
 			{/each}
 		</ul>
+		<button
+			type="button"
+			class="control"
+			class:resume={data.pause.paused}
+			disabled={switching}
+			onclick={() => void togglePause()}
+		>
+			{#if data.pause.paused}<IconPlayerPlay size={18} /> Resume{:else}<IconPlayerPause size={18} /> Pause{/if}
+		</button>
 		<div class="footer">
-			<div class="phase" class:busy={data.enginePhase !== 'idle'}>{phaseText}</div>
+			<div class="phase" class:busy={data.busy || data.pause.paused}>{phaseText}</div>
 			<div class="version">Version {data.version}</div>
 		</div>
 	</nav>
 	<main>
+		{#if data.pause.paused}
+			<div class="banner" class:bad={data.pause.reason === 'disk'} role="status">
+				{#if data.pause.reason === 'disk'}
+					Backups are paused: the backup drive is {formatPercent(data.disk.usedPercent)} full (the limit
+					is {data.disk.pausePercent}%). Free some space, then press Resume.
+				{:else}
+					Backups are paused. Nothing syncs until you press Resume.
+				{/if}
+			</div>
+		{:else if data.disk.level === 'warn'}
+			<div class="banner" role="status">
+				The backup drive is {formatPercent(data.disk.usedPercent)} full. Backups pause at
+				{data.disk.pausePercent}%.
+			</div>
+		{/if}
 		{#if data.engineProblem !== null}
 			<div class="banner" role="status">
 				{data.engineProblem}
@@ -150,6 +209,42 @@
 		padding: 0 var(--space-3);
 		display: grid;
 		gap: var(--space-1);
+	}
+
+	.control {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		margin: 0 var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border-radius: 999px;
+		border: 1px solid var(--colour-sidebar-muted);
+		background: transparent;
+		color: var(--colour-sidebar-text);
+		font: inherit;
+		font-weight: var(--font-weight-medium);
+		cursor: pointer;
+	}
+
+	.control:hover {
+		background: var(--colour-sidebar-active);
+	}
+
+	.control.resume {
+		background: var(--colour-brand);
+		border-color: var(--colour-brand);
+		color: var(--colour-text-inverse);
+	}
+
+	.control:disabled {
+		opacity: 0.6;
+		cursor: progress;
+	}
+
+	.banner.bad {
+		background: var(--colour-bad-soft);
+		color: var(--colour-bad-text);
 	}
 
 	.phase.busy {

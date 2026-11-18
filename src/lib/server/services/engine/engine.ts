@@ -4,14 +4,13 @@ import { runs } from '../../database/schema.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { recordActivity } from '../activity/activity.ts';
 import { GraphClient } from '../graph/client.ts';
-import { discoverMailboxes, forEachLimited } from '../graph/discovery.ts';
+import { discoverMailboxes } from '../graph/discovery.ts';
 import { TokenSource } from '../graph/token.ts';
 import {
 	allMailboxes,
 	applyDiscovery,
 	closeInterruptedRuns,
 	finishRun,
-	mailboxById,
 	markSyncFinished,
 	markSyncStarted,
 	startRun,
@@ -20,50 +19,65 @@ import {
 import {
 	effectiveBackupRoot,
 	graphCredentials,
+	readDisk,
 	readSchedule,
-	readScope
+	readScope,
+	savePause
 } from '../settings/settings.ts';
+import { diskStatus, measureDisk } from '../storage/disk.ts';
 import { inScope } from './scope.ts';
+import { planSyncs } from './scheduler.ts';
 import { syncMailbox } from './mailbox-sync.ts';
-import type { EngineStatus } from '../../../domain/engine.ts';
+import type { DiskStatus, EngineStatus } from '../../../domain/engine.ts';
+import { formatPercent } from '../../../utils/format.ts';
 
 /**
- * The backup engine: one per process. A timer checks every 30 seconds whether discovery or a
- * sync pass is due; Discover now and Sync now queue the same work for the next tick. One piece
- * of work runs at a time (a pass syncs several mailboxes in parallel inside it), so discovery
- * never changes the mailbox list under a running pass.
+ * The backup engine: one per process. Every few seconds it measures the backup drive, starts
+ * discovery when it is due or asked for, and fills free sync slots from the scheduler's queues
+ * (scheduler.ts): each mailbox on its own timer, first copies never taking every slot.
+ *
+ * Pause stops everything: no new syncs start, and running ones stop after the page they are on
+ * (each folder keeps its place, so Resume carries on from there). The disk guard pauses the
+ * same way when the backup drive reaches its limit. Settings are read on every tick, so a
+ * change takes effect within seconds.
  */
-const TICK_MS = 30_000;
+const TICK_MS = 5_000;
 
 export type EngineDeps = {
 	db: Queryable;
 	dataDir: string;
 	secretsKey: Buffer;
 	now?: () => number;
-	/** Swapped in tests. */
-	createClient?: (credentials: Parameters<typeof graphCredentials>[1]) => GraphClient | null;
 };
 
-type Job = { kind: 'discovery' } | { kind: 'sync'; mailboxIds: string[] | null; reason: string };
+type Live = {
+	address: string;
+	folder: string;
+	stored: number;
+	bytes: number;
+	startedAt: number;
+	firstCopy: boolean;
+	done: Promise<void>;
+};
 
 export class Engine {
-	readonly #deps: Required<Omit<EngineDeps, 'createClient'>>;
+	readonly #deps: Required<EngineDeps>;
 	#timer: NodeJS.Timeout | null = null;
 	#stopping = false;
-	#busy: Promise<void> | null = null;
-	readonly #queue: Job[] = [];
-	readonly #live = new Map<
-		string,
-		{ address: string; folder: string; stored: number; bytes: number; startedAt: number }
-	>();
-	#phase: EngineStatus['phase'] = 'idle';
+	#paused = false;
+	readonly #running = new Map<string, Live>();
+	readonly #requested = new Set<string>();
+	#allRequestedAt: number | null = null;
+	/** Mailboxes whose running sync must stop after its page (excluded, paused, deleted). */
+	readonly #cancelled = new Set<string>();
+	#discovery: Promise<void> | null = null;
+	#discoveryRequested = false;
+	#lastDiscoveryAt: number | null = null;
 	#problem: string | null = null;
 	/** What is missing from the setup; cleared as soon as the setup is complete. */
 	#setupProblem: string | null = null;
-	/** When the running sync of every mailbox started, or null. */
-	#passStartedAt: number | null = null;
-	#lastDiscoveryAt: number | null = null;
-	#lastPassAt: number | null = null;
+	#waiting = { requested: 0, due: 0, firstCopy: 0 };
+	#disk: DiskStatus | null = null;
 
 	constructor(deps: EngineDeps) {
 		this.#deps = { now: Date.now, ...deps };
@@ -81,7 +95,6 @@ export class Engine {
 			});
 		}
 		this.#lastDiscoveryAt = lastFinished(db, 'discovery');
-		this.#lastPassAt = lastFinished(db, 'sync');
 		this.#timer = setInterval(() => {
 			this.#tick();
 		}, TICK_MS);
@@ -89,103 +102,210 @@ export class Engine {
 		this.#tick();
 	}
 
-	/** Finishes the current page of work and stops. */
+	/** Lets every running sync finish its page, then stops. */
 	async stop(): Promise<void> {
 		this.#stopping = true;
 		if (this.#timer !== null) {
 			clearInterval(this.#timer);
 		}
-		await this.#busy;
+		await Promise.all([...[...this.#running.values()].map((live) => live.done), this.#discovery]);
+	}
+
+	/** Pauses everything (Pause in the console, or the disk guard). */
+	pause(reason: 'manual' | 'disk', actor: string, detail: string | null = null): void {
+		const { db, now } = this.#deps;
+		savePause(db, true, reason, now());
+		this.#paused = true;
+		recordActivity(db, {
+			level: reason === 'disk' ? 'error' : 'info',
+			kind: 'pause',
+			actor,
+			summary:
+				reason === 'disk'
+					? 'Backups paused: the backup drive is nearly full'
+					: 'Backups paused. Running syncs stop after their current page.',
+			detail
+		});
+	}
+
+	/** Resumes, unless the backup drive is still over its limit. */
+	resume(actor: string): void {
+		const { db, now } = this.#deps;
+		const disk = this.#measureDisk();
+		if (disk.level === 'full') {
+			throw new Error(
+				`The backup drive is still ${formatPercent(disk.usedPercent)} full (the limit is ${disk.pausePercent}%). Free some space, or raise the limit in Settings, then resume.`
+			);
+		}
+		savePause(db, false, 'manual', now());
+		this.#paused = false;
+		recordActivity(db, { level: 'info', kind: 'pause', actor, summary: 'Backups resumed' });
+		this.#tick();
 	}
 
 	requestDiscovery(): void {
-		if (!this.#queue.some((job) => job.kind === 'discovery')) {
-			this.#queue.push({ kind: 'discovery' });
+		this.#discoveryRequested = true;
+		this.#tick();
+	}
+
+	/** Sync these mailboxes next (null: every mailbox in scope). */
+	requestSync(mailboxIds: string[] | null): void {
+		if (mailboxIds === null) {
+			this.#allRequestedAt = this.#deps.now();
+		} else {
+			for (const id of mailboxIds) {
+				this.#requested.add(id);
+			}
 		}
 		this.#tick();
 	}
 
-	requestSync(mailboxIds: string[] | null, reason: string): void {
-		this.#queue.push({ kind: 'sync', mailboxIds, reason });
-		this.#tick();
+	/** Stops this mailbox's running sync after its current page (it was excluded or paused). */
+	cancel(mailboxId: string): void {
+		if (this.#running.has(mailboxId)) {
+			this.#cancelled.add(mailboxId);
+		}
+		this.#requested.delete(mailboxId);
+	}
+
+	/** Waits until this mailbox is not syncing (after cancel), up to `ms`. */
+	async waitUntilIdle(mailboxId: string, ms = 60_000): Promise<boolean> {
+		const live = this.#running.get(mailboxId);
+		if (live === undefined) {
+			return true;
+		}
+		const timeout = new Promise<false>((resolve) => {
+			setTimeout(() => {
+				resolve(false);
+			}, ms).unref();
+		});
+		return Promise.race([live.done.then(() => true), timeout]);
+	}
+
+	isSyncing(mailboxId: string): boolean {
+		return this.#running.has(mailboxId);
 	}
 
 	status(): EngineStatus {
-		const schedule = readSchedule(this.#deps.db);
+		const { db } = this.#deps;
+		const schedule = readSchedule(db);
 		const discoverEveryMs = schedule.discoverEveryHours * 3_600_000;
-		const syncEveryMs = schedule.syncEveryMinutes * 60_000;
 		return {
-			phase: this.#phase,
-			paused: schedule.paused,
+			pause: schedule.paused
+				? { paused: true, reason: schedule.pausedReason ?? 'manual', since: schedule.pausedAt }
+				: { paused: false },
 			problem: this.#setupProblem ?? this.#problem,
-			lastDiscoveryAt: iso(this.#lastDiscoveryAt),
-			nextDiscoveryAt: schedule.paused ? null : iso((this.#lastDiscoveryAt ?? 0) + discoverEveryMs),
-			lastPassAt: iso(this.#lastPassAt),
-			passStartedAt: iso(this.#passStartedAt),
-			nextPassAt:
-				schedule.paused || this.#passStartedAt !== null
-					? null
-					: iso((this.#lastPassAt ?? 0) + syncEveryMs),
-			queued: this.#queue.length,
-			syncing: [...this.#live.entries()].map(([id, live]) => ({
+			discovery: {
+				running: this.#discovery !== null,
+				lastAt: iso(this.#lastDiscoveryAt),
+				nextAt:
+					schedule.paused || this.#discovery !== null
+						? null
+						: iso((this.#lastDiscoveryAt ?? 0) + discoverEveryMs)
+			},
+			syncing: [...this.#running.entries()].map(([id, live]) => ({
 				mailboxId: id,
 				address: live.address,
 				folder: live.folder,
 				stored: live.stored,
 				bytes: live.bytes,
-				startedAt: new Date(live.startedAt).toISOString()
-			}))
+				startedAt: new Date(live.startedAt).toISOString(),
+				firstCopy: live.firstCopy
+			})),
+			waiting: this.#waiting,
+			slots: schedule.parallelMailboxes,
+			disk: this.#disk ?? this.#measureDisk()
 		};
 	}
 
-	#tick(): void {
-		if (this.#busy !== null || this.#stopping) {
-			return;
+	#measureDisk(): DiskStatus {
+		const { db, dataDir } = this.#deps;
+		const root = effectiveBackupRoot(db, dataDir);
+		let measured: ReturnType<typeof measureDisk>;
+		try {
+			measured = measureDisk(root);
+		} catch (error) {
+			serverLog('warn', 'disk', `Could not measure ${root}: ${errorText(error)}`);
+			measured = null;
 		}
-		const job = this.#queue.shift() ?? this.#dueJob();
-		if (job === null) {
-			return;
-		}
-		this.#busy = this.#run(job)
-			.catch((error: unknown) => {
-				serverLog('error', 'engine', `Unexpected engine error: ${errorText(error)}`);
-			})
-			.finally(() => {
-				this.#busy = null;
-				this.#phase = 'idle';
-				// Work queued while busy starts at once rather than on the next tick.
-				if (this.#queue.length > 0) {
-					this.#tick();
-				}
-			});
+		this.#disk = diskStatus(root, measured, readDisk(db));
+		return this.#disk;
 	}
 
-	#dueJob(): Job | null {
-		const { db, now } = this.#deps;
-		let schedule;
-		try {
-			schedule = readSchedule(db);
-		} catch (error) {
-			this.#problem = errorText(error);
-			return null;
+	#tick(): void {
+		if (this.#stopping) {
+			return;
 		}
-		if (schedule.paused) {
-			return null;
+		try {
+			this.#plan();
+		} catch (error) {
+			// A settings value that no longer validates, or a database error: say so, try again.
+			this.#problem = errorText(error);
+			serverLog('error', 'engine', `Engine tick failed: ${this.#problem}`);
+		}
+	}
+
+	#plan(): void {
+		const { db, now, dataDir } = this.#deps;
+		const schedule = readSchedule(db);
+		this.#paused = schedule.paused;
+		const disk = this.#measureDisk();
+		if (disk.level === 'full' && !this.#paused) {
+			this.pause(
+				'disk',
+				'system',
+				`${disk.path} is ${formatPercent(disk.usedPercent)} full; the limit is ${disk.pausePercent}%.`
+			);
+		}
+		if (this.#paused) {
+			return;
+		}
+		const client = this.#client();
+		if (client === null) {
+			return;
 		}
 		const time = now();
-		if (
+		const discoveryDue =
 			this.#lastDiscoveryAt === null ||
-			time - this.#lastDiscoveryAt >= schedule.discoverEveryHours * 3_600_000
-		) {
-			return { kind: 'discovery' };
+			time - this.#lastDiscoveryAt >= schedule.discoverEveryHours * 3_600_000;
+		if (this.#discovery === null && (this.#discoveryRequested || discoveryDue)) {
+			this.#discoveryRequested = false;
+			this.#discovery = this.#discover(client).finally(() => {
+				this.#discovery = null;
+			});
 		}
-		if (
-			this.#lastPassAt === null ||
-			time - this.#lastPassAt >= schedule.syncEveryMinutes * 60_000
-		) {
-			return { kind: 'sync', mailboxIds: null, reason: 'scheduled' };
+
+		const scope = readScope(db);
+		const eligible = allMailboxes(db).filter(
+			(row) => row.goneAt === null && row.kind !== 'archive' && !row.paused && inScope(row, scope)
+		);
+		const plan = planSyncs({
+			candidates: eligible.map((row) => ({
+				id: row.id,
+				firstCopyDone: row.firstCopyDone,
+				lastSyncStartedAt: row.lastSyncStartedAt?.getTime() ?? null,
+				lastSyncFinishedAt: row.lastSyncFinishedAt?.getTime() ?? null
+			})),
+			running: new Set(this.#running.keys()),
+			requested: this.#requested,
+			allRequestedAt: this.#allRequestedAt,
+			now: time,
+			intervalMs: schedule.syncEveryMinutes * 60_000,
+			slots: schedule.parallelMailboxes
+		});
+		this.#waiting = plan.waiting;
+		const byId = new Map(eligible.map((row) => [row.id, row]));
+		const backupRoot = effectiveBackupRoot(db, dataDir);
+		for (const id of plan.start) {
+			const row = byId.get(id);
+			if (row !== undefined) {
+				this.#requested.delete(id);
+				this.#startSync(client, row, backupRoot);
+			}
 		}
-		return null;
+		if (plan.waiting.requested === 0 && this.#allRequestedAt !== null && plan.start.length === 0) {
+			this.#allRequestedAt = null;
+		}
 	}
 
 	#client(): GraphClient | null {
@@ -198,24 +318,8 @@ export class Engine {
 		return new GraphClient(new TokenSource(found.credentials));
 	}
 
-	async #run(job: Job): Promise<void> {
-		const client = this.#client();
-		if (client === null) {
-			// Not set up yet. Nothing is marked as done, so the first discovery runs on the first
-			// tick after the connection is complete, not a whole discovery interval later. Each tick
-			// only reads the settings until then.
-			return;
-		}
-		if (job.kind === 'discovery') {
-			await this.#discover(client);
-		} else {
-			await this.#pass(client, job);
-		}
-	}
-
 	async #discover(client: GraphClient): Promise<void> {
 		const { db, now } = this.#deps;
-		this.#phase = 'discovering';
 		const runId = startRun(db, 'discovery', null, now());
 		try {
 			const scope = readScope(db);
@@ -259,13 +363,9 @@ export class Engine {
 					mailboxId: row.id
 				});
 			}
-			// New mailboxes start their first copy straight away.
-			if (changes.added.length > 0 || changes.returned.length > 0) {
-				this.#queue.push({
-					kind: 'sync',
-					mailboxIds: [...changes.added, ...changes.returned].map((row) => row.id),
-					reason: 'new mailboxes'
-				});
+			// Mailboxes found or back again start their first copy straight away (if in scope).
+			for (const row of [...changes.added, ...changes.returned]) {
+				this.#requested.add(row.id);
 			}
 		} catch (error) {
 			const message = errorText(error);
@@ -288,49 +388,34 @@ export class Engine {
 		}
 	}
 
-	async #pass(client: GraphClient, job: Extract<Job, { kind: 'sync' }>): Promise<void> {
-		const { db, now, dataDir } = this.#deps;
-		this.#phase = 'syncing';
-		const scope = readScope(db);
-		const schedule = readSchedule(db);
-		const backupRoot = effectiveBackupRoot(db, dataDir);
-		const targets = (
-			job.mailboxIds === null ? allMailboxes(db) : job.mailboxIds.map((id) => mailboxById(db, id))
-		)
-			.filter((row): row is MailboxRow => row !== undefined)
-			.filter((row) => row.goneAt === null && row.kind !== 'archive' && inScope(row, scope));
-		let failed = 0;
-		if (job.mailboxIds === null) {
-			this.#passStartedAt = now();
-		}
-		await forEachLimited(targets, schedule.parallelMailboxes, async (mailbox) => {
-			if (this.#stopping) {
-				return;
-			}
-			const ok = await this.#syncOne(client, mailbox, backupRoot);
-			if (!ok) {
-				failed += 1;
-			}
-		});
-		if (job.mailboxIds === null) {
-			this.#lastPassAt = now();
-			this.#passStartedAt = null;
-		}
-		this.#problem =
-			failed > 0 ? `${failed} mailbox${failed === 1 ? '' : 'es'} failed in the last pass` : null;
-	}
-
-	async #syncOne(client: GraphClient, mailbox: MailboxRow, backupRoot: string): Promise<boolean> {
-		const { db, now } = this.#deps;
-		const runId = startRun(db, 'sync', mailbox.id, now());
-		markSyncStarted(db, mailbox.id, now());
-		this.#live.set(mailbox.id, {
+	#startSync(client: GraphClient, mailbox: MailboxRow, backupRoot: string): void {
+		const { now } = this.#deps;
+		const live: Live = {
 			address: mailbox.address,
 			folder: '',
 			stored: 0,
 			bytes: 0,
-			startedAt: now()
-		});
+			startedAt: now(),
+			firstCopy: !mailbox.firstCopyDone,
+			done: Promise.resolve()
+		};
+		this.#running.set(mailbox.id, live);
+		live.done = this.#syncOne(client, mailbox, backupRoot)
+			.catch((error: unknown) => {
+				serverLog('error', 'engine', `Unexpected sync error: ${errorText(error)}`);
+			})
+			.finally(() => {
+				this.#running.delete(mailbox.id);
+				this.#cancelled.delete(mailbox.id);
+				// A slot is free: fill it now rather than on the next tick.
+				this.#tick();
+			});
+	}
+
+	async #syncOne(client: GraphClient, mailbox: MailboxRow, backupRoot: string): Promise<void> {
+		const { db, now } = this.#deps;
+		const runId = startRun(db, 'sync', mailbox.id, now());
+		markSyncStarted(db, mailbox.id, now());
 		try {
 			const outcome = await syncMailbox(
 				{
@@ -338,11 +423,15 @@ export class Engine {
 					client,
 					backupRoot,
 					now,
-					stopping: () => this.#stopping,
+					stopping: () =>
+						this.#stopping ||
+						this.#paused ||
+						this.#cancelled.has(mailbox.id) ||
+						this.#disk?.level === 'full',
 					progress: (update) => {
-						const live = this.#live.get(mailbox.id);
+						const live = this.#running.get(mailbox.id);
 						if (live !== undefined) {
-							this.#live.set(mailbox.id, { ...live, ...update });
+							Object.assign(live, update);
 						}
 					}
 				},
@@ -382,7 +471,6 @@ export class Engine {
 					mailboxId: mailbox.id
 				});
 			}
-			return true;
 		} catch (error) {
 			const message = errorText(error);
 			markSyncFinished(db, mailbox.id, now(), {
@@ -395,7 +483,7 @@ export class Engine {
 				{ outcome: 'failed', added: 0, removed: 0, byteCount: 0, error: message },
 				now()
 			);
-			// One entry when a mailbox starts failing, not one every pass.
+			// One entry when a mailbox starts failing, not one every sync.
 			if (mailbox.lastSyncError !== message) {
 				recordActivity(db, {
 					level: 'error',
@@ -406,14 +494,7 @@ export class Engine {
 					mailboxId: mailbox.id
 				});
 			}
-			return false;
-		} finally {
-			this.#live.delete(mailbox.id);
 		}
-	}
-
-	isSyncing(mailboxId: string): boolean {
-		return this.#live.has(mailboxId);
 	}
 }
 

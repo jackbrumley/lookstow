@@ -1,17 +1,30 @@
-/** What the engine is doing right now, for the dashboard (browser-safe). */
+/** What the engine is doing right now, for the dashboard and the page frame (browser-safe). */
+export type DiskStatus = {
+	/** The backup folder that was measured. */
+	path: string;
+	totalBytes: number | null;
+	freeBytes: number | null;
+	usedPercent: number | null;
+	/** ok, warn (from warnPercent), full (from pausePercent: syncs pause), unknown. */
+	level: 'ok' | 'warn' | 'full' | 'unknown';
+	warnPercent: number;
+	pausePercent: number;
+};
+
+export type PauseState =
+	{ paused: false } | { paused: true; reason: 'manual' | 'disk'; since: string | null };
+
 export type EngineStatus = {
-	phase: 'idle' | 'discovering' | 'syncing';
-	paused: boolean;
+	pause: PauseState;
 	/** Why nothing is being backed up (not set up, discovery failing), or null. */
 	problem: string | null;
-	lastDiscoveryAt: string | null;
-	nextDiscoveryAt: string | null;
-	lastPassAt: string | null;
-	/** When the running sync of every mailbox started; null when none is running. */
-	passStartedAt: string | null;
-	/** Null while a pass runs or while paused. */
-	nextPassAt: string | null;
-	queued: number;
+	discovery: {
+		running: boolean;
+		lastAt: string | null;
+		/** Null while paused or running. */
+		nextAt: string | null;
+	};
+	/** Mailboxes syncing now. */
 	syncing: {
 		mailboxId: string;
 		address: string;
@@ -19,5 +32,10 @@ export type EngineStatus = {
 		stored: number;
 		bytes: number;
 		startedAt: string;
+		firstCopy: boolean;
 	}[];
+	/** Mailboxes waiting for a free slot, by queue. */
+	waiting: { requested: number; due: number; firstCopy: number };
+	slots: number;
+	disk: DiskStatus;
 };

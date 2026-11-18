@@ -28,11 +28,14 @@
 	let scheduleOpen = $state(false);
 	let backupOpen = $state(false);
 	let updatesOpen = $state(false);
+	let diskOpen = $state(false);
 	// The scope form's mode, reset from the saved setting each time the form opens.
 	let scopeMode = $state<'all' | 'selected'>('all');
+	let scopeExisting = $state<'keep' | 'delete'>('keep');
 	$effect(() => {
 		if (scopeOpen) {
 			scopeMode = untrack(() => settings.scope.mode);
+			scopeExisting = 'keep';
 		}
 	});
 	let testing = $state(false);
@@ -40,7 +43,7 @@
 
 <PageHeader
 	title="Settings"
-	lede="How Lookstow reaches Microsoft 365, what it backs up, when, and where."
+	lede="How Lookstow reaches Microsoft 365, what it backs up, when, and where. Changes take effect within seconds, also while syncs are running."
 />
 
 <Card title="Microsoft 365 connection">
@@ -173,15 +176,10 @@
 
 <Card title="Schedule">
 	{#snippet actions()}
-		<form method="POST" action="?/pause" use:enhance>
-			<Button type="submit" variant="secondary"
-				>{settings.schedule.paused ? 'Resume' : 'Pause'}</Button
-			>
-		</form>
 		<Button variant="secondary" onclick={() => (scheduleOpen = true)}>Change…</Button>
 	{/snippet}
 	{#if settings.schedule.paused}<p>
-			<Badge tone="warn">Paused</Badge> Nothing runs on the schedule. Sync now still works.
+			<Badge tone="warn">Paused</Badge> Nothing syncs until someone presses Resume at the top of the page.
 		</p>{/if}
 	<ul class="plain">
 		<li>
@@ -223,6 +221,41 @@
 			: 'New releases wait for someone to choose Update now on the Updates page.'}
 	</p>
 </Card>
+
+<Card title="Disk space">
+	{#snippet actions()}
+		<Button variant="secondary" onclick={() => (diskOpen = true)}>Change…</Button>
+	{/snippet}
+	<p>
+		Lookstow warns when the backup drive is <strong>{settings.disk.warnPercent}%</strong> full and
+		pauses every sync at <strong>{settings.disk.pausePercent}%</strong>, so the drive never fills.
+	</p>
+</Card>
+
+<FormModal bind:open={diskOpen} title="Disk space" action="?/disk">
+	<label>
+		Warn when the backup drive is this full (%)
+		<input
+			name="warnPercent"
+			type="number"
+			min="50"
+			max="98"
+			value={settings.disk.warnPercent}
+			required
+		/>
+	</label>
+	<label>
+		Pause every sync when it is this full (%)
+		<input
+			name="pausePercent"
+			type="number"
+			min="51"
+			max="99"
+			value={settings.disk.pausePercent}
+			required
+		/>
+	</label>
+</FormModal>
 
 <FormModal bind:open={updatesOpen} title="Updates" action="?/updates">
 	<label class="check"
@@ -314,6 +347,22 @@
 		Never back up these addresses (one per line)
 		<textarea name="excluded" rows="5">{settings.scope.excludedAddresses.join('\n')}</textarea>
 	</label>
+	<fieldset class="choice">
+		<legend>Mailboxes this change stops backing up</legend>
+		<label class="check"
+			><input type="radio" name="existing" value="keep" bind:group={scopeExisting} /> Keep their backups</label
+		>
+		<label class="check"
+			><input type="radio" name="existing" value="delete" bind:group={scopeExisting} /> Delete their backups
+			from the backup drive</label
+		>
+		{#if scopeExisting === 'delete'}
+			<label>
+				Type DELETE to confirm. The files cannot be brought back.
+				<input name="confirm" autocomplete="off" required />
+			</label>
+		{/if}
+	</fieldset>
 </FormModal>
 
 <FormModal bind:open={scheduleOpen} title="Schedule" action="?/schedule">

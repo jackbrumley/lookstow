@@ -5,10 +5,17 @@ import { env } from '#lib/server/env.ts';
 import { backupEngine, database, dataDir } from '#lib/server/runtime.ts';
 import { recordActivity } from '#lib/server/services/activity/activity.ts';
 import { testConnection } from '#lib/server/services/graph/connection-test.ts';
+import { inScope } from '#lib/server/services/engine/scope.ts';
+import { deleteMailboxBackup } from '#lib/server/services/mailboxes/delete-backup.ts';
+import { allMailboxes } from '#lib/server/services/mailboxes/repository.ts';
+import { plural } from '#lib/utils/format.ts';
 import {
+	effectiveBackupRoot,
 	graphCredentials,
 	readSchedule,
+	readScope,
 	saveBackup,
+	saveDisk,
 	saveCertificate,
 	saveClientSecret,
 	saveConnectionIds,
@@ -100,9 +107,15 @@ export const actions = {
 	},
 	scope: async ({ request }) => {
 		const data = await request.formData();
-		return attempt(() => {
-			const mode = field(data, 'mode') === 'selected' ? 'selected' : 'all';
-			const selectedAddresses = addresses(field(data, 'selected'));
+		const previous = readScope(database);
+		const before = new Set(
+			allMailboxes(database)
+				.filter((row) => inScope(row, previous))
+				.map((row) => row.id)
+		);
+		const mode = field(data, 'mode') === 'selected' ? 'selected' : 'all';
+		const selectedAddresses = addresses(field(data, 'selected'));
+		try {
 			saveScope(database, {
 				mode,
 				selectedAddresses,
@@ -111,38 +124,72 @@ export const actions = {
 				includeArchives: checked(data, 'includeArchives'),
 				excludedAddresses: addresses(field(data, 'excluded'))
 			});
-			backupEngine().requestSync(null, 'scope changed');
-			return saved(
-				mode === 'selected'
-					? `Backups were limited to ${selectedAddresses.length} chosen mailbox${selectedAddresses.length === 1 ? '' : 'es'}`
-					: 'What is backed up was changed',
-				mode === 'selected' && selectedAddresses.length === 0
-					? 'Saved. No mailbox is picked yet, so nothing is backed up: pick some on the Mailboxes page.'
-					: 'Saved. A sync with the new choice has started.'
-			);
-		});
+		} catch (error) {
+			return refused(error instanceof Error ? error.message : String(error));
+		}
+		const scope = readScope(database);
+		const rows = allMailboxes(database);
+		const leaving = rows.filter((row) => before.has(row.id) && !inScope(row, scope));
+		const joining = rows.filter((row) => !before.has(row.id) && inScope(row, scope));
+		const engine = backupEngine();
+		for (const row of leaving) {
+			engine.cancel(row.id);
+		}
+		const withBackup = leaving.filter((row) => row.itemCount > 0);
+		let deleted = 0;
+		if (field(data, 'existing') === 'delete' && withBackup.length > 0) {
+			if (field(data, 'confirm') !== 'DELETE') {
+				saveScope(database, previous);
+				return refused('Type DELETE to confirm deleting their backups. Nothing was changed.');
+			}
+			const backupRoot = effectiveBackupRoot(database, dataDir());
+			for (const row of withBackup) {
+				await engine.waitUntilIdle(row.id);
+				await deleteMailboxBackup(database, row, backupRoot, 'console');
+				deleted += 1;
+			}
+		}
+		engine.requestSync(joining.map((row) => row.id));
+		const summary = [
+			`${plural(joining.length, 'mailbox', 'mailboxes')} start being backed up`,
+			`${plural(leaving.length, 'mailbox', 'mailboxes')} stop`,
+			deleted > 0
+				? `${plural(deleted, 'backup')} deleted`
+				: withBackup.length > 0
+					? `${plural(withBackup.length, 'backup')} kept`
+					: null
+		]
+			.filter((part) => part !== null)
+			.join(', ');
+		return saved(
+			`What is backed up was changed: ${summary}`,
+			mode === 'selected' && selectedAddresses.length === 0
+				? `Saved: ${summary}. No mailbox is picked yet: pick some on the Mailboxes page.`
+				: `Saved: ${summary}.`
+		);
 	},
 	schedule: async ({ request }) => {
 		const data = await request.formData();
 		return attempt(() => {
 			saveSchedule(database, {
+				...readSchedule(database),
 				syncEveryMinutes: whole(data, 'syncEveryMinutes'),
 				discoverEveryHours: whole(data, 'discoverEveryHours'),
-				parallelMailboxes: whole(data, 'parallelMailboxes'),
-				paused: readSchedule(database).paused
+				parallelMailboxes: whole(data, 'parallelMailboxes')
 			});
 			return saved('The schedule was changed', 'Saved the schedule.');
 		});
 	},
-	pause: () =>
-		attempt(() => {
-			const schedule = readSchedule(database);
-			saveSchedule(database, { ...schedule, paused: !schedule.paused });
-			return saved(
-				schedule.paused ? 'The schedule was resumed' : 'The schedule was paused',
-				schedule.paused ? 'Resumed.' : 'Paused: nothing runs on the schedule until you resume.'
-			);
-		}),
+	disk: async ({ request }) => {
+		const data = await request.formData();
+		return attempt(() => {
+			saveDisk(database, {
+				warnPercent: whole(data, 'warnPercent'),
+				pausePercent: whole(data, 'pausePercent')
+			});
+			return saved('The disk space limits were changed', 'Saved the disk space limits.');
+		});
+	},
 	updates: async ({ request }) => {
 		const data = await request.formData();
 		const automatic = checked(data, 'automatic');

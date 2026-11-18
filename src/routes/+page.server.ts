@@ -37,7 +37,7 @@ export const actions = {
 		return done('Looking for mailboxes now. New ones start their first copy straight after.');
 	},
 	syncAll: () => {
-		backupEngine().requestSync(null, 'console');
+		backupEngine().requestSync(null);
 		recordActivity(database, {
 			level: 'info',
 			kind: 'sync',

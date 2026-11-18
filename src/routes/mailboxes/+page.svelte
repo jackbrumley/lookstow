@@ -4,9 +4,16 @@
 	import type { PageProps } from './$types';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
+	import FormModal from '#lib/ui/form-modal.svelte';
+	import ExistingBackupChoice from '#lib/ui/existing-backup-choice.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
-	import { KIND_LABELS, STATE_LABELS, type MailboxState } from '#lib/domain/mailboxes.ts';
+	import {
+		KIND_LABELS,
+		STATE_LABELS,
+		type MailboxState,
+		type MailboxSummary
+	} from '#lib/domain/mailboxes.ts';
 	import { formatBytes, formatCount, formatRelative } from '#lib/utils/format.ts';
 	import { stateTone } from '#lib/utils/mailbox-tone.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
@@ -18,6 +25,10 @@
 	});
 
 	const picked = $derived(new Set(data.picked));
+
+	/** The mailbox whose Unpick dialog is open (only for mailboxes that have a backup). */
+	let unpicking = $state<MailboxSummary | null>(null);
+	let unpickOpen = $derived(unpicking !== null);
 
 	let search = $state('');
 	let stateFilter = $state<MailboxState | 'all'>('all');
@@ -110,6 +121,10 @@
 								<td>
 									{#if mailbox.kind === 'archive'}
 										<span class="muted small">With its mailbox</span>
+									{:else if picked.has(mailbox.address) && mailbox.itemCount > 0}
+										<Button size="sm" variant="secondary" onclick={() => (unpicking = mailbox)}
+											>Unpick…</Button
+										>
 									{:else}
 										<form
 											method="POST"
@@ -134,6 +149,23 @@
 		</div>
 	{/if}
 </Card>
+
+{#if unpicking !== null}
+	<FormModal
+		bind:open={unpickOpen}
+		title={`Stop backing up ${unpicking.address}?`}
+		action="?/unpick"
+		submitLabel="Unpick"
+		onsuccess={() => (unpicking = null)}
+	>
+		<input type="hidden" name="address" value={unpicking.address} />
+		<ExistingBackupChoice
+			address={unpicking.address}
+			itemCount={unpicking.itemCount}
+			byteCount={unpicking.byteCount}
+		/>
+	</FormModal>
+{/if}
 
 <style>
 	.filters {

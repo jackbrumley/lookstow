@@ -53,6 +53,7 @@ export function applyDiscovery(
 				address: mailbox.address,
 				displayName: mailbox.displayName,
 				excluded: false,
+				paused: false,
 				firstSeenAt: at,
 				lastSeenAt: at,
 				goneAt: null,
@@ -101,6 +102,27 @@ export function applyDiscovery(
 
 export function setExcluded(db: Queryable, id: string, excluded: boolean): void {
 	db.update(mailboxes).set({ excluded }).where(eq(mailboxes.id, id)).run();
+}
+
+/** Forgets everything stored for a mailbox (its files are deleted by the caller). */
+export function clearMailboxBackup(db: Queryable, id: string): void {
+	db.delete(messages).where(eq(messages.mailboxId, id)).run();
+	db.delete(mailFolders).where(eq(mailFolders.mailboxId, id)).run();
+	db.update(mailboxes)
+		.set({
+			firstCopyDone: false,
+			itemCount: 0,
+			byteCount: 0,
+			lastSyncStartedAt: null,
+			lastSyncFinishedAt: null,
+			lastSyncError: null
+		})
+		.where(eq(mailboxes.id, id))
+		.run();
+}
+
+export function setMailboxPaused(db: Queryable, id: string, paused: boolean): void {
+	db.update(mailboxes).set({ paused }).where(eq(mailboxes.id, id)).run();
 }
 
 export function markSyncStarted(db: Queryable, id: string, now: number): void {

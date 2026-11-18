@@ -49,3 +49,7 @@ export function formatRelative(iso: string | null, now = Date.now()): string {
 export function plural(count: number, one: string, many = `${one}s`): string {
 	return `${formatCount(count)} ${count === 1 ? one : many}`;
 }
+
+export function formatPercent(percent: number | null): string {
+	return percent === null ? 'unknown' : `${percent.toFixed(percent >= 99 ? 1 : 0)}%`;
+}

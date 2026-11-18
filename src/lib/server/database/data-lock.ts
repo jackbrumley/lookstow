@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 /**
@@ -79,6 +81,8 @@ export async function acquireDataLock(
 	options: LockWaitOptions
 ): Promise<DataLock> {
 	const path = lockPathFor(databasePath);
+	// A first source run has no data folder yet; the database would make it, but the lock comes first.
+	mkdirSync(dirname(path), { recursive: true });
 	const started = Date.now();
 	let waiting = false;
 	for (;;) {

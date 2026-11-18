@@ -28,6 +28,9 @@ export function mailboxState(
 	if (!inScope(row, scope)) {
 		return 'out-of-scope';
 	}
+	if (row.paused) {
+		return 'paused';
+	}
 	if (syncing(row.id)) {
 		return 'syncing';
 	}
@@ -49,6 +52,7 @@ function summary(row: MailboxRow, state: MailboxState): MailboxSummary {
 		itemCount: row.itemCount,
 		byteCount: row.byteCount,
 		firstCopyDone: row.firstCopyDone,
+		paused: row.paused,
 		goneAt: row.goneAt?.toISOString() ?? null
 	};
 }

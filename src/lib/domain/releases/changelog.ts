@@ -20,6 +20,26 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.2.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Press Pause at the side of any page while mailboxes sync: they stop within a page of messages, and Resume carries on where they stopped',
+				'On a mailbox page, Pause and Resume just that mailbox',
+				'Exclude (or Unpick) a mailbox that has a backup: choose Keep, then try again on another with Delete and the address typed; the files are gone and Activity says so',
+				'In Settings > Disk space, set the pause limit below how full the drive is now: backups pause with a red banner and Resume refuses until the limit is raised',
+				'With a large first copy running, a mailbox already backed up still syncs on its own timer'
+			]
+		},
+		changes: [
+			'Pause and Resume for everything, from any page, and for each mailbox on its page',
+			'Disk guard: a warning at 85% of the backup drive and an automatic pause at 90% (both in Settings), shown on the dashboard',
+			'Excluding or unpicking a mailbox, or changing what is backed up, asks whether to keep or delete the backups it had; deleting needs a typed confirmation',
+			'Each mailbox now syncs on its own timer, and first copies never take every slot, so mailboxes already backed up keep syncing during a long first copy',
+			'The dashboard shows what is syncing, what is waiting in each queue, discovery and the backup drive'
+		]
+	},
+	{
 		version: '0.1.1',
 		testing: {
 			kind: 'steps',

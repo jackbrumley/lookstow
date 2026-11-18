@@ -1,0 +1,1 @@
+ALTER TABLE `mailboxes` ADD `paused` integer DEFAULT false NOT NULL;

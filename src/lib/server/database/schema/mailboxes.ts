@@ -21,6 +21,8 @@ export const mailboxes = sqliteTable(
 		displayName: text().notNull(),
 		/** Excluded by an admin: discovered but not backed up. */
 		excluded: integer({ mode: 'boolean' }).notNull().default(false),
+		/** Paused by an admin: in scope, but not synced until resumed. */
+		paused: integer({ mode: 'boolean' }).notNull().default(false),
 		firstSeenAt: integer({ mode: 'timestamp_ms' }).notNull(),
 		lastSeenAt: integer({ mode: 'timestamp_ms' }).notNull(),
 		/** When discovery stopped finding it. The backup is kept. */

@@ -13,6 +13,7 @@
 		formatBytes,
 		formatCount,
 		formatDateTime,
+		formatPercent,
 		formatRelative,
 		plural
 	} from '#lib/utils/format.ts';
@@ -31,7 +32,7 @@
 				() => {
 					void refreshAll().finally(refresh);
 				},
-				data.engine.phase === 'idle' ? 30_000 : 4_000
+				data.engine.syncing.length === 0 && !data.engine.discovery.running ? 30_000 : 4_000
 			);
 		};
 		refresh();
@@ -91,14 +92,21 @@
 </div>
 
 <Card title="Now">
+	{#if data.engine.pause.paused}
+		<p><Badge tone="warn">Paused</Badge> Nothing syncs until you press Resume.</p>
+	{/if}
 	{#if data.engine.syncing.length > 0}
 		<table>
-			<thead><tr><th>Mailbox</th><th>Folder</th><th>Stored this run</th><th>Started</th></tr></thead
-			>
+			<thead>
+				<tr><th>Mailbox</th><th>Folder</th><th>Stored this run</th><th>Started</th></tr>
+			</thead>
 			<tbody>
 				{#each data.engine.syncing as live (live.mailboxId)}
 					<tr>
-						<td><a href={resolve('/mailboxes/[id]', { id: live.mailboxId })}>{live.address}</a></td>
+						<td>
+							<a href={resolve('/mailboxes/[id]', { id: live.mailboxId })}>{live.address}</a>
+							{#if live.firstCopy}<Badge tone="info">First copy</Badge>{/if}
+						</td>
 						<td>{live.folder === '' ? 'Listing folders' : live.folder}</td>
 						<td>{plural(live.stored, 'message')}, {formatBytes(live.bytes)}</td>
 						<td>{formatRelative(live.startedAt)}</td>
@@ -106,43 +114,45 @@
 				{/each}
 			</tbody>
 		</table>
-	{:else if data.engine.phase === 'discovering'}
-		<p>Looking for mailboxes in Microsoft 365.</p>
-	{:else}
-		<p>
-			{data.engine.paused ? 'Paused: nothing runs on the schedule.' : 'Waiting for the next run.'}
-		</p>
+	{:else if !data.engine.pause.paused}
+		<p>No mailbox is syncing right now.</p>
 	{/if}
 	<dl class="facts">
-		<dt>Last discovery</dt>
+		<dt>Syncing</dt>
+		<dd>{data.engine.syncing.length} of {data.engine.slots} at a time</dd>
+		<dt>Waiting</dt>
 		<dd>
-			{formatDateTime(data.engine.lastDiscoveryAt)}
-			{#if data.lastDiscovery !== null && data.lastDiscovery.outcome === 'failed'}
-				<Badge tone="bad">failed</Badge>
+			{plural(data.engine.waiting.requested, 'asked for')},
+			{plural(data.engine.waiting.due, 'routine sync')},
+			{plural(data.engine.waiting.firstCopy, 'first copy', 'first copies')}
+		</dd>
+		<dt>Discovery</dt>
+		<dd>
+			{#if data.engine.discovery.running}
+				Running now
+			{:else}
+				Last {formatDateTime(data.engine.discovery.lastAt)}{data.lastDiscovery !== null &&
+				data.lastDiscovery.outcome === 'failed'
+					? ' (failed)'
+					: ''}{data.engine.discovery.nextAt === null
+					? ''
+					: `, next ${formatRelative(data.engine.discovery.nextAt)}`}
 			{/if}
 		</dd>
-		<dt>Next discovery</dt>
+		<dt>Backup drive</dt>
 		<dd>
-			{data.engine.nextDiscoveryAt === null
-				? 'paused'
-				: formatRelative(data.engine.nextDiscoveryAt)}
-		</dd>
-		<dt>Sync of every mailbox</dt>
-		<dd>
-			{#if data.engine.passStartedAt !== null}
-				Running since {formatDateTime(data.engine.passStartedAt)}
+			{#if data.engine.disk.usedPercent === null}
+				Unknown
 			{:else}
-				Last finished {formatDateTime(data.engine.lastPassAt)}
-			{/if}
-		</dd>
-		<dt>Next</dt>
-		<dd>
-			{#if data.engine.passStartedAt !== null}
-				When this one finishes
-			{:else if data.engine.nextPassAt === null}
-				Paused
-			{:else}
-				{formatRelative(data.engine.nextPassAt)}
+				<Badge
+					tone={data.engine.disk.level === 'full'
+						? 'bad'
+						: data.engine.disk.level === 'warn'
+							? 'warn'
+							: 'ok'}>{formatPercent(data.engine.disk.usedPercent)} used</Badge
+				>
+				{formatBytes(data.engine.disk.freeBytes ?? 0)} free · pauses at {data.engine.disk
+					.pausePercent}%
 			{/if}
 		</dd>
 	</dl>

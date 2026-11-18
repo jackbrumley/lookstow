@@ -6,10 +6,17 @@
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
+	import ExistingBackupChoice from '#lib/ui/existing-backup-choice.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { KIND_LABELS, STATE_LABELS } from '#lib/domain/mailboxes.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
-	import { formatBytes, formatCount, formatDateTime, formatRelative } from '#lib/utils/format.ts';
+	import {
+		formatBytes,
+		formatCount,
+		formatDateTime,
+		formatRelative,
+		plural
+	} from '#lib/utils/format.ts';
 	import { stateTone } from '#lib/utils/mailbox-tone.ts';
 
 	let { data, form }: PageProps = $props();
@@ -19,6 +26,7 @@
 	});
 
 	let excludeOpen = $state(false);
+	let deleteOpen = $state(false);
 	const mailbox = $derived(data.mailbox);
 </script>
 
@@ -35,9 +43,19 @@
 			</form>
 		{:else if mailbox.goneAt === null}
 			<form method="POST" action="?/syncNow" use:enhance>
-				<Button type="submit" disabled={mailbox.kind === 'archive'}>Sync now</Button>
+				<Button type="submit" disabled={mailbox.kind === 'archive' || mailbox.paused}
+					>Sync now</Button
+				>
 			</form>
-			<Button variant="secondary" onclick={() => (excludeOpen = true)}>Exclude…</Button>
+			<form method="POST" action={mailbox.paused ? '?/resume' : '?/pause'} use:enhance>
+				<Button type="submit" variant="secondary">{mailbox.paused ? 'Resume' : 'Pause'}</Button>
+			</form>
+			{#if !data.picking}
+				<Button variant="secondary" onclick={() => (excludeOpen = true)}>Exclude…</Button>
+			{/if}
+		{/if}
+		{#if mailbox.itemCount > 0}
+			<Button variant="ghost" onclick={() => (deleteOpen = true)}>Delete backup…</Button>
 		{/if}
 	{/snippet}
 </PageHeader>
@@ -140,9 +158,34 @@
 	variant="danger"
 >
 	<p>
-		Lookstow stops backing up <strong>{mailbox.address}</strong>. Everything already stored stays in
-		its backup folder. You can back it up again at any time.
+		Lookstow stops backing up <strong>{mailbox.address}</strong>. You can back it up again at any
+		time.
 	</p>
+	<ExistingBackupChoice
+		address={mailbox.address}
+		itemCount={mailbox.itemCount}
+		byteCount={mailbox.byteCount}
+	/>
+</FormModal>
+
+<FormModal
+	bind:open={deleteOpen}
+	title="Delete this mailbox's backup?"
+	action="?/deleteBackup"
+	submitLabel="Delete the backup"
+	variant="danger"
+>
+	<p>
+		Every stored message of <strong>{mailbox.address}</strong> is deleted from the backup drive ({plural(
+			mailbox.itemCount,
+			'message'
+		)}, {formatBytes(mailbox.byteCount)}). The files cannot be brought back. If the mailbox is still
+		backed up, its next sync starts a new first copy.
+	</p>
+	<label class="confirm">
+		Type <strong>{mailbox.address}</strong> to confirm.
+		<input name="confirm" autocomplete="off" required />
+	</label>
 </FormModal>
 
 <style>
@@ -161,6 +204,12 @@
 		margin: 0;
 		min-width: 0;
 		overflow-wrap: anywhere;
+	}
+
+	.confirm {
+		display: grid;
+		gap: var(--space-1);
+		margin-top: var(--space-3);
 	}
 
 	.error {

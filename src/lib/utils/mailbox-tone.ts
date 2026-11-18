@@ -11,6 +11,8 @@ export function stateTone(state: MailboxState): 'ok' | 'warn' | 'bad' | 'info' |
 			return 'warn';
 		case 'failed':
 			return 'bad';
+		case 'paused':
+			return 'warn';
 		case 'excluded':
 		case 'out-of-scope':
 		case 'gone':

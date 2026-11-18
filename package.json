@@ -1,6 +1,6 @@
 {
 	"name": "lookstow",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"private": true,
 	"description": "Back up Microsoft 365 mailboxes, shared mailboxes and online archives to a local folder, as a self-updating service for Windows and Linux.",
 	"type": "module",

@@ -33,6 +33,15 @@ export type ScopeSettings = {
 	excludedAddresses: string[];
 };
 
+export type DiskSettings = {
+	/** Warn on the dashboard (and by email) from this much of the backup drive used. */
+	warnPercent: number;
+	/** Pause every sync from this much used. */
+	pausePercent: number;
+};
+
+export const DISK_DEFAULTS: DiskSettings = { warnPercent: 85, pausePercent: 90 };
+
 export type ScheduleSettings = {
 	/** Minutes between sync passes over every mailbox. */
 	syncEveryMinutes: number;
@@ -40,8 +49,11 @@ export type ScheduleSettings = {
 	discoverEveryHours: number;
 	/** Mailboxes synced at the same time. */
 	parallelMailboxes: number;
-	/** While paused, nothing runs on a timer; Sync now still works. */
+	/** While paused nothing syncs, not even Sync now, and running syncs stop after their page. */
 	paused: boolean;
+	/** Who paused: someone in the console, or the disk guard. Null while running. */
+	pausedReason: 'manual' | 'disk' | null;
+	pausedAt: string | null;
 };
 
 export type BackupSettings = {
@@ -60,6 +72,7 @@ export type SettingsView = {
 	schedule: ScheduleSettings;
 	backup: BackupSettings & { effectiveRoot: string };
 	updates: UpdateSettings;
+	disk: DiskSettings;
 };
 
 export const SCOPE_DEFAULTS: ScopeSettings = {
@@ -75,7 +88,9 @@ export const SCHEDULE_DEFAULTS: ScheduleSettings = {
 	syncEveryMinutes: 15,
 	discoverEveryHours: 6,
 	parallelMailboxes: 3,
-	paused: false
+	paused: false,
+	pausedReason: null,
+	pausedAt: null
 };
 
 export const UPDATE_DEFAULTS: UpdateSettings = { automatic: true };

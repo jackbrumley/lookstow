@@ -2,7 +2,14 @@
 
 /** What the console says a mailbox is doing, from its row and the engine's live state. */
 export type MailboxState =
-	'syncing' | 'waiting-first-copy' | 'backed-up' | 'failed' | 'excluded' | 'out-of-scope' | 'gone';
+	| 'syncing'
+	| 'waiting-first-copy'
+	| 'backed-up'
+	| 'failed'
+	| 'paused'
+	| 'excluded'
+	| 'out-of-scope'
+	| 'gone';
 
 export type MailboxSummary = {
 	id: string;
@@ -15,6 +22,7 @@ export type MailboxSummary = {
 	itemCount: number;
 	byteCount: number;
 	firstCopyDone: boolean;
+	paused: boolean;
 	goneAt: string | null;
 };
 
@@ -62,6 +70,7 @@ export const STATE_LABELS: Record<MailboxState, string> = {
 	'waiting-first-copy': 'Waiting for first copy',
 	'backed-up': 'Backed up',
 	failed: 'Last sync failed',
+	paused: 'Paused',
 	excluded: 'Excluded',
 	'out-of-scope': 'Not in scope',
 	gone: 'Gone from Microsoft 365'

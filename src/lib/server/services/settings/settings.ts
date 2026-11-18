@@ -9,8 +9,10 @@ import type { GraphCredentials } from '../graph/token.ts';
 import {
 	SCHEDULE_DEFAULTS,
 	SCHEDULE_LIMITS,
+	DISK_DEFAULTS,
 	SCOPE_DEFAULTS,
 	UPDATE_DEFAULTS,
+	type DiskSettings,
 	type BackupSettings,
 	type ConnectionView,
 	type ScheduleSettings,
@@ -65,8 +67,18 @@ const scheduleSchema = z.object({
 	syncEveryMinutes: intIn(SCHEDULE_LIMITS.syncEveryMinutes),
 	discoverEveryHours: intIn(SCHEDULE_LIMITS.discoverEveryHours),
 	parallelMailboxes: intIn(SCHEDULE_LIMITS.parallelMailboxes),
-	paused: z.boolean()
+	paused: z.boolean(),
+	// Added after 0.1.1; a schedule saved earlier has neither.
+	pausedReason: z.enum(['manual', 'disk']).nullable().default(null),
+	pausedAt: z.string().nullable().default(null)
 });
+
+const diskSchema = z
+	.object({
+		warnPercent: z.number().int().min(50).max(98),
+		pausePercent: z.number().int().min(51).max(99)
+	})
+	.refine((disk) => disk.warnPercent < disk.pausePercent, 'The warning must come before the pause');
 
 const backupSchema = z.object({
 	root: z
@@ -82,7 +94,8 @@ const KEYS = {
 	scope: { schema: scopeSchema, fallback: SCOPE_DEFAULTS },
 	schedule: { schema: scheduleSchema, fallback: SCHEDULE_DEFAULTS },
 	backup: { schema: backupSchema, fallback: { root: null } },
-	updates: { schema: updatesSchema, fallback: UPDATE_DEFAULTS }
+	updates: { schema: updatesSchema, fallback: UPDATE_DEFAULTS },
+	disk: { schema: diskSchema, fallback: DISK_DEFAULTS }
 } as const;
 type Key = keyof typeof KEYS;
 
@@ -128,6 +141,34 @@ export function readSchedule(db: Queryable): ScheduleSettings {
 }
 export function readBackup(db: Queryable): BackupSettings {
 	return read(db, 'backup', KEYS.backup.schema, KEYS.backup.fallback);
+}
+
+export function readDisk(db: Queryable): DiskSettings {
+	return read(db, 'disk', KEYS.disk.schema, KEYS.disk.fallback);
+}
+
+export function saveDisk(db: Queryable, disk: DiskSettings): void {
+	const parsed = diskSchema.safeParse(disk);
+	if (!parsed.success) {
+		throw new SettingsError(parsed.error.issues[0]?.message ?? 'Those limits are not valid');
+	}
+	write(db, 'disk', parsed.data);
+}
+
+/** Pauses or resumes everything, recording who paused and when. */
+export function savePause(
+	db: Queryable,
+	paused: boolean,
+	reason: 'manual' | 'disk',
+	now = Date.now()
+): void {
+	const schedule = readSchedule(db);
+	write(db, 'schedule', {
+		...schedule,
+		paused,
+		pausedReason: paused ? reason : null,
+		pausedAt: paused ? new Date(now).toISOString() : null
+	});
 }
 
 export function readUpdates(db: Queryable): UpdateSettings {
@@ -270,7 +311,8 @@ export function settingsView(db: Queryable, dataDir: string): SettingsView {
 		scope: readScope(db),
 		schedule: readSchedule(db),
 		backup: { ...backup, effectiveRoot: backup.root ?? join(dataDir, 'mailboxes') },
-		updates: readUpdates(db)
+		updates: readUpdates(db),
+		disk: readDisk(db)
 	};
 }
 
