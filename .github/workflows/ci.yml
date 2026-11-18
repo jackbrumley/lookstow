@@ -24,6 +24,12 @@ jobs:
         os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    # SvelteKit's build loads the server modules, and env.ts needs these at load time. The
+    # build never opens a real database or a secret, so CI gives it an in-memory database and
+    # a throwaway key (the release build does the same, scripts/release-server.ts).
+    env:
+      DATABASE_PATH: ':memory:'
+      SECRETS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     steps:
       - uses: actions/checkout@v7
 
