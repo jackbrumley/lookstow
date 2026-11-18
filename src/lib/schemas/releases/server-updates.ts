@@ -64,6 +64,16 @@ const serverUpdateOperationSchema = z.strictObject({
 	atIso: z.iso.datetime().nullable()
 });
 
+/** update-timings.json, written only by the updater: when each step of the last update ended. */
+export const updaterTimingsSchema = z.object({
+	steps: z.array(z.object({ step: z.string().max(100), atMs: z.int().nonnegative() })).max(32)
+});
+
+/** The last update's steps, each with when it ended. */
+const updateTimingsSchema = z
+	.array(z.strictObject({ step: z.string(), atIso: z.iso.datetime() }))
+	.max(32);
+
 /** The last release check, kept in check.json in the data folder across restarts. */
 export const updateCacheSchema = z.strictObject({
 	checkedAtIso: z.iso.datetime().nullable(),
@@ -81,7 +91,8 @@ export const serverUpdateViewSchema = z.strictObject({
 	release: updateReleaseSchema.nullable(),
 	problem: z.string().nullable(),
 	install: z.strictObject({ allowed: z.boolean(), reason: z.string() }),
-	operation: serverUpdateOperationSchema
+	operation: serverUpdateOperationSchema,
+	lastUpdateSteps: updateTimingsSchema
 });
 export type ServerUpdateView = z.infer<typeof serverUpdateViewSchema>;
 

@@ -14,7 +14,7 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 - **Email settings, as in i12-pt6-control.** SMTP host, port, TLS, user and password (sealed), sender address, and Send a test email. Recipients each choose their alerts: a mailbox failing for N hours, discovery failing, disk at 85% / 90%, a first copy finished, a mailbox gone from Microsoft 365, an update installed or failed, and a daily summary. Sent through an outbox with retries.
 - **Update popup.** A dismissable dialog in the middle of the screen when a newer release waits: Update now or Later. Comes back after 24 hours (per browser). With automatic updates on, it says when the update will install.
 
-- **Faster updates.** Let the service start the update task itself, so an update starts at once instead of within two minutes; show download and unpack progress; a smaller bundle.
+- **Faster updates.** Done in 0.4.2: the update task starts at once on Windows, and the Updates page shows how long each step took. Next: from those times, shrink the slow steps (a smaller bundle, a faster database backup).
 
 ## Then: 0.6, read archives and mail
 

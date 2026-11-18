@@ -1,8 +1,9 @@
 //! Windows: the service "Lookstow" runs `<prefix>\current\lookstow.exe
 //! run --service` as LocalService, which may change only the data folder;
 //! Node's output goes to `server.log` there (SPEC-INSTALL-AND-UPDATES I6). The
-//! root updater is a scheduled task that runs as SYSTEM every two minutes
-//! and exits at once when the console has not asked for an update
+//! root updater is a scheduled task that runs as SYSTEM every minute, and at
+//! once when the service starts it; it exits at once when the console has not
+//! asked for an update
 //! (SPEC-INSTALL-AND-UPDATES); it also finishes an interrupted update.
 
 use crate::launcher::Launcher;
@@ -52,30 +53,97 @@ pub fn data_grants() -> Vec<Grant> {
     }]
 }
 
-/// `schtasks /Create` for the updater: SYSTEM, every two minutes.
-pub fn update_task_arguments(layout: &Layout) -> Vec<String> {
-    let command = format!(
-        "\"{}\" update --prefix \"{}\" --data-dir \"{}\"",
-        layout.launcher().display(),
+/// Who may do what to the updater task: SYSTEM and Administrators everything; LocalService (the
+/// service's account) may read and run it, so the console starts an update at once with
+/// `schtasks /Run` instead of waiting for the next minute. Running it only makes the updater
+/// look for the console's request and install the latest signed release; it takes no input.
+const UPDATE_TASK_SDDL: &str = "D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;LS)";
+
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// The updater task: SYSTEM, every minute as a fallback, startable by the service at once, and
+/// (unlike `schtasks /Create`'s defaults) also on battery, never two at a time.
+pub fn update_task_xml(layout: &Layout) -> String {
+    let arguments = format!(
+        "update --prefix \"{}\" --data-dir \"{}\"",
         layout.program.display(),
         layout.data.display()
     );
-    vec![
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Installs Lookstow updates the console asks for, and finishes an interrupted update.</Description>
+    <SecurityDescriptor>{sddl}</SecurityDescriptor>
+  </RegistrationInfo>
+  <Triggers>
+    <TimeTrigger>
+      <Repetition>
+        <Interval>PT1M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="System">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="System">
+    <Exec>
+      <Command>{command}</Command>
+      <Arguments>{arguments}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"#,
+        sddl = UPDATE_TASK_SDDL,
+        command = xml_escape(&layout.launcher().display().to_string()),
+        arguments = xml_escape(&arguments),
+    )
+}
+
+/// Task Scheduler reads task XML as UTF-16 (little-endian, with a byte order mark).
+fn utf16_file(text: &str) -> Vec<u8> {
+    let mut bytes = vec![0xFF, 0xFE];
+    for unit in text.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    bytes
+}
+
+/// Registers (or replaces) the updater task from its XML, through a file in the data folder.
+fn register_update_task(layout: &Layout) -> Result<()> {
+    let path = layout.data.join("update-task.xml");
+    std::fs::write(&path, utf16_file(&update_task_xml(layout)))
+        .with_context(|| format!("could not write {}", path.display()))?;
+    let result = schtasks(&[
         "/Create".into(),
         "/F".into(),
         "/TN".into(),
         UPDATE_TASK.into(),
-        "/SC".into(),
-        "MINUTE".into(),
-        "/MO".into(),
-        "2".into(),
-        "/RU".into(),
-        "SYSTEM".into(),
-        "/RL".into(),
-        "HIGHEST".into(),
-        "/TR".into(),
-        command,
-    ]
+        "/XML".into(),
+        path.display().to_string(),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    result
 }
 
 fn schtasks(arguments: &[String]) -> Result<()> {
@@ -105,7 +173,7 @@ pub fn require_admin() -> Result<()> {
 /// The updater task, written by each release (the executable path goes
 /// through `current`, so the service itself needs no change).
 pub fn refresh_units(layout: &Layout) -> Result<()> {
-    schtasks(&update_task_arguments(layout))
+    register_update_task(layout)
 }
 
 pub fn start_service() -> Result<()> {
@@ -249,11 +317,27 @@ mod tests {
             data: PathBuf::from(r"C:\ProgramData\Lookstow"),
         };
         let spec = service_spec(&layout);
-        let task = update_task_arguments(&layout).join(" ");
-        assert!(task.contains("/SC MINUTE /MO 2 /RU SYSTEM"), "{task}");
-        assert!(task.ends_with(
-            r#"/TR "C:\Program Files\Lookstow\current\lookstow.exe" update --prefix "C:\Program Files\Lookstow" --data-dir "C:\ProgramData\Lookstow""#
+        let task = update_task_xml(&layout);
+        assert!(task.contains("<UserId>S-1-5-18</UserId>"), "{task}");
+        assert!(task.contains("<Interval>PT1M</Interval>"), "{task}");
+        assert!(
+            task.contains("<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"),
+            "{task}"
+        );
+        assert!(
+            task.contains(
+                "<SecurityDescriptor>D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;LS)</SecurityDescriptor>"
+            ),
+            "{task}"
+        );
+        assert!(
+            task.contains(r"<Command>C:\Program Files\Lookstow\current\lookstow.exe</Command>"),
+            "{task}"
+        );
+        assert!(task.contains(
+            r#"<Arguments>update --prefix &quot;C:\Program Files\Lookstow&quot; --data-dir &quot;C:\ProgramData\Lookstow&quot;</Arguments>"#
         ), "{task}");
+        assert_eq!(&utf16_file("<")[..], &[0xFF, 0xFE, b'<', 0][..]);
         assert_eq!(spec.name, "Lookstow");
         assert_eq!(spec.display_name, "Lookstow (Microsoft 365 mailbox backup)");
         assert_eq!(spec.account, Account::LocalService);

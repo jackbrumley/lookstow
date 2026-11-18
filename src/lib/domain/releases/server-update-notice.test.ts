@@ -30,7 +30,8 @@ function view(phase: Phase, release: boolean): ServerUpdateView {
 			: null,
 		problem: null,
 		install: { allowed: true, reason: '' },
-		operation: { phase, from: null, to: null, message: '', atIso: null }
+		operation: { phase, from: null, to: null, message: '', atIso: null },
+		lastUpdateSteps: []
 	};
 }
 

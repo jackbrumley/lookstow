@@ -60,6 +60,11 @@ impl Layout {
         self.data.join("update-status.json")
     }
 
+    /// The time each step of the last update ended, for the app.
+    pub fn update_timings(&self) -> PathBuf {
+        self.data.join("update-timings.json")
+    }
+
     /// Written by the app once it serves requests: nonce, version, process.
     pub fn ready_file(&self) -> PathBuf {
         self.data.join("ready.json")

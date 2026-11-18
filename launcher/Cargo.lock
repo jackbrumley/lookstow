@@ -469,7 +469,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "lookstow"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "lookstow-service"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "libc",

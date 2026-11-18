@@ -399,3 +399,43 @@ fn recover_from_every_step() {
         }
     }
 }
+
+#[test]
+fn an_update_records_when_each_step_ended() {
+    let rig = make_rig("updater-timings", &[OLD], &[]);
+    rig.request();
+    assert_eq!(rig.updater().update().unwrap(), Outcome::Healthy);
+    let timings: files::Timings =
+        serde_json::from_slice(&fs::read(rig.layout.update_timings()).unwrap()).unwrap();
+    let steps: Vec<&str> = timings
+        .steps
+        .iter()
+        .map(|step| step.step.as_str())
+        .collect();
+    assert_eq!(
+        steps,
+        [
+            "requested",
+            "updater started",
+            "checked for a release",
+            "downloaded and unpacked",
+            "stopped the service",
+            "backed up the database",
+            "started the new release",
+            "ready"
+        ]
+    );
+    assert!(timings
+        .steps
+        .windows(2)
+        .all(|pair| pair[0].at_ms <= pair[1].at_ms));
+
+    // The next update starts a new record.
+    let rig2 = make_rig("updater-timings-none", &[OLD], &[]);
+    files::mark_step(&rig2.layout, "old", 1, false);
+    rig2.request();
+    rig2.updater().update().unwrap();
+    let again: files::Timings =
+        serde_json::from_slice(&fs::read(rig2.layout.update_timings()).unwrap()).unwrap();
+    assert_eq!(again.steps[0].step, "requested");
+}

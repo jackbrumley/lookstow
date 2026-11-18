@@ -20,6 +20,22 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.4.2',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.4.2 (this update still waits for the old two-minute task; it installs the new one)',
+				'On the Updates page, Last update lists how long each step took',
+				'When the next release is out, press Update: the updater starts within seconds (Log says "Started the updater task"), and Last update shows the steps'
+			]
+		},
+		changes: [
+			'Windows: the console starts the updater the moment you press Update, instead of waiting up to two minutes for its timer; the timer now also runs every minute as a fallback',
+			'Windows: the updater also runs on battery (it did not start on battery before), and never twice at once',
+			'The Updates page shows how long each step of the last update took: the wait, download and unpack, stopping the service, the database backup and the start'
+		]
+	},
+	{
 		version: '0.4.1',
 		testing: {
 			kind: 'steps',

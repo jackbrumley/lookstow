@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CHECK_CACHE, ServerUpdates, SOURCE_RUN, type ActivityEntry } from './service.ts';
+import {
+	CHECK_CACHE,
+	ServerUpdates,
+	SOURCE_RUN,
+	UPDATE_TIMINGS,
+	type ActivityEntry
+} from './service.ts';
 
 const NOW = Date.parse('2026-11-18T00:00:00.000Z');
 const release = {
@@ -124,6 +130,32 @@ describe('update checks', () => {
 		);
 		expect(after.view().release).toBeNull();
 		expect(after.view().install.allowed).toBe(false);
+	});
+
+	it('shows when each step of the last update ended, and nothing for a damaged record', () => {
+		const folder = scratch();
+		const service = new ServerUpdates(
+			installed(folder),
+			'0.3.0',
+			() => Promise.resolve(null),
+			() => undefined
+		);
+		expect(service.view().lastUpdateSteps).toEqual([]);
+		writeFileSync(
+			join(folder, UPDATE_TIMINGS),
+			JSON.stringify({
+				steps: [
+					{ step: 'requested', atMs: NOW },
+					{ step: 'ready', atMs: NOW + 30_000 }
+				]
+			})
+		);
+		expect(service.view().lastUpdateSteps).toEqual([
+			{ step: 'requested', atIso: new Date(NOW).toISOString() },
+			{ step: 'ready', atIso: new Date(NOW + 30_000).toISOString() }
+		]);
+		writeFileSync(join(folder, UPDATE_TIMINGS), '{"steps": [');
+		expect(service.view().lastUpdateSteps).toEqual([]);
 	});
 
 	it('does not claim that no update exists when the latest check failed', async () => {

@@ -35,7 +35,7 @@ Lookstow's goal: **every active mailbox is backed up without anyone choosing it*
 
 ## 5. Install and updates
 
-Ported from BMuster (see the spec). One archive per platform: the Rust launcher, a pinned Node 26 and the app. `install` sets up the service; `run` starts Node; the root updater, started by a flag file (systemd path unit, or a SYSTEM scheduled task every two minutes on Windows), downloads the latest signed release, checks it, switches `current`, waits for the new version to report ready, and rolls back if it doesn't. The console's Updates page shows releases and progress; with automatic updates on, Lookstow asks for a new release by itself.
+Ported from BMuster (see the spec). One archive per platform: the Rust launcher, a pinned Node 26 and the app. `install` sets up the service; `run` starts Node; the root updater, started by a flag file (systemd path unit, or on Windows a SYSTEM scheduled task the service starts at once, with a one-minute timer as a fallback), downloads the latest signed release, checks it, switches `current`, waits for the new version to report ready, and rolls back if it doesn't. The console's Updates page shows releases and progress; with automatic updates on, Lookstow asks for a new release by itself.
 
 ## 6. What is built
 

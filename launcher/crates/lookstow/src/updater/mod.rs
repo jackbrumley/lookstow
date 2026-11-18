@@ -66,6 +66,7 @@ impl Updater<'_> {
     /// loops), recovers anything interrupted, then updates when asked.
     pub fn update(&self) -> Result<Outcome> {
         files::check_data_dir(&self.layout.data)?;
+        let requested_at = files::flag_written_ms(&self.layout.update_flag());
         let requested = files::take_flag(&self.layout.update_flag())?;
         let record = self.layout.switch_record();
         if !requested && std::fs::symlink_metadata(&record).is_err() {
@@ -82,9 +83,18 @@ impl Updater<'_> {
         }
         let installed = current_version(&self.layout.program)?
             .context("there is no current release to update")?;
+        let started_at = files::now_ms();
+        files::mark_step(
+            self.layout,
+            "requested",
+            requested_at.unwrap_or(started_at),
+            true,
+        );
+        files::mark_step(self.layout, "updater started", started_at, false);
         match self.install_latest(&installed) {
             Ok(outcome) => Ok(outcome),
             Err(e) => {
+                self.mark("failed");
                 let message = format!("The update failed: {e:#}. Lookstow {installed} still runs.");
                 files::write_status(self.layout, Phase::Failed, Some(&installed), None, &message)?;
                 Ok(Outcome::Failed)
@@ -102,6 +112,11 @@ impl Updater<'_> {
         } else {
             Outcome::NothingToDo
         })
+    }
+
+    /// Notes when a step of this update ended (update-timings.json).
+    fn mark(&self, step: &str) {
+        files::mark_step(self.layout, step, files::now_ms(), false);
     }
 
     fn lock(&self) -> Result<File> {
@@ -125,6 +140,7 @@ impl Updater<'_> {
         };
         status(Phase::Checking, None, "Looking for a newer signed release")?;
         let latest = self.source.latest()?;
+        self.mark("checked for a release");
         if manifest::version(&latest)? <= manifest::version(installed)? {
             status(
                 Phase::UpToDate,
@@ -151,6 +167,7 @@ impl Updater<'_> {
             );
         }
         download::stage(&self.layout.program, &verified, self.source)?;
+        self.mark("downloaded and unpacked");
 
         status(
             Phase::Switching,
@@ -158,7 +175,9 @@ impl Updater<'_> {
             &format!("Stopping Lookstow {installed} and switching to {latest}"),
         )?;
         self.service.stop()?;
+        self.mark("stopped the service");
         let backup = files::backup_database(self.layout, installed, &latest)?;
+        self.mark("backed up the database");
         let mut switch = Switch {
             from: installed.to_string(),
             to: latest.clone(),
@@ -169,12 +188,14 @@ impl Updater<'_> {
         switch.save(&self.layout.switch_record())?;
         point_current(&self.layout.program, &latest)?;
         let started = self.start_release(&mut switch);
+        self.mark("started the new release");
         let reason = match started {
             Ok(()) => self.wait_until_ready(&switch),
             Err(e) => Some(format!("{e:#}")),
         };
         match reason {
             None => {
+                self.mark("ready");
                 files::remove(&self.layout.switch_record())?;
                 releases::prune(&self.layout.program, &[&latest, installed])?;
                 status(
@@ -222,6 +243,7 @@ impl Updater<'_> {
         reason: &str,
         backup: Option<&Path>,
     ) -> Result<Outcome> {
+        self.mark("not healthy");
         let (from, to) = (switch.from.clone(), switch.to.clone());
         if switch.rollback_compatible {
             switch.step = Step::RollingBack;

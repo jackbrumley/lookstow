@@ -33,7 +33,7 @@ Lookstow backs up Microsoft 365 mailboxes to local disk. It runs as a service on
 | Database      | `<data>/lookstow.db`                                                                          | `<data>\lookstow.db`                                                                |
 | Backups       | `<data>/backups/pre-update-<from>-to-<to>.db`                                                 | same                                                                                |
 | Service       | `lookstow.service`, system user `lookstow`                                                    | `Lookstow` ("Lookstow (Microsoft 365 mailbox backup)"), `NT AUTHORITY\LocalService` |
-| Updater       | `lookstow-update.path` → `lookstow-update.service` (root); `lookstow-recover.service` at boot | scheduled task "Lookstow Update", SYSTEM, every 2 minutes                           |
+| Updater       | `lookstow-update.path` → `lookstow-update.service` (root); `lookstow-recover.service` at boot | scheduled task "Lookstow Update", SYSTEM, every minute; LocalService may start it   |
 | Log           | journald: `journalctl -u lookstow`                                                            | `<data>\server.log` (moved to `server.log.old` above 10 MB)                         |
 
 `--prefix <dir>` and `--data-dir <dir>` replace the program and data folders on every command.
@@ -157,7 +157,7 @@ Release builds never enable the `scratch-test` feature and never set `LOOKSTOW_E
 ## 8. Update flow
 
 1. **Request.** An admin confirms Update now; the app writes the empty flag. That is all it can do.
-2. **Trigger.** Linux: `lookstow-update.path` (`PathExists=<data>/update-requested`) starts `lookstow-update.service`, a root one-shot running `<prefix>/current/lookstow update --prefix <prefix> --data-dir <data>`. Windows: the SYSTEM task runs the same command every two minutes.
+2. **Trigger.** Linux: `lookstow-update.path` (`PathExists=<data>/update-requested`) starts `lookstow-update.service`, a root one-shot running `<prefix>/current/lookstow update --prefix <prefix> --data-dir <data>`. Windows: the SYSTEM task runs the same command every minute, and at once when the app starts it (`schtasks /Run`): the task, registered from XML, grants LocalService read and run (`D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;LS)`), runs on battery, and never runs twice at a time. The updater writes `<data>/update-timings.json` (each step and when it ended), which the Updates page shows.
 3. **Updater.** Refuses a data folder that is a link. Deletes the flag first (never opening it), takes `update.lock`, recovers any interrupted update, then, writing each step to `update-status.json`:
    1. asks for the latest stable release; equal or older means `up-to-date`;
    2. downloads and verifies the manifest with the compiled key (signature, target, newer-only, `minimumLauncher`, archive name, size and hash format);

@@ -72,7 +72,7 @@ enum Command {
         refresh_units: bool,
     },
     /// Install the newest signed release if the console asked for one (run
-    /// as root by the update service, or every two minutes on Windows)
+    /// as root by the update service, or by the scheduled task on Windows)
     Update {
         #[command(flatten)]
         folders: Folders,

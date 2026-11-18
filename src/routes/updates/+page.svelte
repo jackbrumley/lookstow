@@ -31,6 +31,27 @@
 
 	const notice = $derived(updateOperationNotice(view.operation.phase));
 
+	/** How long each step of the last update took, from the step before it. */
+	const lastUpdate = $derived.by(() => {
+		const steps = view.lastUpdateSteps;
+		const first = steps[0];
+		const last = steps.at(-1);
+		if (first === undefined || last === undefined || steps.length < 2) return null;
+		return {
+			total: Date.parse(last.atIso) - Date.parse(first.atIso),
+			startedIso: first.atIso,
+			steps: steps.slice(1).map((step, index) => ({
+				step: step.step,
+				ms: Date.parse(step.atIso) - Date.parse(steps[index]?.atIso ?? step.atIso)
+			}))
+		};
+	});
+
+	function seconds(ms: number): string {
+		const total = Math.max(0, Math.round(ms / 1000));
+		return total < 60 ? `${total} s` : `${Math.floor(total / 60)} min ${total % 60} s`;
+	}
+
 	async function refusedMessage(response: Response): Promise<string> {
 		const parsed = serverUpdateRefusedSchema.safeParse(await response.json().catch(() => null));
 		return parsed.success ? parsed.data.message : `Lookstow answered ${response.status}.`;
@@ -160,6 +181,17 @@
 			<dt>Last check</dt>
 			<dd><Badge tone="warn">Problem</Badge> {view.problem}</dd>
 		{/if}
+		{#if lastUpdate !== null}
+			<dt>Last update</dt>
+			<dd>
+				{seconds(lastUpdate.total)} from asking to ready ({formatDateTime(lastUpdate.startedIso)})
+				<ul class="steps small">
+					{#each lastUpdate.steps as step, index (index)}
+						<li><span class="muted">{seconds(step.ms)}</span> until {step.step}</li>
+					{/each}
+				</ul>
+			</dd>
+		{/if}
 		{#if view.deployment === 'source'}
 			<dt>Running from</dt>
 			<dd>Source (development). Updates are installed only on an installed service.</dd>
@@ -208,6 +240,12 @@
 {/if}
 
 <style>
+	.steps {
+		list-style: none;
+		margin: var(--space-1) 0 0;
+		padding: 0;
+	}
+
 	.facts {
 		display: grid;
 		grid-template-columns: max-content 1fr;

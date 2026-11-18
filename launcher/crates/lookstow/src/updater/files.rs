@@ -177,6 +177,57 @@ pub fn now_ms() -> u64 {
 }
 
 // ---------------------------------------------------------------------------
+// Step times, for the app: where an update's time went
+// ---------------------------------------------------------------------------
+
+/// `update-timings.json`: each step of the last update and when it ended. A
+/// file of its own, so an older app (after a rollback) never sees a field it
+/// does not know in `update-status.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Timings {
+    pub steps: Vec<TimedStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimedStep {
+    pub step: String,
+    pub at_ms: u64,
+}
+
+/// When the flag was written, from its modification time (before it is taken).
+pub fn flag_written_ms(flag: &Path) -> Option<u64> {
+    let modified = fs::symlink_metadata(flag).ok()?.modified().ok()?;
+    let since = modified.duration_since(UNIX_EPOCH).ok()?;
+    u64::try_from(since.as_millis()).ok()
+}
+
+/// Starts a new record (`first` true) or adds a step to the current one.
+/// Best effort: timings never stop an update.
+pub fn mark_step(layout: &Layout, step: &str, at_ms: u64, first: bool) {
+    let path = layout.update_timings();
+    let mut timings = if first {
+        Timings { steps: Vec::new() }
+    } else {
+        read_small(&path)
+            .ok()
+            .flatten()
+            .and_then(|bytes| serde_json::from_slice::<Timings>(&bytes).ok())
+            .unwrap_or(Timings { steps: Vec::new() })
+    };
+    if timings.steps.len() < 32 {
+        timings.steps.push(TimedStep {
+            step: step.to_string(),
+            at_ms,
+        });
+    }
+    if let Ok(bytes) = serde_json::to_vec(&timings) {
+        let _ = write_atomic(&path, &bytes, 0o644);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Progress, for the app
 // ---------------------------------------------------------------------------
 
