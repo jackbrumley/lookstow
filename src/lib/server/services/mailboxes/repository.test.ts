@@ -50,6 +50,24 @@ describe('applying discovery', () => {
 });
 
 describe('scope', () => {
+	it('backs up only the picked addresses in picked mode, whatever their kind', () => {
+		const scope = {
+			...SCOPE_DEFAULTS,
+			mode: 'selected' as const,
+			selectedAddresses: ['x@example.com']
+		};
+		const base = { excluded: false };
+		expect(inScope({ ...base, kind: 'room', address: 'x@example.com' }, scope)).toBe(true);
+		expect(inScope({ ...base, kind: 'archive', address: 'X@example.com' }, scope)).toBe(true);
+		expect(inScope({ ...base, kind: 'user', address: 'y@example.com' }, scope)).toBe(false);
+		expect(
+			inScope(
+				{ ...base, kind: 'archive', address: 'x@example.com' },
+				{ ...scope, includeArchives: false }
+			)
+		).toBe(false);
+	});
+
 	it('follows the settings for shared mailboxes, resources, archives and exclusions', () => {
 		const base = { excluded: false, address: 'x@example.com' };
 		expect(inScope({ ...base, kind: 'user' }, SCOPE_DEFAULTS)).toBe(true);

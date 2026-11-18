@@ -1,14 +1,23 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
 	import Badge from '#lib/ui/badge.svelte';
+	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { KIND_LABELS, STATE_LABELS, type MailboxState } from '#lib/domain/mailboxes.ts';
 	import { formatBytes, formatCount, formatRelative } from '#lib/utils/format.ts';
 	import { stateTone } from '#lib/utils/mailbox-tone.ts';
+	import { toastFormResult } from '#lib/utils/form-toast.ts';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
+
+	$effect(() => {
+		toastFormResult(form);
+	});
+
+	const picked = $derived(new Set(data.picked));
 
 	let search = $state('');
 	let stateFilter = $state<MailboxState | 'all'>('all');
@@ -36,6 +45,16 @@
 	title="Mailboxes"
 	lede="Every mailbox Lookstow has found in Microsoft 365. Mailboxes that disappear keep their backup."
 />
+
+{#if data.picking}
+	<Card tone="warn">
+		<p>
+			Only the mailboxes you pick are backed up ({formatCount(picked.size)} picked). Use
+			<strong>Pick</strong> on a row to back that mailbox up. To back up every mailbox again, change
+			<a href={resolve('/settings')}>Settings</a> &gt; What is backed up.
+		</p>
+	</Card>
+{/if}
 
 <Card>
 	<div class="filters">
@@ -72,7 +91,7 @@
 					<tr
 						><th>Mailbox</th><th>Kind</th><th>State</th><th>Messages</th><th>Size</th><th
 							>Last sync</th
-						></tr
+						>{#if data.picking}<th>Backed up</th>{/if}</tr
 					>
 				</thead>
 				<tbody>
@@ -87,6 +106,27 @@
 							<td>{formatCount(mailbox.itemCount)}</td>
 							<td>{formatBytes(mailbox.byteCount)}</td>
 							<td>{formatRelative(mailbox.lastSyncFinishedAt)}</td>
+							{#if data.picking}
+								<td>
+									{#if mailbox.kind === 'archive'}
+										<span class="muted small">With its mailbox</span>
+									{:else}
+										<form
+											method="POST"
+											action={picked.has(mailbox.address) ? '?/unpick' : '?/pick'}
+											use:enhance
+										>
+											<input type="hidden" name="address" value={mailbox.address} />
+											<Button
+												type="submit"
+												size="sm"
+												variant={picked.has(mailbox.address) ? 'secondary' : 'primary'}
+												>{picked.has(mailbox.address) ? 'Unpick' : 'Pick'}</Button
+											>
+										</form>
+									{/if}
+								</td>
+							{/if}
 						</tr>
 					{/each}
 				</tbody>

@@ -17,6 +17,13 @@ export type ConnectionView = {
 };
 
 export type ScopeSettings = {
+	/**
+	 * `all`: every mailbox discovery finds, minus the exclusions and kinds turned off.
+	 * `selected`: only the addresses in `selectedAddresses` (any kind), for a trial or a small set.
+	 */
+	mode: 'all' | 'selected';
+	/** With `selected`: the addresses backed up, lower case. Their online archives follow. */
+	selectedAddresses: string[];
 	/** Shared mailboxes (always recommended: they are what people lose most). */
 	includeShared: boolean;
 	/** Room and equipment mailboxes (mostly calendar, little mail). */
@@ -56,6 +63,8 @@ export type SettingsView = {
 };
 
 export const SCOPE_DEFAULTS: ScopeSettings = {
+	mode: 'all',
+	selectedAddresses: [],
 	includeShared: true,
 	includeResources: false,
 	includeArchives: true,

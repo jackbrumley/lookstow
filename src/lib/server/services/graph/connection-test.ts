@@ -1,12 +1,18 @@
 import { asRecord, GraphClient, GraphError, stringField } from './client.ts';
+import { isNoMailbox } from './discovery.ts';
 import { TokenSource, type FetchLike, type GraphCredentials } from './token.ts';
 
 /**
- * Test connection on the Settings page: sign in, list one user, read one mailbox's settings.
- * Each step says what it proved, so a failure names the missing piece (consent, a permission,
- * the certificate) instead of a bare error.
+ * Test connection on the Settings page: sign in, list users, then read one mailbox's settings and
+ * folders. Each step says what it proved, so a failure names the missing piece (consent, a
+ * permission, the certificate) instead of a bare error.
+ *
+ * Users whose mailbox can't be read (never had one, inactive, soft-deleted, on-premises) are
+ * skipped, as discovery skips them: the test tries the next one, up to SAMPLE users.
  */
 export type TestStep = { name: string; ok: boolean; detail: string };
+
+const SAMPLE = 25;
 
 export async function testConnection(
 	credentials: GraphCredentials,
@@ -22,12 +28,15 @@ export async function testConnection(
 		return steps;
 	}
 	const client = new GraphClient(tokens, fetchImpl);
-	let userId: string | null;
+	let candidates: { id: string; mail: string }[];
 	try {
-		const page = asRecord(await client.getJson('/v1.0/users?$select=id,mail&$top=5'));
+		const page = asRecord(await client.getJson(`/v1.0/users?$select=id,mail&$top=${SAMPLE}`));
 		const users = Array.isArray(page['value']) ? page['value'].map(asRecord) : [];
-		const withMail = users.find((user) => stringField(user, 'mail') !== null);
-		userId = withMail === undefined ? null : stringField(withMail, 'id');
+		candidates = users.flatMap((user) => {
+			const id = stringField(user, 'id');
+			const mail = stringField(user, 'mail');
+			return id !== null && mail !== null && mail !== '' ? [{ id, mail }] : [];
+		});
 		steps.push({
 			name: 'List users (User.Read.All)',
 			ok: true,
@@ -41,33 +50,49 @@ export async function testConnection(
 		});
 		return steps;
 	}
-	if (userId === null) {
+
+	let mailbox: { id: string; mail: string } | null = null;
+	let skipped = 0;
+	for (const candidate of candidates) {
+		try {
+			await client.getJson(
+				`/v1.0/users/${encodeURIComponent(candidate.id)}/mailboxSettings?$select=userPurpose`
+			);
+			mailbox = candidate;
+			break;
+		} catch (error) {
+			if (isNoMailbox(error)) {
+				skipped += 1;
+				continue;
+			}
+			steps.push({
+				name: 'Read mailbox settings (MailboxSettings.Read)',
+				ok: false,
+				detail: permissionHint(error, 'MailboxSettings.Read')
+			});
+			return steps;
+		}
+	}
+	if (mailbox === null) {
 		steps.push({
-			name: 'Read a mailbox',
+			name: 'Read mailbox settings (MailboxSettings.Read)',
 			ok: false,
-			detail: 'No user with a mail address to try.'
+			detail: `None of the first ${candidates.length} users with a mail address has an Exchange Online mailbox Lookstow can read (inactive, soft-deleted or on-premises). Discovery skips such users; check that the tenant has licensed mailboxes.`
 		});
 		return steps;
 	}
+	const skippedNote =
+		skipped === 0 ? '' : ` (${skipped} user${skipped === 1 ? '' : 's'} without a mailbox skipped)`;
+	steps.push({
+		name: 'Read mailbox settings (MailboxSettings.Read)',
+		ok: true,
+		detail: `Allowed, on ${mailbox.mail}${skippedNote}.`
+	});
 	try {
 		await client.getJson(
-			`/v1.0/users/${encodeURIComponent(userId)}/mailboxSettings?$select=userPurpose`
+			`/v1.0/users/${encodeURIComponent(mailbox.id)}/mailFolders?$top=1&$select=id`
 		);
-		steps.push({
-			name: 'Read mailbox settings (MailboxSettings.Read)',
-			ok: true,
-			detail: 'Allowed.'
-		});
-	} catch (error) {
-		steps.push({
-			name: 'Read mailbox settings (MailboxSettings.Read)',
-			ok: false,
-			detail: permissionHint(error, 'MailboxSettings.Read')
-		});
-	}
-	try {
-		await client.getJson(`/v1.0/users/${encodeURIComponent(userId)}/mailFolders?$top=1&$select=id`);
-		steps.push({ name: 'Read mail (Mail.Read)', ok: true, detail: 'Allowed.' });
+		steps.push({ name: 'Read mail (Mail.Read)', ok: true, detail: `Allowed, on ${mailbox.mail}.` });
 	} catch (error) {
 		steps.push({
 			name: 'Read mail (Mail.Read)',

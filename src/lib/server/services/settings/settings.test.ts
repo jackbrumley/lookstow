@@ -10,9 +10,10 @@ import {
 	saveConnectionIds,
 	saveSchedule,
 	saveScope,
-	SettingsError
+	SettingsError,
+	setPicked
 } from './settings.ts';
-import { SCHEDULE_DEFAULTS } from '../../../domain/settings.ts';
+import { SCHEDULE_DEFAULTS, SCOPE_DEFAULTS } from '../../../domain/settings.ts';
 
 const KEY = Buffer.alloc(32, 7);
 const TENANT = '0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0';
@@ -64,12 +65,32 @@ describe('settings', () => {
 	it('keep excluded addresses lower case, sorted and once each', () => {
 		const db = openDatabase(':memory:');
 		saveScope(db, {
-			includeShared: true,
-			includeResources: false,
-			includeArchives: true,
+			...SCOPE_DEFAULTS,
 			excludedAddresses: ['B@x.com', 'a@x.com', 'b@x.com']
 		});
 		expect(readScope(db).excludedAddresses).toEqual(['a@x.com', 'b@x.com']);
+	});
+
+	it('load a scope saved by 0.1.0, before picking existed, as every mailbox', () => {
+		const db = openDatabase(':memory:');
+		db.insert(settings)
+			.values({
+				key: 'scope',
+				value:
+					'{"includeShared":true,"includeResources":false,"includeArchives":true,"excludedAddresses":[]}',
+				updatedAt: new Date()
+			})
+			.run();
+		expect(readScope(db)).toMatchObject({ mode: 'all', selectedAddresses: [] });
+	});
+
+	it('pick and unpick mailboxes one at a time', () => {
+		const db = openDatabase(':memory:');
+		saveScope(db, { ...SCOPE_DEFAULTS, mode: 'selected' });
+		setPicked(db, 'Ann@Example.com', true);
+		setPicked(db, 'bob@example.com', true);
+		setPicked(db, 'ann@example.com', false);
+		expect(readScope(db).selectedAddresses).toEqual(['bob@example.com']);
 	});
 
 	it('put backups beside the database unless a folder is chosen', () => {

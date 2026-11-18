@@ -46,11 +46,16 @@ const connectionSchema = z.object({
 });
 type StoredConnection = z.infer<typeof connectionSchema>;
 
+const addressList = z.array(z.string().trim().toLowerCase().pipe(z.email()));
+
 const scopeSchema = z.object({
+	// Added after 0.1.0: a scope saved by 0.1.0 has neither, and means every mailbox.
+	mode: z.enum(['all', 'selected']).default('all'),
+	selectedAddresses: addressList.default([]),
 	includeShared: z.boolean(),
 	includeResources: z.boolean(),
 	includeArchives: z.boolean(),
-	excludedAddresses: z.array(z.string().trim().toLowerCase().pipe(z.email()))
+	excludedAddresses: addressList
 });
 
 const intIn = (limits: { min: number; max: number }) =>
@@ -187,8 +192,17 @@ export function saveScope(db: Queryable, scope: ScopeSettings): void {
 	}
 	write(db, 'scope', {
 		...parsed.data,
+		selectedAddresses: [...new Set(parsed.data.selectedAddresses)].sort(),
 		excludedAddresses: [...new Set(parsed.data.excludedAddresses)].sort()
 	});
+}
+
+/** Adds or removes one address from the picked mailboxes (the `selected` mode's list). */
+export function setPicked(db: Queryable, address: string, picked: boolean): void {
+	const scope = readScope(db);
+	const lower = address.toLowerCase();
+	const rest = scope.selectedAddresses.filter((selected) => selected !== lower);
+	saveScope(db, { ...scope, selectedAddresses: picked ? [...rest, lower] : rest });
 }
 
 export function saveSchedule(db: Queryable, schedule: ScheduleSettings): void {

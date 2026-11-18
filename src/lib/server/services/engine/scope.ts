@@ -8,6 +8,13 @@ export function inScope(
 	if (mailbox.excluded || scope.excludedAddresses.includes(mailbox.address.toLowerCase())) {
 		return false;
 	}
+	if (scope.mode === 'selected') {
+		// Picked by address: any kind; an online archive follows its mailbox.
+		return (
+			scope.selectedAddresses.includes(mailbox.address.toLowerCase()) &&
+			(mailbox.kind !== 'archive' || scope.includeArchives)
+		);
+	}
 	if (mailbox.kind === 'shared') {
 		return scope.includeShared;
 	}

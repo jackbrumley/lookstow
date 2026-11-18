@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
+	import { untrack } from 'svelte';
 	import type { PageProps } from './$types';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
@@ -27,6 +28,13 @@
 	let scheduleOpen = $state(false);
 	let backupOpen = $state(false);
 	let updatesOpen = $state(false);
+	// The scope form's mode, reset from the saved setting each time the form opens.
+	let scopeMode = $state<'all' | 'selected'>('all');
+	$effect(() => {
+		if (scopeOpen) {
+			scopeMode = untrack(() => settings.scope.mode);
+		}
+	});
 	let testing = $state(false);
 </script>
 
@@ -123,26 +131,44 @@
 	{#snippet actions()}
 		<Button variant="secondary" onclick={() => (scopeOpen = true)}>Change…</Button>
 	{/snippet}
-	<ul class="plain">
-		<li>Every user mailbox discovery finds.</li>
-		<li>Shared mailboxes: <strong>{settings.scope.includeShared ? 'yes' : 'no'}</strong></li>
-		<li>
-			Room and equipment mailboxes: <strong>{settings.scope.includeResources ? 'yes' : 'no'}</strong
-			>
-		</li>
-		<li>
-			Online archives: <strong>{settings.scope.includeArchives ? 'yes' : 'no'}</strong>
-			<span class="muted small">(found by discovery; copying them is not built yet)</span>
-		</li>
-		<li>
-			Never backed up:
-			{#if settings.scope.excludedAddresses.length === 0}
-				<strong>none</strong>
-			{:else}
-				{settings.scope.excludedAddresses.join(', ')}
-			{/if}
-		</li>
-	</ul>
+	{#if settings.scope.mode === 'selected'}
+		<p>
+			<strong>Only the mailboxes you pick</strong>
+			({settings.scope.selectedAddresses.length}). Pick them on the
+			<a href={resolve('/mailboxes')}>Mailboxes</a> page, or list them here with Change.
+		</p>
+		{#if settings.scope.selectedAddresses.length > 0}
+			<p class="muted small">{settings.scope.selectedAddresses.join(', ')}</p>
+		{/if}
+		<p class="muted small">
+			Online archives of picked mailboxes: {settings.scope.includeArchives ? 'yes' : 'no'}.
+		</p>
+	{:else}
+		<ul class="plain">
+			<li>Every user mailbox discovery finds.</li>
+			<li>Shared mailboxes: <strong>{settings.scope.includeShared ? 'yes' : 'no'}</strong></li>
+			<li>
+				Room and equipment mailboxes:
+				<strong>{settings.scope.includeResources ? 'yes' : 'no'}</strong>
+			</li>
+			<li>
+				Online archives: <strong>{settings.scope.includeArchives ? 'yes' : 'no'}</strong>
+				<span class="muted small">(found by discovery; copying them is not built yet)</span>
+			</li>
+			<li>
+				Never backed up:
+				{#if settings.scope.excludedAddresses.length === 0}
+					<strong>none</strong>
+				{:else}
+					{settings.scope.excludedAddresses.join(', ')}
+				{/if}
+			</li>
+		</ul>
+	{/if}
+	<p class="muted small">
+		Picking limits what Lookstow copies. To limit what it can read at all, scope the app with
+		Exchange Online RBAC for Applications.
+	</p>
 </Card>
 
 <Card title="Schedule">
@@ -255,6 +281,24 @@
 </FormModal>
 
 <FormModal bind:open={scopeOpen} title="What is backed up" action="?/scope">
+	<fieldset class="choice">
+		<legend>Back up</legend>
+		<label class="check"
+			><input type="radio" name="mode" value="all" bind:group={scopeMode} /> Every mailbox discovery finds</label
+		>
+		<label class="check"
+			><input type="radio" name="mode" value="selected" bind:group={scopeMode} /> Only the mailboxes I
+			pick</label
+		>
+	</fieldset>
+	{#if scopeMode === 'selected'}
+		<label>
+			Mailboxes to back up (one address per line)
+			<textarea name="selected" rows="5">{settings.scope.selectedAddresses.join('\n')}</textarea>
+		</label>
+	{:else}
+		<input type="hidden" name="selected" value={settings.scope.selectedAddresses.join('\n')} />
+	{/if}
 	<label class="check"
 		><input type="checkbox" name="includeShared" checked={settings.scope.includeShared} /> Shared mailboxes</label
 	>
@@ -372,6 +416,19 @@
 	label {
 		display: grid;
 		gap: var(--space-1);
+	}
+
+	.choice {
+		border: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: var(--space-2);
+	}
+
+	.choice legend {
+		font-weight: var(--font-weight-medium);
+		margin-bottom: var(--space-1);
 	}
 
 	label.check {

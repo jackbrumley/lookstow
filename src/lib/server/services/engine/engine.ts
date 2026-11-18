@@ -192,10 +192,9 @@ export class Engine {
 	async #run(job: Job): Promise<void> {
 		const client = this.#client();
 		if (client === null) {
-			// Not set up yet: nothing to do, and no point retrying before the settings change.
-			const time = this.#deps.now();
-			this.#lastDiscoveryAt ??= time;
-			this.#lastPassAt ??= time;
+			// Not set up yet. Nothing is marked as done, so the first discovery runs on the first
+			// tick after the connection is complete, not a whole discovery interval later. Each tick
+			// only reads the settings until then.
 			return;
 		}
 		if (job.kind === 'discovery') {

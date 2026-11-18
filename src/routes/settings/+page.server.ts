@@ -37,6 +37,14 @@ function attempt(work: () => ReturnType<typeof done>) {
 	}
 }
 
+/** Addresses typed one per line (or separated by commas or spaces), lower case. */
+function addresses(text: string): string[] {
+	return text
+		.split(/[\s,;]+/)
+		.map((address) => address.trim().toLowerCase())
+		.filter((address) => address !== '');
+}
+
 function whole(data: FormData, name: string): number {
 	return Number.parseInt(field(data, name), 10);
 }
@@ -93,16 +101,25 @@ export const actions = {
 	scope: async ({ request }) => {
 		const data = await request.formData();
 		return attempt(() => {
+			const mode = field(data, 'mode') === 'selected' ? 'selected' : 'all';
+			const selectedAddresses = addresses(field(data, 'selected'));
 			saveScope(database, {
+				mode,
+				selectedAddresses,
 				includeShared: checked(data, 'includeShared'),
 				includeResources: checked(data, 'includeResources'),
 				includeArchives: checked(data, 'includeArchives'),
-				excludedAddresses: field(data, 'excluded')
-					.split(/[\s,;]+/)
-					.map((address) => address.trim().toLowerCase())
-					.filter((address) => address !== '')
+				excludedAddresses: addresses(field(data, 'excluded'))
 			});
-			return saved('What is backed up was changed', 'Saved. The next sync follows the new choice.');
+			backupEngine().requestSync(null, 'scope changed');
+			return saved(
+				mode === 'selected'
+					? `Backups were limited to ${selectedAddresses.length} chosen mailbox${selectedAddresses.length === 1 ? '' : 'es'}`
+					: 'What is backed up was changed',
+				mode === 'selected' && selectedAddresses.length === 0
+					? 'Saved. No mailbox is picked yet, so nothing is backed up: pick some on the Mailboxes page.'
+					: 'Saved. A sync with the new choice has started.'
+			);
 		});
 	},
 	schedule: async ({ request }) => {

@@ -31,8 +31,19 @@ const NO_MAILBOX_CODES = new Set([
 	'MailboxNotEnabledForRESTAPI',
 	'MailboxNotHostedInExchangeOnline',
 	'ResourceNotFound',
-	'ErrorItemNotFound'
+	'ErrorItemNotFound',
+	'ErrorNonExistentMailbox',
+	'ErrorInvalidUser'
 ]);
+
+/**
+ * Graph's answer for a user with no Exchange Online mailbox to read: never had one, inactive,
+ * soft-deleted, or still on-premises ("The mailbox is either inactive, soft-deleted, or is
+ * hosted on-premise"). Not a permission problem: such users are skipped.
+ */
+export function isNoMailbox(error: unknown): boolean {
+	return error instanceof GraphError && (error.status === 404 || NO_MAILBOX_CODES.has(error.code));
+}
 
 export async function discoverMailboxes(
 	client: GraphClient,
@@ -122,7 +133,7 @@ async function mailboxPurpose(client: GraphClient, userId: string): Promise<stri
 		);
 		return stringField(settings, 'userPurpose') ?? 'user';
 	} catch (error) {
-		if (error instanceof GraphError && (error.status === 404 || NO_MAILBOX_CODES.has(error.code))) {
+		if (isNoMailbox(error)) {
 			return 'none';
 		}
 		throw error;
@@ -142,7 +153,7 @@ async function archiveMailboxId(client: GraphClient, userId: string): Promise<st
 		const archiveId = stringField(settings, 'inPlaceArchiveMailboxId');
 		return archiveId === null || archiveId === '' ? null : archiveId;
 	} catch (error) {
-		if (error instanceof GraphError && (error.status === 404 || NO_MAILBOX_CODES.has(error.code))) {
+		if (isNoMailbox(error)) {
 			return null;
 		}
 		throw error;
