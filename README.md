@@ -7,9 +7,9 @@
 <p align="center">Back up every Microsoft 365 mailbox to your own disk.<br />Users, shared mailboxes and online archives, found by themselves and kept even after a licence is removed.</p>
 
 <p align="center">
-  <a href="https://github.com/jackbrumley/lookstow/releases/latest"><img src="https://img.shields.io/github/v/release/jackbrumley/lookstow?label=release&color=7c3aed" alt="Latest release" /></a>
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-7c3aed" alt="Windows and Linux" />
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-7c3aed" alt="AGPL-3.0" /></a>
+  <a href="https://github.com/jackbrumley/lookstow/releases/latest"><img src="https://img.shields.io/github/v/release/jackbrumley/lookstow?label=release&color=e11d48" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-e11d48" alt="Windows and Linux" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-e11d48" alt="AGPL-3.0" /></a>
 </p>
 
 <p align="center">

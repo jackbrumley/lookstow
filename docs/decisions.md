@@ -49,3 +49,7 @@ Remote access needs sign-in, and sign-in is not built. Refusing other computers 
 ## Automatic updates on by default (2026-11-18)
 
 The maintainer wants to iterate quickly. Releases are signed and roll back by themselves, so installing a new release soon after the daily check finds it is low risk. A switch in Settings turns it off.
+
+## Icon and colours: the mail crate, rose and amber (2026-11-18)
+
+A letter dropping into a crate says what the app does ("stow": put away safely), and the dark body with a coloured band echoes ComTap and RawTap without copying their window shape. Rose (#e11d48) is unused in the family; amber (#f59e0b) stays a small accent, away from RawTap's amber. One SVG is the app icon, favicon and install-page icon. The nine other options are kept in `docs/design/icon-options.html`.

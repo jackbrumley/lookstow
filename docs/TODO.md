@@ -6,7 +6,6 @@
 - **Archive test.** Try the beta Mailbox Import/Export API on an archive: list folders and items, export one item, see what format comes back. Then decide how archives are stored (DESIGN.md section 7).
 - **Verify discovery's archive lookup** (`/beta/users/{id}/settings/exchange`, `inPlaceArchiveMailboxId`) on a real tenant; fix the property name if it differs.
 - **First release.** Move the release key offline and into the `LOOKSTOW_RELEASE_KEY` secret, set up GitHub Pages and the `dev`/`main` branches, tag 0.1.0 (`RELEASE.md`), then run the one-line install on a real Windows server and a Linux VM.
-- **Icon.** `docs/assets/icon.png` and a proper app icon (the favicon is a placeholder drawn by hand).
 
 ## Next
 

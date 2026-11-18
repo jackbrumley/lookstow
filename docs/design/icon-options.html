@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Lookstow icon options</title>
+		<style>
+			:root {
+				--bg: #f4f4f6;
+				--card: #ffffff;
+				--text: #1a1a22;
+				--muted: #5b5b6b;
+				--line: #e2e2ea;
+				--dark: #14141c;
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg: #101016;
+					--card: #191922;
+					--text: #ececf3;
+					--muted: #9d9daf;
+					--line: #2b2b38;
+				}
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				font:
+					15px/1.5 'Segoe UI',
+					system-ui,
+					sans-serif;
+				background: var(--bg);
+				color: var(--text);
+				padding: 24px 16px 64px;
+			}
+			main {
+				max-width: 1180px;
+				margin: 0 auto;
+				display: grid;
+				gap: 24px;
+			}
+			h1 {
+				margin: 0;
+				font-size: 28px;
+			}
+			p {
+				margin: 0;
+				color: var(--muted);
+				max-width: 75ch;
+			}
+			.family {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 10px;
+			}
+			.app {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				background: var(--card);
+				border: 1px solid var(--line);
+				border-radius: 999px;
+				padding: 4px 12px 4px 6px;
+				font-size: 13px;
+			}
+			.dots {
+				display: flex;
+			}
+			.dot {
+				width: 18px;
+				height: 18px;
+				border-radius: 50%;
+				border: 2px solid var(--card);
+			}
+			.dot + .dot {
+				margin-left: -6px;
+			}
+			.grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+				gap: 18px;
+			}
+			.card {
+				background: var(--card);
+				border: 1px solid var(--line);
+				border-radius: 16px;
+				padding: 18px;
+				display: grid;
+				gap: 14px;
+			}
+			.card header {
+				display: flex;
+				justify-content: space-between;
+				align-items: baseline;
+				gap: 8px;
+			}
+			.card h2 {
+				margin: 0;
+				font-size: 18px;
+			}
+			.num {
+				color: var(--muted);
+				font-weight: 600;
+			}
+			.stage {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				border-radius: 12px;
+				overflow: hidden;
+				border: 1px solid var(--line);
+			}
+			.stage > div {
+				display: grid;
+				place-items: center;
+				padding: 20px 0;
+				gap: 14px;
+			}
+			.light {
+				background: #ffffff;
+			}
+			.darkbg {
+				background: var(--dark);
+			}
+			.big svg {
+				width: 120px;
+				height: 120px;
+				display: block;
+			}
+			.sizes {
+				display: flex;
+				align-items: flex-end;
+				gap: 12px;
+			}
+			.sizes svg {
+				display: block;
+			}
+			.tab {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				font-size: 12px;
+				padding: 4px 10px;
+				border-radius: 8px 8px 0 0;
+			}
+			.light .tab {
+				background: #e8e8ee;
+				color: #222;
+			}
+			.darkbg .tab {
+				background: #2a2a36;
+				color: #ddd;
+			}
+			.swatches {
+				display: flex;
+				gap: 10px;
+				flex-wrap: wrap;
+			}
+			.sw {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				font:
+					13px 'Cascadia Mono',
+					Consolas,
+					monospace;
+			}
+			.sw i {
+				width: 22px;
+				height: 22px;
+				border-radius: 6px;
+				display: inline-block;
+				border: 1px solid rgba(0, 0, 0, 0.1);
+			}
+			.note {
+				font-size: 13px;
+				color: var(--muted);
+			}
+			button {
+				font: inherit;
+				border: 1px solid var(--line);
+				background: var(--bg);
+				color: var(--text);
+				border-radius: 999px;
+				padding: 6px 14px;
+				cursor: pointer;
+			}
+			button:hover {
+				border-color: var(--muted);
+			}
+			.row {
+				display: flex;
+				gap: 8px;
+				flex-wrap: wrap;
+			}
+			.pick.on {
+				background: #e11d48;
+				border-color: #e11d48;
+				color: #fff;
+			}
+			#choice {
+				position: sticky;
+				bottom: 12px;
+				background: var(--card);
+				border: 1px solid var(--line);
+				border-radius: 12px;
+				padding: 10px 14px;
+				box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+			}
+			@media (max-width: 420px) {
+				.grid {
+					grid-template-columns: 1fr;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<header style="display: grid; gap: 8px">
+				<h1>Lookstow icon options</h1>
+				<p>
+					<strong>Chosen on 18 November 2026: 1. Mail crate (rose #e11d48, amber #f59e0b).</strong>
+					It is <code>static/favicon.svg</code> and <code>docs/assets/icon.svg</code>. The other
+					nine are kept here in case we change our mind; open this file in a browser to compare them
+					again.
+				</p>
+			</header>
+
+			<section style="display: grid; gap: 8px">
+				<strong>Colours already taken by the family</strong>
+				<div class="family" id="family"></div>
+				<p class="note">
+					Free space in the family: rose, crimson, gold, coral, plum and fuchsia. The violet in the
+					current placeholder (#7c3aed) sits too close to ComTap's violet, so none of these use it
+					as the main colour.
+				</p>
+			</section>
+
+			<section class="grid" id="grid"></section>
+			<div id="choice">No pick yet.</div>
+		</main>
+
+		<script>
+			const family = [
+				['Voquill', '#5865f2', '#c43991'],
+				['Rusty G6', '#e5483f', '#ff8a3d'],
+				['SomeDrive', '#1677d2', '#22c1c3'],
+				['Yambuck', '#1f8f9c', '#5ce0d2'],
+				['RawTap', '#d97706', '#10b981'],
+				['ComTap', '#0284c7', '#8b5cf6'],
+				['BMuster', '#65a30d', '#34d399']
+			];
+
+			// Each icon is drawn on a 128 x 128 grid with a transparent background, like the rest of the family.
+			// `ID` is replaced per use so gradient ids never clash on the page.
+			const options = [
+				{
+					name: 'Mail crate',
+					idea: 'A letter dropping into a crate: mail put away safely.',
+					colours: ['#e11d48', '#f59e0b'],
+					labels: ['Rose', 'Amber'],
+					note: 'Rose is unused in the family; amber sits near RawTap’s, so it stays the small accent.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <g transform="rotate(-9 64 34)">
+    <rect x="34" y="6" width="60" height="42" rx="7" fill="#ffffff" stroke="#1f1b2e" stroke-width="4"/>
+    <path d="M38 12 L64 31 L90 12" fill="none" stroke="#f59e0b" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <rect x="14" y="48" width="100" height="70" rx="12" fill="#1f1b2e"/>
+  <rect x="8" y="38" width="112" height="22" rx="9" fill="#e11d48"/>
+  <rect x="46" y="78" width="36" height="9" rx="4.5" fill="#f59e0b"/>
+</svg>`
+				},
+				{
+					name: 'Vault letter',
+					idea: 'An envelope behind a round vault door.',
+					colours: ['#eab308', '#1e3a8a'],
+					labels: ['Gold', 'Navy'],
+					note: 'Gold is unused; the navy body reads well on light backgrounds and stays visible on dark.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="ID-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#facc15"/><stop offset="1" stop-color="#ca8a04"/></linearGradient></defs>
+  <circle cx="64" cy="64" r="58" fill="#1e3a8a"/>
+  <circle cx="64" cy="64" r="58" fill="none" stroke="url(#ID-g)" stroke-width="9"/>
+  <g fill="url(#ID-g)"><circle cx="64" cy="17" r="5"/><circle cx="64" cy="111" r="5"/><circle cx="17" cy="64" r="5"/><circle cx="111" cy="64" r="5"/></g>
+  <rect x="34" y="44" width="60" height="42" rx="7" fill="#ffffff"/>
+  <path d="M38 50 L64 69 L90 50" fill="none" stroke="#eab308" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+				},
+				{
+					name: 'Stacked letters',
+					idea: 'Three envelopes filed one behind another: every message kept.',
+					colours: ['#f97066', '#86198f'],
+					labels: ['Coral', 'Plum'],
+					note: 'Coral and plum are both unused; plum is darker and redder than Voquill’s magenta.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="34" y="12" width="82" height="56" rx="9" fill="#86198f"/>
+  <rect x="23" y="30" width="82" height="56" rx="9" fill="#c0398f"/>
+  <rect x="12" y="48" width="82" height="58" rx="9" fill="#ffffff" stroke="#86198f" stroke-width="4"/>
+  <path d="M18 56 L53 82 L88 56" fill="none" stroke="#f97066" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+				},
+				{
+					name: 'Into the tray',
+					idea: 'A letter and a down arrow into a tray: the copy lands on your disk.',
+					colours: ['#c026d3', '#fb923c'],
+					labels: ['Fuchsia', 'Orange'],
+					note: 'Fuchsia is free; orange is near Rusty G6’s second colour, used only on the arrow.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="38" y="6" width="52" height="36" rx="6" fill="#c026d3"/>
+  <path d="M42 11 L64 27 L86 11" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M64 46 V76 M50 63 L64 77 L78 63" fill="none" stroke="#fb923c" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M10 72 H36 L44 88 H84 L92 72 H118 V108 a12 12 0 0 1 -12 12 H22 a12 12 0 0 1 -12 -12 Z" fill="#2a1633"/>
+  <path d="M10 72 H36 L44 88 H84 L92 72 H118" fill="none" stroke="#c026d3" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>`
+				},
+				{
+					name: 'Archive box',
+					idea: 'A filing box with a letter on its label.',
+					colours: ['#be185d', '#f9a8d4'],
+					labels: ['Raspberry', 'Blush'],
+					note: 'A pink family of its own; lighter and warmer than Voquill’s magenta.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="ID-g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#db2777"/><stop offset="1" stop-color="#be185d"/></linearGradient></defs>
+  <rect x="8" y="16" width="112" height="28" rx="9" fill="url(#ID-g)"/>
+  <rect x="16" y="44" width="96" height="72" rx="10" fill="#211521"/>
+  <rect x="38" y="60" width="52" height="36" rx="6" fill="#f9a8d4"/>
+  <path d="M42 65 L64 81 L86 65" fill="none" stroke="#be185d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+				},
+				{
+					name: 'Mail shelf',
+					idea: 'Pigeonholes, each holding a mailbox’s letters.',
+					colours: ['#be123c', '#fbbf24'],
+					labels: ['Crimson', 'Sunflower'],
+					note: 'Crimson is deeper than Rusty G6’s red; sunflower is brighter than RawTap’s amber.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="8" y="12" width="112" height="104" rx="12" fill="#be123c"/>
+  <g fill="#2a0e17">
+    <rect x="18" y="22" width="42" height="38" rx="5"/><rect x="68" y="22" width="42" height="38" rx="5"/>
+    <rect x="18" y="68" width="42" height="38" rx="5"/><rect x="68" y="68" width="42" height="38" rx="5"/>
+  </g>
+  <rect x="24" y="34" width="30" height="20" rx="3" fill="#fbbf24"/>
+  <path d="M26 37 L39 46 L52 37" fill="none" stroke="#2a0e17" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="74" y="34" width="30" height="20" rx="3" fill="#ffffff"/>
+  <rect x="74" y="80" width="30" height="20" rx="3" fill="#fbbf24"/>
+  <path d="M76 83 L89 92 L102 83" fill="none" stroke="#2a0e17" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="24" y="80" width="30" height="20" rx="3" fill="#ffffff"/>
+</svg>`
+				},
+				{
+					name: 'Shielded letter',
+					idea: 'An envelope inside a shield: a protected copy.',
+					colours: ['#9f1239', '#fdba74'],
+					labels: ['Wine rose', 'Peach'],
+					note: 'Dark rose with a soft peach: warm and unlike any other app.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="ID-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e11d48"/><stop offset="1" stop-color="#881337"/></linearGradient></defs>
+  <path d="M64 6 L114 22 V60 C114 92 92 112 64 122 C36 112 14 92 14 60 V22 Z" fill="url(#ID-g)"/>
+  <rect x="34" y="44" width="60" height="42" rx="7" fill="#ffffff"/>
+  <path d="M38 50 L64 69 L90 50" fill="none" stroke="#fdba74" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+				},
+				{
+					name: 'Tap-family window',
+					idea: 'ComTap and RawTap’s window, with a letter dropping into a tray.',
+					colours: ['#ec4899', '#facc15'],
+					labels: ['Hot pink', 'Lemon'],
+					note: 'Matches the ComTap and RawTap shape exactly; the top band is the app’s colour.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="6" y="12" width="116" height="104" rx="14" fill="#1b2230"/>
+  <path d="M6 26 a14 14 0 0 1 14 -14 H108 a14 14 0 0 1 14 14 V32 H6 Z" fill="#ec4899"/>
+  <rect x="40" y="42" width="48" height="32" rx="5" fill="none" stroke="#facc15" stroke-width="6"/>
+  <path d="M44 47 L64 61 L84 47" fill="none" stroke="#facc15" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M26 86 V100 H102 V86" fill="none" stroke="#ec4899" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M64 78 V92" stroke="#e5e7eb" stroke-width="6" stroke-linecap="round"/>
+</svg>`
+				},
+				{
+					name: 'Keepsake chest',
+					idea: 'A small chest with a letter-shaped lock.',
+					colours: ['#881337', '#ea580c'],
+					labels: ['Wine', 'Copper'],
+					note: 'Wine is unused; copper is close to Rusty G6’s orange, so it stays on the bands and lock.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <path d="M12 54 V44 C12 26 30 14 64 14 C98 14 116 26 116 44 V54 Z" fill="#881337"/>
+  <rect x="12" y="54" width="104" height="60" rx="10" fill="#2a1219"/>
+  <rect x="12" y="50" width="104" height="10" fill="#ea580c"/>
+  <rect x="28" y="14" width="10" height="100" rx="3" fill="#ea580c" opacity="0.9"/>
+  <rect x="90" y="14" width="10" height="100" rx="3" fill="#ea580c" opacity="0.9"/>
+  <rect x="48" y="62" width="32" height="24" rx="4" fill="#ffffff"/>
+  <path d="M51 66 L64 75 L77 66" fill="none" stroke="#881337" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+				},
+				{
+					name: 'Gradient tile',
+					idea: 'A bold rose-to-gold tile with a white letter and a stow chevron, in the style of SomeDrive.',
+					colours: ['#e11d48', '#f59e0b'],
+					labels: ['Rose', 'Amber'],
+					note: 'One strong gradient like SomeDrive’s; stands out in a dock or taskbar.',
+					svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="ID-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e11d48"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#ID-g)"/>
+  <rect x="30" y="30" width="68" height="46" rx="8" fill="#ffffff"/>
+  <path d="M35 36 L64 57 L93 36" fill="none" stroke="#e11d48" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M42 88 L64 104 L86 88" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+				}
+			];
+
+			document.getElementById('family').innerHTML = family
+				.map(
+					([name, a, b]) =>
+						`<span class="app"><span class="dots"><i class="dot" style="background:${a}"></i><i class="dot" style="background:${b}"></i></span>${name}</span>`
+				)
+				.join('');
+
+			const svgFor = (option, index, use) => option.svg.replaceAll('ID-', `o${index}${use}-`);
+
+			function sizes(option, index, bg) {
+				return `<div class="sizes">${[64, 32, 16]
+					.map(
+						(size) =>
+							`<span style="width:${size}px;height:${size}px">${svgFor(option, index, bg + size).replace('<svg ', `<svg width="${size}" height="${size}" `)}</span>`
+					)
+					.join('')}</div>
+		<div class="tab">${svgFor(option, index, bg + 'tab').replace('<svg ', '<svg width="16" height="16" ')} Lookstow</div>`;
+			}
+
+			document.getElementById('grid').innerHTML = options
+				.map(
+					(option, index) => `
+	<article class="card" id="opt${index + 1}">
+		<header><h2><span class="num">${index + 1}.</span> ${option.name}</h2></header>
+		<p>${option.idea}</p>
+		<div class="stage">
+			<div class="light"><div class="big">${svgFor(option, index, 'l')}</div>${sizes(option, index, 'L')}</div>
+			<div class="darkbg"><div class="big">${svgFor(option, index, 'd')}</div>${sizes(option, index, 'D')}</div>
+		</div>
+		<div class="swatches">${option.colours
+			.map(
+				(colour, i) =>
+					`<span class="sw"><i style="background:${colour}"></i>${option.labels[i]} ${colour}</span>`
+			)
+			.join('')}</div>
+		<p class="note">${option.note}</p>
+		<div class="row">
+			<button type="button" class="pick" data-pick="${index}">Pick this one</button>
+			<button type="button" data-copy="${index}">Copy SVG</button>
+		</div>
+	</article>`
+				)
+				.join('');
+
+			document.addEventListener('click', (event) => {
+				const target = event.target;
+				if (!(target instanceof HTMLElement)) return;
+				if (target.dataset.copy !== undefined) {
+					const option = options[Number(target.dataset.copy)];
+					navigator.clipboard.writeText(option.svg.replaceAll('ID-', 'lookstow-')).then(() => {
+						target.textContent = 'Copied';
+						setTimeout(() => (target.textContent = 'Copy SVG'), 1500);
+					});
+				}
+				if (target.dataset.pick !== undefined) {
+					document.querySelectorAll('.pick').forEach((button) => button.classList.remove('on'));
+					target.classList.add('on');
+					const index = Number(target.dataset.pick);
+					const option = options[index];
+					document.getElementById('choice').textContent =
+						`Your pick: ${index + 1}. ${option.name} (${option.labels[0]} ${option.colours[0]}, ${option.labels[1]} ${option.colours[1]}). Tell me “${index + 1}” in the chat.`;
+				}
+			});
+		</script>
+	</body>
+</html>
