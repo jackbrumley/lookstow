@@ -1,0 +1,6 @@
+package-lock.json
+/static/
+/src/lib/server/database/migrations/
+/launcher/
+/LICENSE
+/docs/*.html

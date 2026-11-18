@@ -1,0 +1,33 @@
+# Rust (launcher/)
+target/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+/build/
+# Release archives (npm run release:local)
+/dist/
+vite.config.ts.timestamp-*
+
+# Local data and secrets
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+/data/
+/temp/
+# Never commit a release signing key (npm run release:key writes it here).
+/keys/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code personal settings and agent worktrees
+.claude/settings.local.json
+.claude/worktrees/
