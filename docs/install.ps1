@@ -31,6 +31,13 @@ Set-StrictMode -Version 3.0
 # The progress bar makes Invoke-WebRequest many times slower in Windows PowerShell.
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+# Windows PowerShell started from PowerShell 7, or from a program started
+# there, inherits PowerShell 7's module folders, loads PowerShell 7's modules,
+# and can't find commands such as Get-FileHash. Keep only the other folders;
+# Windows PowerShell's own are named WindowsPowerShell.
+if ($PSVersionTable.PSEdition -ne 'Core') {
+	$env:PSModulePath = ($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '\\PowerShell\\' }) -join ';'
+}
 
 $Repo = 'jackbrumley/lookstow'
 $Asset = 'lookstow-windows-x64.zip'
