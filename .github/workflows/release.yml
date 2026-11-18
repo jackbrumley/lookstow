@@ -334,12 +334,16 @@ jobs:
 
       - name: Uninstall
         run: |
-          & 'C:\Program Files\Lookstow\current\lookstow.exe' uninstall --purge
-          if ($LASTEXITCODE -ne 0) { throw 'uninstall failed' }
+          # Each failure is also written as an annotation, which anyone can read on the run's
+          # summary without opening the log.
+          function Fail([string]$Reason) { Write-Output "::error title=Uninstall::$Reason"; throw $Reason }
+          $output = & 'C:\Program Files\Lookstow\current\lookstow.exe' uninstall --purge 2>&1 | Out-String
+          Write-Output $output
+          if ($LASTEXITCODE -ne 0) { Fail "uninstall failed: $($output.Trim() -replace '\r?\n', ' | ')" }
           Start-Sleep -Seconds 8
-          if (Get-Service Lookstow -ErrorAction SilentlyContinue) { throw 'service still there' }
-          if (Test-Path 'C:\Program Files\Lookstow') { throw 'program folder still there' }
-          if (Test-Path 'C:\ProgramData\Lookstow') { throw 'data folder still there' }
+          if (Get-Service Lookstow -ErrorAction SilentlyContinue) { Fail 'service still there' }
+          if (Test-Path 'C:\Program Files\Lookstow') { Fail "program folder still there: $((Get-ChildItem -Recurse -Name 'C:\Program Files\Lookstow' | Select-Object -First 10) -join ', ')" }
+          if (Test-Path 'C:\ProgramData\Lookstow') { Fail "data folder still there: $((Get-ChildItem -Recurse -Name 'C:\ProgramData\Lookstow' | Select-Object -First 10) -join ', ')" }
 
   publish:
     name: Publish the release

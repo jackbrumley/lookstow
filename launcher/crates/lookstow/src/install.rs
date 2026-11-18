@@ -177,13 +177,32 @@ pub fn uninstall(target: &Layout, purge: bool) -> Result<()> {
             target.data.display()
         );
     }
-    fs::remove_dir_all(&target.data)
-        .with_context(|| format!("could not remove {}", target.data.display()))?;
+    remove_dir_when_free(&target.data)?;
     println!(
         "Removed {} (database, settings and secrets key).",
         target.data.display()
     );
     platform::remove_user()
+}
+
+/// Removes a folder, retrying for a while when its files are still open.
+/// On Windows the service reports "stopped" a moment before its process
+/// exits, and until then that process still holds `server.log` open, so an
+/// uninstall straight after the stop would otherwise fail on the data folder.
+fn remove_dir_when_free(path: &Path) -> Result<()> {
+    const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+    const PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        match fs::remove_dir_all(path) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(_) if std::time::Instant::now() < deadline => std::thread::sleep(PAUSE),
+            Err(e) => {
+                return Err(e).with_context(|| format!("could not remove {}", path.display()))
+            }
+        }
+    }
 }
 
 pub fn status(target: &Layout) {
