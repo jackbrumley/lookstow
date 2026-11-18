@@ -34,6 +34,8 @@
 	--colour-brand-hover: #be123c;
 	--colour-brand-soft: #ffe4e6;
 	--colour-sidebar: #1f1b2e;
+	/* Behind the app icon on the dark sidebar, in both themes. */
+	--colour-icon-tile: #fff1f2;
 	--colour-sidebar-text: #e9f3f8;
 	--colour-sidebar-muted: rgba(233, 243, 248, 0.62);
 	--colour-sidebar-active: rgba(225, 29, 72, 0.24);

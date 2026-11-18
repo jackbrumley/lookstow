@@ -39,7 +39,7 @@
 <div class="shell">
 	<nav aria-label="Main">
 		<div class="brand">
-			<img src="/favicon.svg" alt="" width="28" height="28" />
+			<span class="brand-tile"><img src="/favicon.svg" alt="" width="28" height="28" /></span>
 			<div>
 				<strong>Lookstow</strong>
 				<span>Mailbox backup</span>
@@ -97,6 +97,15 @@
 		gap: var(--space-3);
 		padding: 0 var(--space-3);
 		line-height: var(--line-height-tight);
+	}
+
+	/* The icon's crate is the sidebar's own dark plum, so it sits on a light tile to stay visible. */
+	.brand-tile {
+		display: grid;
+		place-items: center;
+		padding: var(--space-1);
+		background: var(--colour-icon-tile);
+		border-radius: var(--radius-md);
 	}
 
 	.brand div {
