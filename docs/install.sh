@@ -130,7 +130,9 @@ verify_manifest() {
 	envelope="$(cat "$work/$manifest")"
 	payload_b64="$(printf '%s' "$envelope" | sed -n 's/^{"payload":"\([A-Za-z0-9+/=]*\)","signature":"[A-Za-z0-9+/=]*"}$/\1/p')"
 	signature_b64="$(printf '%s' "$envelope" | sed -n 's/^{"payload":"[A-Za-z0-9+/=]*","signature":"\([A-Za-z0-9+/=]*\)"}$/\1/p')"
-	[ -n "$payload_b64" ] && [ -n "$signature_b64" ] || fail "$manifest is not a signed release manifest"
+	if [ -z "$payload_b64" ] || [ -z "$signature_b64" ]; then
+		fail "$manifest is not a signed release manifest"
+	fi
 	printf '%s' "$payload_b64" | openssl base64 -d -A >"$work/payload.json" || fail "$manifest has a damaged payload"
 	printf '%s' "$signature_b64" | openssl base64 -d -A >"$work/signature" || fail "$manifest has a damaged signature"
 	printf '%s\n' "$SIGNING_DOMAIN" >"$work/signed"
@@ -145,8 +147,9 @@ verify_manifest() {
 	signed_archive="$(printf '%s' "$payload" | sed -n 's/.*"archive":"\([A-Za-z0-9._-]*\)".*/\1/p')"
 	signed_bytes="$(printf '%s' "$payload" | sed -n 's/.*"bytes":\([0-9][0-9]*\).*/\1/p')"
 	signed_sha256="$(printf '%s' "$payload" | sed -n 's/.*"sha256":"\([0-9a-f]\{64\}\)".*/\1/p')"
-	[ -n "$signed_version" ] && [ -n "$signed_bytes" ] && [ -n "$signed_sha256" ] ||
+	if [ -z "$signed_version" ] || [ -z "$signed_bytes" ] || [ -z "$signed_sha256" ]; then
 		fail "$manifest's signed payload is not understood"
+	fi
 	[ "$signed_target" = "$target" ] || fail "$manifest is for $signed_target, not this machine ($target)"
 	[ "$signed_archive" = "$asset" ] || fail "$manifest names $signed_archive, not $asset"
 	say "Signature verified: Lookstow $signed_version for $target."
