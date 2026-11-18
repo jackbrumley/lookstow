@@ -13,9 +13,6 @@
 	const pageCount = $derived(
 		data.total === null ? 0 : Math.max(1, Math.ceil(data.total / data.pageSize))
 	);
-	const searchingArchive = $derived(
-		data.mailboxes.find((mailbox) => mailbox.id === query.mailboxId)?.kind === 'archive'
-	);
 </script>
 
 <PageHeader
@@ -27,14 +24,19 @@
 	<form method="GET" class="search">
 		<label class="wide">
 			Mailbox
-			<select name="mailbox" value={query.mailboxId ?? ''}>
-				<option value="">Every mailbox</option>
-				{#each data.mailboxes as mailbox (mailbox.id)}
-					<option value={mailbox.id}
-						>{mailbox.address}{mailbox.kind === 'archive' ? ' (online archive)' : ''}</option
-					>
+			<input
+				type="search"
+				name="mailbox"
+				list="search-mailboxes"
+				value={data.mailboxText}
+				placeholder="Every mailbox: type to pick one"
+				autocomplete="off"
+			/>
+			<datalist id="search-mailboxes">
+				{#each data.mailboxes as label (label)}
+					<option value={label}></option>
 				{/each}
-			</select>
+			</datalist>
 		</label>
 		<label class="wide">
 			Words
@@ -104,9 +106,15 @@
 	</p>
 </Card>
 
+{#if data.unknownMailbox}
+	<Card tone="warn">
+		<p>No mailbox is called “{data.mailboxText}”. Type a few letters and pick one from the list.</p>
+	</Card>
+{/if}
+
 {#if data.total !== null}
 	<Card title={`${formatCount(data.total)} ${data.total === 1 ? 'message' : 'messages'}`}>
-		{#if searchingArchive}
+		{#if data.searchingArchive}
 			<p class="muted small">
 				This is an online archive: its items are stored as full-fidelity exports (.fts).
 			</p>
@@ -159,6 +167,13 @@
 		display: grid;
 		gap: var(--space-1);
 		min-width: 0;
+	}
+
+	/* A long address never pushes a field over its neighbour. */
+	.search input:not([type='checkbox']) {
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
 	}
 
 	.search .wide {

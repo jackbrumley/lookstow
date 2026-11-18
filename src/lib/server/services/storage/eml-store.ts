@@ -11,7 +11,7 @@ import { dirname, join, sep } from 'node:path';
  * A file is written once and never moved or renamed, so its SHA-256 stays valid for ever and a
  * move in the mailbox costs nothing. Which folder a message is in, and every move, is in the
  * database (message_events); folder views are built from it, not from the disk. Files stored
- * before 0.4.0 sit under folder paths and stay where they are: the database records each path.
+ * before 0.4.0 sat under folder paths; relayout.ts moves them into this layout once, at startup.
  *
  * Every name is made safe for Windows and Linux alike, and kept short enough that a deep
  * folder tree stays inside Windows' path limits.

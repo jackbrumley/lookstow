@@ -25,6 +25,7 @@ import {
 	savePause
 } from '../settings/settings.ts';
 import { diskStatus, measureDisk } from '../storage/disk.ts';
+import { relayoutFiles, type RelayoutProgress } from '../storage/relayout.ts';
 import { inScope } from './scope.ts';
 import { planSyncs } from './scheduler.ts';
 import { AdaptiveSlots, Throughput } from './throughput.ts';
@@ -89,6 +90,9 @@ export class Engine {
 	readonly #slots: AdaptiveSlots;
 	#currentSlots = 1;
 	#discoveryProgress: DiscoveryProgress | null = null;
+	/** Moving files stored before 0.4.0 into the date layout; syncs wait until it is done. */
+	#relayout: Promise<void> | null = null;
+	#relayoutProgress: RelayoutProgress | null = null;
 
 	constructor(deps: EngineDeps) {
 		this.#deps = { now: Date.now, ...deps };
@@ -108,6 +112,11 @@ export class Engine {
 			});
 		}
 		this.#lastDiscoveryAt = lastFinished(db, 'discovery');
+		this.#relayout = this.#relayoutFiles().finally(() => {
+			this.#relayout = null;
+			this.#relayoutProgress = null;
+			this.#tick();
+		});
 		this.#timer = setInterval(() => {
 			this.#tick();
 		}, TICK_MS);
@@ -121,7 +130,11 @@ export class Engine {
 		if (this.#timer !== null) {
 			clearInterval(this.#timer);
 		}
-		await Promise.all([...[...this.#running.values()].map((live) => live.done), this.#discovery]);
+		await Promise.all([
+			...[...this.#running.values()].map((live) => live.done),
+			this.#discovery,
+			this.#relayout
+		]);
 	}
 
 	/** Pauses everything (Pause in the console, or the disk guard). */
@@ -239,7 +252,8 @@ export class Engine {
 				lastMinute: this.#meter.rates(this.#deps.now(), 60_000).throttled,
 				last15Minutes: this.#meter.rates(this.#deps.now(), 15 * 60_000).throttled
 			},
-			disk: this.#disk ?? this.#measureDisk()
+			disk: this.#disk ?? this.#measureDisk(),
+			relayout: this.#relayout === null ? null : this.#relayoutProgress
 		};
 	}
 
@@ -300,6 +314,10 @@ export class Engine {
 			});
 		}
 
+		if (this.#relayout !== null) {
+			// Files are moving to the date layout: a sync now would race the move.
+			return;
+		}
 		this.#currentSlots = this.#slots.adjust(
 			schedule.parallelMailboxes,
 			this.#meter.rates(time, 60_000).throttled,
@@ -336,6 +354,43 @@ export class Engine {
 		}
 		if (plan.waiting.requested === 0 && this.#allRequestedAt !== null && plan.start.length === 0) {
 			this.#allRequestedAt = null;
+		}
+	}
+
+	/** Moves files stored before 0.4.0 into the date layout (once; a no-op after that). */
+	async #relayoutFiles(): Promise<void> {
+		const { db, dataDir } = this.#deps;
+		const backupRoot = effectiveBackupRoot(db, dataDir);
+		try {
+			const outcome = await relayoutFiles(db, backupRoot, {
+				stopping: () => this.#stopping,
+				progress: (progress) => {
+					this.#relayoutProgress = { ...progress };
+				},
+				problem: (message) => {
+					serverLog('warn', 'storage', `Moving to the date layout: ${message}`);
+				}
+			});
+			if (outcome.total === 0) return;
+			serverLog(
+				'info',
+				'storage',
+				`Moved ${outcome.moved} of ${outcome.total} message files to the date layout${outcome.stopped ? ' (stopped; carries on at the next start)' : ''}`
+			);
+			if (!outcome.stopped) {
+				recordActivity(db, {
+					level: outcome.problems === 0 ? 'info' : 'warn',
+					kind: 'engine',
+					actor: 'system',
+					summary: `${outcome.moved} message files stored before 0.4.0 were moved into the date layout (mailbox/year/month)`,
+					detail:
+						outcome.problems === 0
+							? null
+							: `${outcome.problems} could not be moved; see the Log. They keep their old paths and still open from Search.`
+				});
+			}
+		} catch (error) {
+			serverLog('error', 'storage', `Moving files to the date layout failed: ${errorText(error)}`);
 		}
 	}
 

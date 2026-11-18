@@ -7,6 +7,7 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 - **0.2, control and safety** (18 November 2026): Pause / Resume everywhere and per mailbox, disk guard, keep-or-delete on scope changes, per-mailbox scheduling.
 - **0.3, visibility and throughput** (18 November 2026): live rates and throttling, discovery progress, Log page, adaptive parallel mailboxes, Mailboxes sorting and paging, Activity paging. Left out: an optional bandwidth cap, and an estimated time left for first copies.
 
+- **0.4.1–0.4.3** (19 November 2026): retries for broken replies, the archive permission check, an updater that starts at once on Windows with step times, old files moved into the date layout, a type-to-filter mailbox field in Search.
 - **0.4, archives and find mail** (18 November 2026): online archives copied (FTS through the beta export API), date-based file layout with folder history, Search with a message page and download, To/Cc recorded. Left out: message bodies in search, a readable view of archive items.
 
 ## Now: 0.5, email alerts, the update popup and faster updates

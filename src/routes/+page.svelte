@@ -177,6 +177,15 @@
 					: `, next ${formatRelative(data.engine.discovery.nextAt)}`}
 			{/if}
 		</dd>
+		{#if data.engine.relayout !== null}
+			<dt>Moving files</dt>
+			<dd>
+				<Badge tone="info">Running</Badge>
+				Moving files stored before 0.4.0 into the date layout: {formatCount(
+					data.engine.relayout.moved
+				)} of {formatCount(data.engine.relayout.total)}. Syncs start when it is done.
+			</dd>
+		{/if}
 		<dt>Backup drive</dt>
 		<dd>
 			{#if data.engine.disk.usedPercent === null}

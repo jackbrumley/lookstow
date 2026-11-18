@@ -55,4 +55,6 @@ export type EngineStatus = {
 	/** Replies where Graph asked Lookstow to slow down, in the last minute and 15 minutes. */
 	throttled: { lastMinute: number; last15Minutes: number };
 	disk: DiskStatus;
+	/** While files stored before 0.4.0 move into the date layout: how far it is. Syncs wait. */
+	relayout: { total: number; moved: number; problems: number } | null;
 };

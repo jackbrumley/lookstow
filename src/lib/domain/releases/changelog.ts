@@ -20,6 +20,22 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.4.3',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, the dashboard shows Moving files with a count while files stored before 0.4.0 move into the date layout; syncs start when it finishes',
+				'In the backup folder, each mailbox holds only year and month folders; the old Inbox, Sent Items and other mail-folder folders are gone',
+				'Search finds an old message and its download still opens',
+				'In Search, type two or three letters of an address in Mailbox: the list narrows to matching mailboxes, and the field no longer covers Words'
+			]
+		},
+		changes: [
+			'Files stored before 0.4.0 are moved once into the date layout (mailbox/year/month); which folder each message is in is kept only in the database. The move renames files on the same drive, so it is quick and the files are unchanged',
+			'Search: the Mailbox field is a box you type into, with a list that narrows as you type, and it stays inside its column'
+		]
+	},
+	{
 		version: '0.4.2',
 		testing: {
 			kind: 'steps',

@@ -56,8 +56,12 @@ A letter dropping into a crate says what the app does ("stow": put away safely),
 
 ## Files filed by date, folders in the index (2026-11-18)
 
-Folder-based paths meant a message moved in Outlook had to move on disk, or the tree lied. Now each file goes under `<mailbox>/<yyyy>/<mm>/` by its received date and is never moved; the folder it is in, and every move, delete and restore, live in the index as its history. Files from earlier versions keep their paths: moving thousands of files during an upgrade risks more than it gains.
+Folder-based paths meant a message moved in Outlook had to move on disk, or the tree lied. Now each file goes under `<mailbox>/<yyyy>/<mm>/` by its received date and is never moved; the folder it is in, and every move, delete and restore, live in the index as its history. Files from earlier versions are moved into the date layout once, by 0.4.3 at startup (see the next entry).
 
 ## Online archives as FTS through the beta export API (2026-11-18)
 
 Only the beta Mailbox Import/Export API reads online archives (Graph v1.0 cannot; EWS is retiring). It exports Exchange's full-fidelity stream, not MIME. Lookstow stores that stream as it comes (`.fts`), so nothing is lost and it can be imported back; converting it to .eml is later work. It needs three more application permissions, which Microsoft asks for separately.
+
+## Old files moved into the date layout (2026-11-19)
+
+0.4.0 left files stored earlier under their mail-folder paths, so a backup had two layouts and the old folders still looked like mailbox folders. 0.4.3 moves them once at startup: rename (same drive, so fast, and the bytes and SHA-256 are unchanged), then record the new path, then remove the emptied folders. Syncs wait until it is done. It is safe to stop and restart: a file already at its new path only gets its row updated, and a rename never replaces a file.
