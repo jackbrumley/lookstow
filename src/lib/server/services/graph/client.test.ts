@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest';
+import { FakeGraph, TEST_CREDENTIALS, graphError, json } from '#tests/support/fake-graph.ts';
+import { backoffMs, GraphClient, GraphError } from './client.ts';
+import { TokenSource } from './token.ts';
+
+function client(graph: FakeGraph, sleeps: number[] = []): GraphClient {
+	return new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), graph.fetch, (ms) => {
+		sleeps.push(ms);
+		return Promise.resolve();
+	});
+}
+
+describe('the Graph client', () => {
+	it('waits as long as Retry-After says when throttled, then carries on', async () => {
+		let calls = 0;
+		const graph = new FakeGraph().withToken().on('/v1.0/me', () => {
+			calls += 1;
+			return calls === 1 ? json({}, 429, { 'retry-after': '7' }) : json({ ok: true });
+		});
+		const sleeps: number[] = [];
+		await expect(client(graph, sleeps).getJson('/v1.0/me')).resolves.toEqual({ ok: true });
+		expect(sleeps).toEqual([7000]);
+	});
+
+	it('gives up after six attempts and says why', async () => {
+		const graph = new FakeGraph()
+			.withToken()
+			.on('/v1.0/me', () => graphError(503, 'ServiceUnavailable'));
+		const sleeps: number[] = [];
+		await expect(client(graph, sleeps).getJson('/v1.0/me')).rejects.toBeInstanceOf(GraphError);
+		expect(sleeps).toHaveLength(5);
+	});
+
+	it('does not retry a refusal', async () => {
+		const graph = new FakeGraph()
+			.withToken()
+			.on('/v1.0/me', () =>
+				graphError(403, 'Authorization_RequestDenied', 'Insufficient privileges')
+			);
+		await expect(client(graph).getJson('/v1.0/me')).rejects.toMatchObject({
+			status: 403,
+			code: 'Authorization_RequestDenied',
+			message: 'Insufficient privileges'
+		});
+	});
+
+	it('follows nextLink through every page', async () => {
+		const graph = new FakeGraph()
+			.withToken()
+			.on('/v1.0/users', () =>
+				json({
+					value: [1, 2],
+					'@odata.nextLink': 'https://graph.microsoft.com/v1.0/users?$skiptoken=b'
+				})
+			)
+			.on('/v1.0/users?$skiptoken=b', () => json({ value: [3] }));
+		const items: unknown[] = [];
+		for await (const page of client(graph).pages('/v1.0/users')) {
+			items.push(...page.items);
+		}
+		expect(items).toEqual([1, 2, 3]);
+	});
+
+	it('never sends the token anywhere but Microsoft Graph', async () => {
+		const graph = new FakeGraph().withToken();
+		await expect(client(graph).getJson('https://example.com/steal')).rejects.toThrow(
+			/Refusing to send the Graph token/
+		);
+	});
+
+	it('backs off exponentially without Retry-After, capped at two minutes', () => {
+		expect([1, 2, 3, 10].map((attempt) => backoffMs(attempt, null))).toEqual([
+			2000, 4000, 8000, 120_000
+		]);
+	});
+});
