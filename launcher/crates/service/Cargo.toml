@@ -1,0 +1,19 @@
+[package]
+name = "lookstow-service"
+description = "systemd and Windows service plumbing for the Lookstow launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service.workspace = true
+# The data folder rules (`restrict_dir`): SDDL to a protected DACL, reset down the tree.
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization"] }

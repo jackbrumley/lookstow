@@ -1,0 +1,40 @@
+[package]
+name = "lookstow"
+description = "Lookstow launcher: runs the bundled Node app, installs it as a service and updates the whole install"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "lookstow"
+path = "src/main.rs"
+
+[features]
+# The scratch install test only: releases from a folder and a script for
+# the service (SPEC-INSTALL-AND-UPDATES). Never enabled in a release build.
+scratch-test = []
+
+[dependencies]
+lookstow-service.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+clap.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+hex.workspace = true
+semver = "=1.0.28"
+flate2 = "=1.1.11"
+tar = "=0.4.46"
+ureq = { version = "=3.5.1", default-features = false, features = ["rustls", "platform-verifier"] }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service.workspace = true
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
