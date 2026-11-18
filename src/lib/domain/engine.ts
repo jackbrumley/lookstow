@@ -37,7 +37,14 @@ export type EngineStatus = {
 		firstCopy: boolean;
 	}[];
 	/** Mailboxes waiting for a free slot, by queue. */
-	waiting: { requested: number; due: number; firstCopy: number };
+	waiting: {
+		requested: number;
+		due: number;
+		firstCopy: number;
+		/** Up to date: waiting for their sync interval. */
+		later: number;
+		nextDueAt: string | null;
+	};
 	/** Mailboxes synced at once now (adjusted to Graph's throttling) and the setting's maximum. */
 	slots: { current: number; maximum: number };
 	/** Download rates over the last minute and the last 15 minutes. */

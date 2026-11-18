@@ -77,7 +77,13 @@ export class Engine {
 	#problem: string | null = null;
 	/** What is missing from the setup; cleared as soon as the setup is complete. */
 	#setupProblem: string | null = null;
-	#waiting = { requested: 0, due: 0, firstCopy: 0 };
+	#waiting: EngineStatus['waiting'] = {
+		requested: 0,
+		due: 0,
+		firstCopy: 0,
+		later: 0,
+		nextDueAt: null
+	};
 	#disk: DiskStatus | null = null;
 	readonly #meter = new Throughput();
 	readonly #slots: AdaptiveSlots;
@@ -318,7 +324,7 @@ export class Engine {
 			intervalMs: schedule.syncEveryMinutes * 60_000,
 			slots: this.#currentSlots
 		});
-		this.#waiting = plan.waiting;
+		this.#waiting = { ...plan.waiting, nextDueAt: iso(plan.waiting.nextDueAt) };
 		const byId = new Map(eligible.map((row) => [row.id, row]));
 		const backupRoot = effectiveBackupRoot(db, dataDir);
 		for (const id of plan.start) {
@@ -494,6 +500,11 @@ export class Engine {
 				error: null,
 				firstCopyDone: outcome.firstCopyDone || mailbox.firstCopyDone
 			});
+			// Stopped by Pause, the disk guard or a cancel, not finished: it carries on as soon as
+			// it may (Resume), instead of waiting a whole interval like a mailbox that was done.
+			if (outcome.stoppedEarly && !this.#stopping) {
+				this.#requested.add(mailbox.id);
+			}
 			finishRun(
 				db,
 				runId,

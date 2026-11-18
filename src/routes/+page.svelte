@@ -128,8 +128,8 @@
 		</dd>
 		<dt>Syncing</dt>
 		<dd>
-			{data.engine.syncing.length} mailboxes now; up to {data.engine.slots.current} at a time (most
-			{data.engine.slots.maximum})
+			{plural(data.engine.syncing.length, 'mailbox', 'mailboxes')} now. Lookstow runs up to {data
+				.engine.slots.current} at a time (at most {data.engine.slots.maximum}).
 		</dd>
 		<dt>Microsoft throttling</dt>
 		<dd>
@@ -144,9 +144,19 @@
 		</dd>
 		<dt>Waiting</dt>
 		<dd>
-			{plural(data.engine.waiting.requested, 'asked for')},
-			{plural(data.engine.waiting.due, 'routine sync')},
-			{plural(data.engine.waiting.firstCopy, 'first copy', 'first copies')}
+			{#if data.engine.waiting.requested + data.engine.waiting.due + data.engine.waiting.firstCopy === 0}
+				Nothing is waiting for a free slot.
+			{:else}
+				{plural(data.engine.waiting.requested, 'mailbox', 'mailboxes')} asked for,
+				{plural(data.engine.waiting.firstCopy, 'first copy', 'first copies')} and
+				{plural(data.engine.waiting.due, 'routine sync')} waiting for a free slot.
+			{/if}
+			{#if data.engine.waiting.later > 0}
+				{plural(data.engine.waiting.later, 'mailbox', 'mailboxes')} up to date{data.engine.waiting
+					.nextDueAt === null
+					? ''
+					: `; the next sync is due ${formatRelative(data.engine.waiting.nextDueAt)}`}.
+			{/if}
 		</dd>
 		<dt>Discovery</dt>
 		<dd>

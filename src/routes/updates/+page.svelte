@@ -81,15 +81,19 @@
 		}
 	}
 
-	// While an update runs, ask every two seconds. The service restarts in the middle, so failed
-	// requests are expected; once it answers with the new version, the page reloads into it.
+	/** The version this page was loaded with: once the server answers with another, reload. */
+	const loadedVersion = untrack(() => data.view.installedVersion);
+	const ACTIVE = new Set(['requested', 'checking', 'downloading', 'switching', 'starting']);
+
+	// While any update runs (started here, automatically, or in another tab), ask every two
+	// seconds. The service restarts in the middle, so failed requests are expected; once it
+	// answers with a new version, the page reloads into it.
 	onMount(() => {
 		const timer = setInterval(() => {
 			now = Date.now();
-			if (waiting === null) {
+			if (waiting === null && !ACTIVE.has(view.operation.phase)) {
 				return;
 			}
-			const target = waiting.to;
 			void fetch('/api/updates', { cache: 'no-store' })
 				.then(async (response) => {
 					const parsed = serverUpdateViewSchema.safeParse(await response.json());
@@ -97,7 +101,7 @@
 						return;
 					}
 					view = parsed.data;
-					if (parsed.data.installedVersion === target) {
+					if (parsed.data.installedVersion !== loadedVersion) {
 						location.reload();
 					} else if (
 						parsed.data.operation.phase === 'failed' ||

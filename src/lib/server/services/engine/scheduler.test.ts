@@ -35,7 +35,13 @@ describe('planning syncs', () => {
 			]
 		});
 		expect(plan.start).toEqual(['due-old', 'due-new', 'new']);
-		expect(plan.waiting).toEqual({ requested: 0, due: 0, firstCopy: 0 });
+		expect(plan.waiting).toEqual({
+			requested: 0,
+			due: 0,
+			firstCopy: 0,
+			later: 1,
+			nextDueAt: NOW + 10 * MINUTE
+		});
 	});
 
 	it('keeps one slot free of first copies, so copied mailboxes are never stuck behind them', () => {

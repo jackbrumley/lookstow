@@ -16,7 +16,7 @@ export function startAutomaticUpdates(db: Queryable, updates: () => ServerUpdate
 		try {
 			const version = automaticUpdateDue(db, updates());
 			if (version !== null) {
-				updates().request(version, Date.now());
+				updates().request(version, Date.now(), 'system');
 				serverLog('info', 'updates', `Installing Lookstow ${version} automatically`);
 			}
 		} catch (error) {

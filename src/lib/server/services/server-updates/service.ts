@@ -61,7 +61,7 @@ export type CheckSource = 'schedule' | 'console';
 export type ActivityEntry = {
 	level: 'info' | 'warn';
 	kind: 'update-checked' | 'update-requested';
-	actor: 'console';
+	actor: 'console' | 'system';
 	summary: string;
 	detail: string | null;
 };
@@ -211,7 +211,11 @@ export class ServerUpdates {
 	 * Update now: an empty flag file for the updater and nothing else. `version` is what the
 	 * person confirmed; the updater picks the newest signed release itself.
 	 */
-	request(version: string, now: number): { requestedAtIso: string } {
+	request(
+		version: string,
+		now: number,
+		actor: 'console' | 'system' = 'console'
+	): { requestedAtIso: string } {
 		const view = this.view();
 		if (
 			this.#config.kind !== 'installed' ||
@@ -227,8 +231,11 @@ export class ServerUpdates {
 		this.#record({
 			level: 'info',
 			kind: 'update-requested',
-			actor: 'console',
-			summary: `Update to Lookstow ${version} requested`,
+			actor,
+			summary:
+				actor === 'system'
+					? `Automatic update to Lookstow ${version} started`
+					: `Update to Lookstow ${version} requested`,
 			detail: `From ${this.#current}. The updater restarts Lookstow; backups pause until it is back.`
 		});
 		return { requestedAtIso: new Date(now).toISOString() };

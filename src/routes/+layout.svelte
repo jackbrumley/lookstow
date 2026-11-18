@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
+	import { page, updated } from '$app/state';
 	import type { LayoutProps } from './$types';
 	import '#lib/ui/tokens.css';
 	import '#lib/ui/global.css';
@@ -107,6 +107,19 @@
 		</div>
 	</nav>
 	<main>
+		{#if updated.current}
+			<div class="banner" role="status">
+				Lookstow has been updated.
+				<button
+					type="button"
+					class="link"
+					onclick={() => {
+						location.reload();
+					}}>Reload this page</button
+				>
+				to use the new version.
+			</div>
+		{/if}
 		{#if data.pause.paused}
 			<div class="banner" class:bad={data.pause.reason === 'disk'} role="status">
 				{#if data.pause.reason === 'disk'}
@@ -242,6 +255,16 @@
 	.control:disabled {
 		opacity: 0.6;
 		cursor: progress;
+	}
+
+	.link {
+		font: inherit;
+		color: inherit;
+		background: none;
+		border: none;
+		padding: 0;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 
 	.banner.bad {

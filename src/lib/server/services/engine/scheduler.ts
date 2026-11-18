@@ -21,7 +21,15 @@ export type SchedulePlan = {
 	/** Mailboxes to start now, in order. */
 	start: string[];
 	/** For the dashboard: mailboxes waiting in each queue (not counting those started now). */
-	waiting: { requested: number; due: number; firstCopy: number };
+	waiting: {
+		requested: number;
+		due: number;
+		firstCopy: number;
+		/** Up to date (or recently stopped): waiting for their interval. */
+		later: number;
+		/** When the soonest of those is due (ms), or null. */
+		nextDueAt: number | null;
+	};
 };
 
 export function planSyncs(options: {
@@ -80,9 +88,19 @@ export function planSyncs(options: {
 		}
 	}
 	const started = new Set(start);
+	const queued = new Set([...asked, ...due, ...firstCopies].map((candidate) => candidate.id));
+	const later = idle.filter((candidate) => !queued.has(candidate.id));
+	const nextDue = later
+		.map((candidate) => (candidate.lastSyncFinishedAt ?? 0) + intervalMs)
+		.reduce<number | null>(
+			(soonest, at) => (soonest === null || at < soonest ? at : soonest),
+			null
+		);
 	return {
 		start,
 		waiting: {
+			later: later.length,
+			nextDueAt: nextDue,
 			requested: asked.filter((candidate) => !started.has(candidate.id)).length,
 			due: due.filter((candidate) => !started.has(candidate.id)).length,
 			firstCopy: firstCopies.filter((candidate) => !started.has(candidate.id)).length

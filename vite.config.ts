@@ -28,7 +28,10 @@ export default defineConfig({
 			adapter: adapter(),
 			// Cross-site writes are refused by Lookstow's own origin check in hooks.server.ts,
 			// which also covers JSON posts.
-			csrf: { trustedOrigins: ['*'] }
+			csrf: { trustedOrigins: ['*'] },
+			// Open pages learn of a new version within a minute (the frame offers a reload), so a
+			// page left open across an update never asks for code the new build no longer has.
+			version: { pollInterval: 60_000 }
 		})
 	],
 	// The dev server answers on this computer only, like the installed service.
