@@ -20,6 +20,37 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.12.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, open Settings > AI tools and leave AI tools on. Expected: within an hour, a search_messages reply from Claude shows contentIndex climbing towards the total',
+				'In the Claude Code session in the timesheet workspace, ask for top_senders to payroll@ with hasPhotos. Expected: a list of farm managers with their first and last dates',
+				'Ask Claude to search payroll@ with body "overtime". Expected: emails whose hours are typed in the text, with readable previews (no blank padding or "External Sender" banners)',
+				'With a mailbox syncing, watch the dashboard Speed card. Expected: Allowed climbs above the old 2.84/s within about 20 minutes; with nothing syncing, Pace says Idle and "1 mailbox syncing" reads correctly',
+				'Open a message from Jason’s mailbox that is older than a year (it was moved to his online archive). Expected: the message page says Moved to the online archive and links to the archive copy; it no longer says Deleted in Microsoft 365. The Activity page records how many archive items were linked',
+				'Search all mailboxes for a subject you know is in both. Expected: it is listed once; choosing the archive mailbox lists the archive copy',
+				'Open a page other than the dashboard while a sync runs, and wait. Expected: the side bar’s Backing up line changes when the sync ends, without reloading',
+				'Open a mailbox that showed a difference from Microsoft before. Expected: after its next sync, each folder either matches or names why it differs (waiting to be copied again, not messages, or a difference since a time)',
+				'Open Settings > Backup folder. Expected: a stored backup shows Move…, not Change…, and the backup folder holds a .lookstow-backup file',
+				'On the server, as an administrator, run lookstow backup-folder prepare on a new empty test folder, then Move to it in Settings. Expected: a banner and the card show the copy’s progress; syncs wait; the card then shows Moved and syncs carry on in the new folder',
+				'After the move, choose Remove the old copy and type REMOVE. Expected: the old folder is removed, and the activity log records how many files were removed',
+				'Rename the backup folder for a moment (or detach its drive). Expected: the dashboard says the backup folder is not there and no sync runs. Put it back; backups carry on within a minute'
+			]
+		},
+		changes: [
+			'AI tools search much more: words in the message text, photos (pictures of 30 KB or more, so not logos), PDFs, attachment size and up to 200 results a page, plus a new top_senders tool. Lookstow reads each message once in the background, while AI tools are on, to make this fast',
+			'Message text read by the AI tools no longer carries the invisible padding mail programs add or the mail filter’s "External Sender" banner, and photos and text inside a forwarded email count as the email’s own',
+			'Speed: when Microsoft slows one busy mailbox, only that mailbox slows down. Before, it slowed every mailbox and the lower pace was remembered across restarts (it had held Lookstow at under 3 requests a second). A learned limit is now forgotten after 6 hours, and the Speed card says Idle when nothing is being copied',
+			'An email moved to the online archive by the archive policy is now recorded as moved to the online archive, not as deleted, and linked to its archive copy. Both copies are kept. Search lists the email once, and the message page links the two. An email that leaves a mailbox with an online archive is called deleted only if no archive copy appears within a week. Emails earlier versions marked deleted are corrected once, in the background, after the update',
+			'Every page now shows the same live state, refreshed every few seconds while work runs. The side bar no longer shows what was true when the page opened',
+			'The completeness check reads Microsoft’s count after each folder syncs, so mail arriving during a sync no longer shows as a difference. Items waiting to be copied again, and items that are not messages (contacts or calendar items in Deleted Items), explain a higher count and are named on the mailbox page',
+			'A folder that still differs from Microsoft after half an hour is read again from the start, at most once a day. Missing mail is copied, and nothing already stored is downloaded again. If the difference lasts a day after that, it is logged and sent to a new alert: A folder stays different from Microsoft',
+			'The backup can move to another drive. An administrator prepares the folder with lookstow backup-folder prepare. Then Settings > Backup folder > Move copies every file, checks each copy against the index, and switches only when all of it is checked. Backups wait during the move, and it carries on after a restart. The old copy stays until you type REMOVE, and then only files with an identical copy are deleted',
+			'A .lookstow-backup marker ties the backup folder to the index. If the backup drive is not attached, backups stop with the reason instead of starting a new backup somewhere else. Change in Settings > Backup folder is now offered only while nothing is stored'
+		]
+	},
+	{
 		version: '0.11.0',
 		testing: {
 			kind: 'steps',
