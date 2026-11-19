@@ -88,37 +88,79 @@ describe('explaining a difference', () => {
 });
 
 describe('the completeness check', () => {
-	it('a folder that differs from Microsoft shows both counts, and when it started', () => {
+	it('a gap nothing explains is Checking: both counts, when it started, nothing to do yet', () => {
 		const { db, mailbox, inbox } = setup();
 		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 3, listed: null }], 2);
-		const detail = mailboxDetail(db, mailbox.id, '/backup', () => false);
-		expect(detail?.differsFromMicrosoft).toBe(true);
+		const detail = mailboxDetail(db, mailbox.id, '/backup', () => false, 3);
+		expect(detail?.completeness).toBe('checking');
 		expect(detail?.folders).toEqual([
 			expect.objectContaining({
 				path: 'Inbox',
 				itemCount: 2,
 				sourceCount: 3,
-				gap: { kind: 'unexplained', stored: 2, source: 3 },
-				differsSince: new Date(2).toISOString()
+				gap: {
+					kind: 'checking',
+					stored: 2,
+					source: 3,
+					since: new Date(2).toISOString(),
+					recheckedAt: null
+				}
 			})
 		]);
-		expect(mailboxTotals(mailboxSummaries(db, () => false)).differingFromMicrosoft).toBe(1);
+		const totals = mailboxTotals(mailboxSummaries(db, () => false, 3));
+		expect(totals).toMatchObject({ completenessChecking: 1, completenessNeedsLook: 0 });
+	});
+
+	it('it needs a look only when still there a day after a re-read', () => {
+		const { db, mailbox, inbox } = setup();
+		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 3, listed: null }], 0);
+		// A day on, but never read again: still Checking.
+		expect(mailboxSummaries(db, () => false, REPORT_AFTER_MS)[0]?.completeness).toBe('checking');
+		db.update(mailFolders)
+			.set({ recheckedAt: new Date(RECHECK_AFTER_MS) })
+			.where(eq(mailFolders.id, inbox.id))
+			.run();
+		expect(mailboxSummaries(db, () => false, REPORT_AFTER_MS - 1)[0]?.completeness).toBe(
+			'checking'
+		);
+		expect(mailboxSummaries(db, () => false, REPORT_AFTER_MS)[0]?.completeness).toBe('needs-look');
+		expect(
+			mailboxDetail(db, mailbox.id, '/backup', () => false, REPORT_AFTER_MS)?.folders[0]?.gap
+		).toEqual({
+			kind: 'needs-look',
+			stored: 2,
+			source: 3,
+			since: new Date(0).toISOString(),
+			recheckedAt: new Date(RECHECK_AFTER_MS).toISOString()
+		});
+	});
+
+	it('a hidden or non-mail folder is not compared: its old count and difference are cleared', () => {
+		const { db, mailbox, inbox, folder } = setup();
+		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 2926, listed: null }], 2);
+		expect(folder().differsSince).not.toBeNull();
+		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: null, listed: null }], 3);
+		expect(folder()).toMatchObject({ sourceCount: null, differsSince: null });
+		expect(mailboxSummaries(db, () => false, 4)[0]?.completeness).toBe('complete');
+		expect(mailboxDetail(db, mailbox.id, '/backup', () => false, 4)?.folders[0]?.gap).toEqual({
+			kind: 'unchecked'
+		});
 	});
 
 	it('matches when the counts agree, and counts only messages not deleted at the source', () => {
 		const { db, mailbox, inbox, folder } = setup();
 		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 3, listed: null }], 2);
 		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 2, listed: null }], 3);
-		expect(mailboxSummaries(db, () => false)[0]?.differsFromMicrosoft).toBe(false);
+		expect(mailboxSummaries(db, () => false, 5)[0]?.completeness).toBe('complete');
 		expect(folder().differsSince).toBeNull();
 		removeFromFolder(db, mailbox.id, inbox.id, 'm2', 3);
 		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 1, listed: null }], 4);
-		expect(mailboxSummaries(db, () => false)[0]?.differsFromMicrosoft).toBe(false);
+		expect(mailboxSummaries(db, () => false, 5)[0]?.completeness).toBe('complete');
 	});
 
 	it('a folder never checked does not count as different', () => {
 		const { db } = setup();
-		expect(mailboxSummaries(db, () => false)[0]?.differsFromMicrosoft).toBe(false);
+		expect(mailboxSummaries(db, () => false, 5)[0]?.completeness).toBe('complete');
 	});
 
 	it('items that failed to copy explain a gap, so the mailbox does not differ', () => {
@@ -136,8 +178,8 @@ describe('the completeness check', () => {
 			2
 		);
 		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 3, listed: null }], 3);
-		const detail = mailboxDetail(db, mailbox.id, '/backup', () => false);
-		expect(detail?.differsFromMicrosoft).toBe(false);
+		const detail = mailboxDetail(db, mailbox.id, '/backup', () => false, 4);
+		expect(detail?.completeness).toBe('complete');
 		expect(detail?.folders[0]?.gap).toEqual({
 			kind: 'explained',
 			waiting: 1,

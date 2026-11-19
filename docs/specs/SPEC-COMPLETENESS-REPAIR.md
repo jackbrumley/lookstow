@@ -38,15 +38,34 @@ No backup file is written, moved or deleted by any of this. A re-read stores mis
 
 Migrations `0008` and `0009` add four nullable columns to `mail_folders`. 0.11.0 ignores them, so a rollback to it is safe.
 
+## 2a. Three plain states (0.12.2)
+
+On a real tenant, three folders showed as differing, and the admin could not tell whether to do anything:
+
+- an archive's hidden PersonMetadata folder (Outlook's contact metadata, not mail);
+- two Deleted Items folders a few items short, which were meeting requests or contacts that a message listing never returns.
+
+So the check now speaks in three states, and only one of them asks for anything:
+
+- **Not compared.** Hidden folders (`isHidden` on a mail folder) and archive folders whose class is not `IPF.Note` (PersonMetadata, contacts, calendars), and any folder inside one, have no count. A count saved before is cleared at the next sync.
+- **Explained.** Shown beside Microsoft's count on the mailbox page only: items waiting to be copied again, items that failed five tries, items that are not messages.
+- **Checking.** A gap nothing explains yet. The folder is read again from the start (which also measures items that are not messages, so a Deleted Items surplus of meetings becomes Explained), and the gap stays Checking for a day after that. Nothing to do.
+- **Needs a look.** Still there a day after a re-read. This is the only state that alerts (the same rule as before) and the only one the dashboard calls out.
+
+A mailbox's completeness is the worst of its folders: complete, `checking` or `needs-look`. The Mailboxes page's State list has "Incomplete: checking" and "Incomplete: needs a look" (`?state=checking`, `?state=needs-look`). Its default is now "In the backup", which leaves out mailboxes not in scope and excluded ones; `?state=all` shows every mailbox. The dashboard's Completeness line links to those filters. The mailbox page lists each Checking or Needs a look folder on one line: what is missing, what Lookstow is doing about it, and when it last checked.
+
 ## 3. Acceptance criteria
 
-| #   | Criterion                                                                                            | Test                                                                                 |
-| :-- | :--------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- |
-| 1   | Microsoft's count is read after the folders sync                                                     | `mailbox-sync.test.ts` "reads Microsoft's counts after the folders sync, not before" |
-| 2   | Matches, unchecked folders, explained and unexplained gaps are told apart                            | `views.test.ts` "explaining a difference"                                            |
-| 3   | Items waiting to be copied again explain a gap; the mailbox does not differ                          | `views.test.ts` "items that failed to copy explain a gap"                            |
-| 4   | A full listing measures items that are not messages and keeps them                                   | `views.test.ts` "a full listing measures the items that are not messages"            |
-| 5   | A lasting gap makes the next sync read the folder from the start; missing messages are copied        | `mailbox-sync.test.ts` "reads a folder that keeps differing again from the start"    |
-| 6   | Re-reads wait for the gap to last and happen at most once a day                                      | `views.test.ts` "reads a folder again only after the gap has lasted"                 |
-| 7   | A gap that outlasts a re-read by a day is reported once, and the mark clears when the folder matches | `views.test.ts` "reports a difference that outlasts a re-read by a day"              |
-| 8   | Only the lasting-gap entry emails                                                                    | `alerts.test.ts` "alertFor"                                                          |
+| #   | Criterion                                                                                            | Test                                                                                          |
+| :-- | :--------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------- |
+| 1   | Microsoft's count is read after the folders sync                                                     | `mailbox-sync.test.ts` "reads Microsoft's counts after the folders sync, not before"          |
+| 2   | Matches, unchecked folders, explained and unexplained gaps are told apart                            | `views.test.ts` "explaining a difference"                                                     |
+| 3   | Items waiting to be copied again explain a gap; the mailbox does not differ                          | `views.test.ts` "items that failed to copy explain a gap"                                     |
+| 4   | A full listing measures items that are not messages and keeps them                                   | `views.test.ts` "a full listing measures the items that are not messages"                     |
+| 5   | A lasting gap makes the next sync read the folder from the start; missing messages are copied        | `mailbox-sync.test.ts` "reads a folder that keeps differing again from the start"             |
+| 6   | Re-reads wait for the gap to last and happen at most once a day                                      | `views.test.ts` "reads a folder again only after the gap has lasted"                          |
+| 7   | A gap that outlasts a re-read by a day is reported once, and the mark clears when the folder matches | `views.test.ts` "reports a difference that outlasts a re-read by a day"                       |
+| 9   | A gap nothing explains is Checking, with both counts and when it began                               | `views.test.ts` "a gap nothing explains is Checking"                                          |
+| 10  | It needs a look only when still there a day after a re-read                                          | `views.test.ts` "it needs a look only when still there a day after a re-read"                 |
+| 11  | A hidden or non-mail folder is not compared; its old count and difference are cleared                | `views.test.ts` "a hidden or non-mail folder is not compared"; `completeness-folders.test.ts` |
+| 8   | Only the lasting-gap entry emails                                                                    | `alerts.test.ts` "alertFor"                                                                   |

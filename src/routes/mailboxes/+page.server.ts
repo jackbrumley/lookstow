@@ -16,7 +16,7 @@ export const load = (async ({ parent, depends }) => {
 	const syncing = new Set(live.engine.syncing.map((sync) => sync.mailboxId));
 	const scope = readScope(database);
 	return {
-		mailboxes: mailboxSummaries(database, (id) => syncing.has(id)),
+		mailboxes: mailboxSummaries(database, (id) => syncing.has(id), Date.parse(live.at)),
 		picking: scope.mode === 'selected',
 		picked: scope.selectedAddresses
 	};

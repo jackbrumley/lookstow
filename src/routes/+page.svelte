@@ -196,15 +196,23 @@
 		</dd>
 		<dt>Completeness</dt>
 		<dd>
-			{#if data.totals.differingFromMicrosoft === 0}
-				Every checked folder matches Microsoft's count
+			{#if data.totals.completenessNeedsLook === 0 && data.totals.completenessChecking === 0}
+				Every checked folder matches Microsoft's count, or the difference is explained
 			{:else}
-				<Badge tone="warn"
-					>{plural(data.totals.differingFromMicrosoft, 'mailbox', 'mailboxes')}
-					{data.totals.differingFromMicrosoft === 1 ? 'differs' : 'differ'}</Badge
-				>
-				from Microsoft's count: see <a href={resolve('/mailboxes')}>Mailboxes</a>, Differs from
-				Microsoft.
+				{#if data.totals.completenessNeedsLook > 0}
+					<Badge tone="warn">Needs a look</Badge>
+					<a href={resolve('/mailboxes/show/[state]', { state: 'needs-look' })}
+						>{plural(data.totals.completenessNeedsLook, 'mailbox', 'mailboxes')}</a
+					>
+					still {data.totals.completenessNeedsLook === 1 ? 'differs' : 'differ'} from Microsoft a day
+					after Lookstow read the folder again.
+				{/if}
+				{#if data.totals.completenessChecking > 0}
+					<a href={resolve('/mailboxes/show/[state]', { state: 'checking' })}
+						>{plural(data.totals.completenessChecking, 'mailbox', 'mailboxes')}</a
+					>
+					being checked: Lookstow is reading the folder again. Nothing to do.
+				{/if}
 			{/if}
 		</dd>
 		<dt>Backup drive</dt>

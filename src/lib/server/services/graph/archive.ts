@@ -24,7 +24,18 @@ export type ArchiveFolder = {
 	/** The mailbox the folder physically lives in: the archive, or an auxiliary archive. */
 	mailboxUrl: string;
 	totalItemCount: number | null;
+	/**
+	 * Whether the completeness check compares this folder with Microsoft's count: only mail
+	 * folders (folder class IPF.Note, or none given), not Outlook's contact, calendar or metadata
+	 * folders such as PersonMetadata, nor folders inside one.
+	 */
+	compared: boolean;
 };
+
+/** A folder class that holds mail: IPF.Note and its kinds (IPF.Note.OutlookHomepage), or none. */
+export function isMailFolderClass(type: string | null): boolean {
+	return type === null || type === 'IPF.Note' || type.startsWith('IPF.Note.');
+}
 
 export type ArchiveItemChange =
 	| {
@@ -53,8 +64,18 @@ export async function listArchiveFolders(
 ): Promise<ArchiveFolder[]> {
 	const folders: ArchiveFolder[] = [];
 	const query = 'includeHiddenFolders=true&$top=100';
-	const queue: { url: string; parentPath: string; parentMailboxUrl: string }[] = [
-		{ url: `${mailboxUrl}/folders?${query}`, parentPath: '', parentMailboxUrl: mailboxUrl }
+	const queue: {
+		url: string;
+		parentPath: string;
+		parentMailboxUrl: string;
+		parentCompared: boolean;
+	}[] = [
+		{
+			url: `${mailboxUrl}/folders?${query}`,
+			parentPath: '',
+			parentMailboxUrl: mailboxUrl,
+			parentCompared: true
+		}
 	];
 	const seen = new Set<string>();
 	while (queue.length > 0) {
@@ -74,18 +95,21 @@ export async function listArchiveFolders(
 				const path = current.parentPath === '' ? name : `${current.parentPath}/${name}`;
 				const ownMailbox = stringField(folder, 'parentMailboxUrl') ?? current.parentMailboxUrl;
 				const total = folder['totalItemCount'];
+				const compared = current.parentCompared && isMailFolderClass(stringField(folder, 'type'));
 				folders.push({
 					graphId,
 					path,
 					mailboxUrl: ownMailbox,
-					totalItemCount: typeof total === 'number' ? total : null
+					totalItemCount: typeof total === 'number' ? total : null,
+					compared
 				});
 				const children = folder['childFolderCount'];
 				if (typeof children === 'number' && children > 0) {
 					queue.push({
 						url: `${ownMailbox}/folders/${encodeURIComponent(graphId)}/childFolders?${query}`,
 						parentPath: path,
-						parentMailboxUrl: ownMailbox
+						parentMailboxUrl: ownMailbox,
+						parentCompared: compared
 					});
 				}
 			}

@@ -24,20 +24,39 @@ export type MailboxSummary = {
 	firstCopyDone: boolean;
 	paused: boolean;
 	goneAt: string | null;
-	/** A folder's stored messages differ from Microsoft's count and nothing explains it. */
-	differsFromMicrosoft: boolean;
+	/** Whether every compared folder matches Microsoft's count (SPEC-COMPLETENESS-REPAIR). */
+	completeness: MailboxCompleteness;
+};
+
+/**
+ * A mailbox's completeness: every compared folder matches or is explained; a gap Lookstow is
+ * still checking (nothing to do); or a gap that outlasted a re-read by a day (needs a look).
+ */
+export type MailboxCompleteness = 'complete' | 'checking' | 'needs-look';
+
+export const COMPLETENESS_LABELS: Record<Exclude<MailboxCompleteness, 'complete'>, string> = {
+	checking: 'Incomplete: checking',
+	'needs-look': 'Incomplete: needs a look'
 };
 
 /**
  * Why a folder's stored count and Microsoft's differ (docs/specs/SPEC-COMPLETENESS-REPAIR.md):
- * not checked yet, matching, explained (items waiting to be copied again or given up on, and
- * items that are not messages), or a difference nothing explains.
+ * not compared (no count, or a hidden or non-mail folder), matching, explained (items waiting to
+ * be copied again or given up on, and items that are not messages), or a gap nothing explains
+ * yet: Checking until a re-read and a day have passed, then Needs a look. `recheckedAt` is the
+ * re-read since the gap began, or null while it is still due.
  */
 export type FolderGap =
 	| { kind: 'unchecked' }
 	| { kind: 'match' }
 	| { kind: 'explained'; waiting: number; givenUp: number; otherItems: number }
-	| { kind: 'unexplained'; stored: number; source: number };
+	| {
+			kind: 'checking' | 'needs-look';
+			stored: number;
+			source: number;
+			since: string;
+			recheckedAt: string | null;
+	  };
 
 export type MailboxDetail = MailboxSummary & {
 	userId: string;
@@ -54,10 +73,6 @@ export type MailboxDetail = MailboxSummary & {
 		firstCopyDone: boolean;
 		lastSyncedAt: string | null;
 		gap: FolderGap;
-		/** Since when nothing explains its difference, or null. */
-		differsSince: string | null;
-		/** When it was last read again from the start because it differed, or null. */
-		recheckedAt: string | null;
 	}[];
 	recentRuns: RunSummary[];
 };

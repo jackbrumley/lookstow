@@ -10,6 +10,11 @@ export type GraphFolder = {
 	path: string;
 	/** How many items Microsoft says the folder holds, or null when it did not say. */
 	totalItemCount: number | null;
+	/**
+	 * Whether the completeness check compares this folder with Microsoft's count: not for hidden
+	 * folders (Outlook's own, such as PersonMetadata) or folders inside one.
+	 */
+	compared: boolean;
 };
 
 /** The fields of a message the delta query asks for. */
@@ -34,9 +39,9 @@ export async function listFolders(client: GraphClient, userId: string): Promise<
 	const folders: GraphFolder[] = [];
 	const base = `/v1.0/users/${encodeURIComponent(userId)}/mailFolders`;
 	const select =
-		'$select=id,displayName,childFolderCount,totalItemCount&includeHiddenFolders=true&$top=100';
-	const queue: { url: string; parentPath: string }[] = [
-		{ url: `${base}?${select}`, parentPath: '' }
+		'$select=id,displayName,childFolderCount,totalItemCount,isHidden&includeHiddenFolders=true&$top=100';
+	const queue: { url: string; parentPath: string; parentCompared: boolean }[] = [
+		{ url: `${base}?${select}`, parentPath: '', parentCompared: true }
 	];
 	while (queue.length > 0) {
 		const current = queue.shift();
@@ -53,12 +58,19 @@ export async function listFolders(client: GraphClient, userId: string): Promise<
 				const name = stringField(folder, 'displayName') ?? graphId;
 				const path = current.parentPath === '' ? name : `${current.parentPath}/${name}`;
 				const total = folder['totalItemCount'];
-				folders.push({ graphId, path, totalItemCount: typeof total === 'number' ? total : null });
+				const compared = current.parentCompared && folder['isHidden'] !== true;
+				folders.push({
+					graphId,
+					path,
+					totalItemCount: typeof total === 'number' ? total : null,
+					compared
+				});
 				const children = folder['childFolderCount'];
 				if (typeof children === 'number' && children > 0) {
 					queue.push({
 						url: `${base}/${encodeURIComponent(graphId)}/childFolders?${select}`,
-						parentPath: path
+						parentPath: path,
+						parentCompared: compared
 					});
 				}
 			}

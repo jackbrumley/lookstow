@@ -31,25 +31,41 @@
 
 	type Folder = (typeof data.mailbox.folders)[number];
 
-	/** Why a folder's count and Microsoft's differ, in a few words beside Microsoft's count. */
-	function gapText(folder: Folder): string {
-		const gap = folder.gap;
-		if (gap.kind === 'explained') {
-			const parts = [
-				gap.waiting > 0 ? `${formatCount(gap.waiting)} waiting to be copied again` : '',
-				gap.givenUp > 0 ? `${formatCount(gap.givenUp)} failed 5 tries` : '',
-				gap.otherItems > 0 ? `${formatCount(gap.otherItems)} not messages` : ''
-			].filter((part) => part !== '');
-			return parts.length === 0 ? '' : `(${parts.join(', ')})`;
+	/** An explained difference, in a few words beside Microsoft's count. */
+	function explainedText(gap: Extract<Folder['gap'], { kind: 'explained' }>): string {
+		const parts = [
+			gap.waiting > 0 ? `${formatCount(gap.waiting)} waiting to be copied again` : '',
+			gap.givenUp > 0 ? `${formatCount(gap.givenUp)} failed 5 tries` : '',
+			gap.otherItems > 0 ? `${formatCount(gap.otherItems)} not messages` : ''
+		].filter((part) => part !== '');
+		return parts.length === 0 ? '' : `(explained: ${parts.join(', ')})`;
+	}
+
+	type Open = Folder & { gap: Extract<Folder['gap'], { kind: 'checking' | 'needs-look' }> };
+
+	/** Folders whose difference nothing explains yet: one line each below the table. */
+	const open = $derived(
+		mailbox.folders.filter(
+			(folder): folder is Open => folder.gap.kind === 'checking' || folder.gap.kind === 'needs-look'
+		)
+	);
+
+	/** What is missing (or extra), in plain words. */
+	function difference(gap: Open['gap']): string {
+		return gap.source > gap.stored
+			? `${plural(gap.source - gap.stored, 'item')} Microsoft counts ${gap.source - gap.stored === 1 ? 'is' : 'are'} not stored`
+			: `${plural(gap.stored - gap.source, 'more message')} stored than Microsoft counts`;
+	}
+
+	/** What Lookstow is doing about it, and what (if anything) the admin should do. */
+	function action(gap: Open['gap']): string {
+		if (gap.kind === 'needs-look') {
+			return `Still there a day after Lookstow read the folder again (${formatRelative(gap.recheckedAt)}). Look at this mailbox's failed items and its activity log below.`;
 		}
-		if (gap.kind !== 'unexplained') return '';
-		const since =
-			folder.differsSince === null ? '' : `, since ${formatRelative(folder.differsSince)}`;
-		const reread =
-			folder.recheckedAt === null
-				? '; read again from the start if it lasts'
-				: `; read again ${formatRelative(folder.recheckedAt)}`;
-		return `(differs${since}${reread})`;
+		if (gap.recheckedAt === null) {
+			return `Lookstow reads the folder again from the start at its next sync, which copies anything missing. Nothing to do.`;
+		}
+		return `Lookstow read the folder again ${formatRelative(gap.recheckedAt)}. If the difference is still there ${formatDateTime(new Date(Date.parse(gap.since) + 86_400_000).toISOString())}, it needs a look. Nothing to do yet.`;
 	}
 </script>
 
@@ -146,14 +162,17 @@
 						<td>{formatCount(folder.itemCount)}</td>
 						<td>
 							{#if folder.sourceCount === null}
-								<span class="muted">Not yet</span>
-							{:else if folder.gap.kind === 'unexplained'}
+								<span class="muted">Not compared</span>
+							{:else if folder.gap.kind === 'needs-look'}
 								<Badge tone="warn">{formatCount(folder.sourceCount)}</Badge>
-								<span class="muted small">{gapText(folder)}</span>
+								<span class="muted small">(needs a look)</span>
+							{:else if folder.gap.kind === 'checking'}
+								<Badge tone="info">{formatCount(folder.sourceCount)}</Badge>
+								<span class="muted small">(checking)</span>
 							{:else}
 								{formatCount(folder.sourceCount)}
 								{#if folder.gap.kind === 'explained'}
-									<span class="muted small">{gapText(folder)}</span>
+									<span class="muted small">{explainedText(folder.gap)}</span>
 								{/if}
 							{/if}
 						</td>
@@ -163,12 +182,30 @@
 				{/each}
 			</tbody>
 		</table>
+		{#if open.length > 0}
+			<h3>Differences from Microsoft</h3>
+			<ul class="plain">
+				{#each open as folder (folder.path)}
+					<li>
+						<Badge tone={folder.gap.kind === 'needs-look' ? 'warn' : 'info'}
+							>{folder.gap.kind === 'needs-look' ? 'Needs a look' : 'Checking'}</Badge
+						>
+						<strong>{folder.path}</strong>: {difference(folder.gap)} ({formatCount(
+							folder.gap.stored
+						)} stored, Microsoft says {formatCount(folder.gap.source)}), since {formatRelative(
+							folder.gap.since
+						)}. {action(folder.gap)} Last checked {formatRelative(folder.lastSyncedAt)}.
+					</li>
+				{/each}
+			</ul>
+		{/if}
 		<p class="muted small">
-			Microsoft's count is read after each folder syncs. Items waiting to be copied again, and items
-			that are not messages (Deleted Items can hold contacts and calendar items), explain a higher
-			count. A difference nothing explains is marked; if it lasts half an hour, Lookstow reads the
-			folder again from the start, at most once a day, and if it lasts a day after that, it says so
-			in the activity log and the Completeness alert.
+			Microsoft's count is read after each folder syncs. Hidden folders and folders that do not hold
+			mail (Outlook's PersonMetadata, contacts, calendars) are not compared. Items waiting to be
+			copied again, and items that are not messages (Deleted Items can hold meeting requests and
+			contacts), explain a higher count. Any other difference is Checking: Lookstow reads the folder
+			again from the start at most once a day. It needs a look only if it is still there a day after
+			that, and only then does it alert.
 		</p>
 	{/if}
 </Card>

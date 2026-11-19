@@ -13,7 +13,7 @@ export const load = (async ({ parent, depends }) => {
 	// Syncing comes from the frame's live status, so the tiles and Now never disagree.
 	const { live } = await parent();
 	const syncing = new Set(live.engine.syncing.map((sync) => sync.mailboxId));
-	const summaries = mailboxSummaries(database, (id) => syncing.has(id));
+	const summaries = mailboxSummaries(database, (id) => syncing.has(id), Date.parse(live.at));
 	const connection = readConnection(database);
 	return {
 		totals: mailboxTotals(summaries),

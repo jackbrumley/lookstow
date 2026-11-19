@@ -71,11 +71,14 @@
 		Items can hold contacts and calendar items).
 	</p>
 	<p>
-		A difference nothing explains is marked on the mailbox page, and Mailboxes can show only those
-		mailboxes. If it lasts half an hour, Lookstow reads the folder again from the start: it copies
-		what is missing, records what is gone and counts the items that are not messages. It does this
-		at most once a day per folder. If the difference still lasts a day after that, it says so in the
-		activity log, and the "A folder stays different from Microsoft" alert emails it.
+		Hidden folders and folders that do not hold mail (Outlook's PersonMetadata, contacts, calendars)
+		are not compared. Any other difference is <strong>Checking</strong>: nothing to do. If it lasts
+		half an hour, Lookstow reads the folder again from the start: it copies what is missing, records
+		what is gone and counts the items that are not messages. It does this at most once a day per
+		folder. Only if the difference is still there a day after that does it become
+		<strong>Needs a look</strong>: the dashboard says so, the activity log records it, and the "A
+		folder stays different from Microsoft" alert emails it. Mailboxes can show either state from its
+		State list.
 	</p>
 </Card>
 

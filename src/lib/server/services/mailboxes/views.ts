@@ -11,8 +11,13 @@ import {
 	type MailboxRow
 } from './repository.ts';
 import { mailboxFolderName, resolveStoragePath } from '../storage/eml-store.ts';
-import { explainGap, folderFailures, mailboxesDifferingFromSource } from './completeness.ts';
-import type { MailboxDetail, MailboxState, MailboxSummary } from '../../../domain/mailboxes.ts';
+import { explainGap, folderFailures, folderGap, mailboxCompleteness } from './completeness.ts';
+import type {
+	MailboxCompleteness,
+	MailboxDetail,
+	MailboxState,
+	MailboxSummary
+} from '../../../domain/mailboxes.ts';
 import type { ScopeSettings } from '../../../domain/settings.ts';
 
 /** What the Mailboxes pages and the dashboard show, built from rows and the engine's live set. */
@@ -42,7 +47,11 @@ export function mailboxState(
 	return row.firstCopyDone ? 'backed-up' : 'waiting-first-copy';
 }
 
-function summary(row: MailboxRow, state: MailboxState, differs: boolean): MailboxSummary {
+function summary(
+	row: MailboxRow,
+	state: MailboxState,
+	completeness: MailboxCompleteness
+): MailboxSummary {
 	return {
 		id: row.id,
 		address: row.address,
@@ -56,18 +65,19 @@ function summary(row: MailboxRow, state: MailboxState, differs: boolean): Mailbo
 		firstCopyDone: row.firstCopyDone,
 		paused: row.paused,
 		goneAt: row.goneAt?.toISOString() ?? null,
-		differsFromMicrosoft: differs
+		completeness
 	};
 }
 
 export function mailboxSummaries(
 	db: Queryable,
-	syncing: (id: string) => boolean
+	syncing: (id: string) => boolean,
+	now: number
 ): MailboxSummary[] {
 	const scope = readScope(db);
-	const differing = mailboxesDifferingFromSource(db);
+	const incomplete = mailboxCompleteness(db, now);
 	return allMailboxes(db).map((row) =>
-		summary(row, mailboxState(row, scope, syncing), differing.has(row.id))
+		summary(row, mailboxState(row, scope, syncing), incomplete.get(row.id) ?? 'complete')
 	);
 }
 
@@ -75,7 +85,8 @@ export function mailboxDetail(
 	db: Queryable,
 	id: string,
 	backupRoot: string,
-	syncing: (id: string) => boolean
+	syncing: (id: string) => boolean,
+	now: number
 ): MailboxDetail | null {
 	const row = mailboxById(db, id);
 	if (row === undefined) {
@@ -87,7 +98,7 @@ export function mailboxDetail(
 		...summary(
 			row,
 			mailboxState(row, readScope(db), syncing),
-			mailboxesDifferingFromSource(db).has(row.id)
+			mailboxCompleteness(db, now).get(row.id) ?? 'complete'
 		),
 		userId: row.userId,
 		firstSeenAt: row.firstSeenAt.toISOString(),
@@ -102,14 +113,16 @@ export function mailboxDetail(
 				sourceCount: folder.sourceCount,
 				firstCopyDone: folder.firstCopyDone,
 				lastSyncedAt: folder.lastSyncedAt?.toISOString() ?? null,
-				gap: explainGap(
-					counts.get(folder.id) ?? 0,
-					folder.sourceCount,
-					failures.get(folder.id) ?? { waiting: 0, givenUp: 0 },
-					folder.otherItemCount
-				),
-				differsSince: folder.differsSince?.toISOString() ?? null,
-				recheckedAt: folder.recheckedAt?.toISOString() ?? null
+				gap: folderGap(
+					explainGap(
+						counts.get(folder.id) ?? 0,
+						folder.sourceCount,
+						failures.get(folder.id) ?? { waiting: 0, givenUp: 0 },
+						folder.otherItemCount
+					),
+					folder,
+					now
+				)
 			})),
 		recentRuns: recentRuns(db, { limit: 20, mailboxId: id })
 	};
@@ -126,7 +139,8 @@ export function mailboxTotals(summaries: readonly MailboxSummary[]) {
 		failed: count('failed'),
 		excluded: count('excluded') + count('out-of-scope'),
 		gone: count('gone'),
-		differingFromMicrosoft: summaries.filter((s) => s.differsFromMicrosoft).length,
+		completenessChecking: summaries.filter((s) => s.completeness === 'checking').length,
+		completenessNeedsLook: summaries.filter((s) => s.completeness === 'needs-look').length,
 		items: summaries.reduce((sum, s) => sum + s.itemCount, 0),
 		bytes: summaries.reduce((sum, s) => sum + s.byteCount, 0)
 	};

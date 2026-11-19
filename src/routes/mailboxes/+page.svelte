@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
+	import { page as currentPage } from '$app/state';
 	import type { PageProps } from './$types';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
@@ -9,12 +10,13 @@
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import {
+		COMPLETENESS_LABELS,
 		KIND_LABELS,
 		STATE_LABELS,
 		type MailboxState,
 		type MailboxSummary
 	} from '#lib/domain/mailboxes.ts';
-	import { formatBytes, formatCount, formatRelative } from '#lib/utils/format.ts';
+	import { formatBytes, formatCount, formatRelative, plural } from '#lib/utils/format.ts';
 	import { stateTone } from '#lib/utils/mailbox-tone.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 
@@ -31,21 +33,46 @@
 	let unpickOpen = $derived(unpicking !== null);
 
 	let search = $state('');
-	let stateFilter = $state<MailboxState | 'all'>('all');
+	type StateFilter = MailboxState | 'in-backup' | 'all' | 'checking' | 'needs-look';
+	/**
+	 * The state asked for in the link (the dashboard links to ?state=needs-look). Without one, the
+	 * mailboxes in the backup: every state but not in scope and excluded. ?state=all shows all.
+	 */
+	function isStateFilter(value: string): value is StateFilter {
+		return (
+			value === 'in-backup' ||
+			value === 'all' ||
+			value === 'checking' ||
+			value === 'needs-look' ||
+			value in STATE_LABELS
+		);
+	}
+	const asked = currentPage.url.searchParams.get('state') ?? 'in-backup';
+	let stateFilter = $state<StateFilter>(isStateFilter(asked) ? asked : 'in-backup');
 	let kindFilter = $state('all');
-	let differsOnly = $state(false);
-	const differing = $derived(
-		data.mailboxes.filter((mailbox) => mailbox.differsFromMicrosoft).length
-	);
+	const incomplete = $derived({
+		checking: data.mailboxes.filter((mailbox) => mailbox.completeness === 'checking').length,
+		'needs-look': data.mailboxes.filter((mailbox) => mailbox.completeness === 'needs-look').length
+	});
+
+	function matchesState(mailbox: MailboxSummary): boolean {
+		if (stateFilter === 'all') return true;
+		if (stateFilter === 'in-backup') {
+			return mailbox.state !== 'out-of-scope' && mailbox.state !== 'excluded';
+		}
+		if (stateFilter === 'checking' || stateFilter === 'needs-look') {
+			return mailbox.completeness === stateFilter;
+		}
+		return mailbox.state === stateFilter;
+	}
 
 	const kinds = $derived([...new Set(data.mailboxes.map((mailbox) => mailbox.kind))].sort());
 	const shown = $derived(
 		data.mailboxes.filter((mailbox) => {
 			const text = search.trim().toLowerCase();
 			return (
-				(stateFilter === 'all' || mailbox.state === stateFilter) &&
+				matchesState(mailbox) &&
 				(kindFilter === 'all' || mailbox.kind === kindFilter) &&
-				(!differsOnly || mailbox.differsFromMicrosoft) &&
 				(text === '' ||
 					mailbox.address.includes(text) ||
 					mailbox.displayName.toLowerCase().includes(text))
@@ -122,13 +149,11 @@
 />
 
 {#if data.picking}
-	<Card tone="warn">
-		<p>
-			Only the mailboxes you pick are backed up ({formatCount(picked.size)} picked). Use
-			<strong>Pick</strong> on a row to back that mailbox up. To back up every mailbox again, change
-			<a href={resolve('/settings')}>Settings</a> &gt; What is backed up.
-		</p>
-	</Card>
+	<p class="muted small">
+		Backing up the {plural(picked.size, 'mailbox', 'mailboxes')} you picked. To pick more, choose Every
+		mailbox and use <strong>Pick</strong>; to back up every mailbox, change
+		<a href={resolve('/settings')}>Settings</a> &gt; What is backed up.
+	</p>
 {/if}
 
 <Card>
@@ -140,10 +165,17 @@
 			bind:value={search}
 		/>
 		<select aria-label="State" bind:value={stateFilter}>
-			<option value="all">Every state</option>
+			<option value="in-backup">In the backup</option>
+			<option value="all">Every mailbox</option>
 			{#each states as state (state)}
 				<option value={state}>{STATE_LABELS[state]}</option>
 			{/each}
+			<option value="checking"
+				>{COMPLETENESS_LABELS.checking} ({formatCount(incomplete.checking)})</option
+			>
+			<option value="needs-look"
+				>{COMPLETENESS_LABELS['needs-look']} ({formatCount(incomplete['needs-look'])})</option
+			>
 		</select>
 		<select aria-label="Kind" bind:value={kindFilter}>
 			<option value="all">Every kind</option>
@@ -151,13 +183,6 @@
 				<option value={kind}>{KIND_LABELS[kind] ?? kind}</option>
 			{/each}
 		</select>
-		{#if differing > 0}
-			<label class="check"
-				><input type="checkbox" bind:checked={differsOnly} /> Differs from Microsoft ({formatCount(
-					differing
-				)})</label
-			>
-		{/if}
 		<span class="muted small"
 			>{formatCount(shown.length)} of {formatCount(data.mailboxes.length)}</span
 		>
@@ -268,12 +293,6 @@
 {/if}
 
 <style>
-	label.check {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
 	.filters {
 		display: flex;
 		flex-wrap: wrap;

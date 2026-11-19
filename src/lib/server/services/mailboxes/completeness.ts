@@ -2,7 +2,7 @@ import { and, count, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
 import { itemFailures, mailboxes, mailFolders, messages } from '../../database/schema.ts';
 import { recordActivity } from '../activity/activity.ts';
-import type { FolderGap } from '../../../domain/mailboxes.ts';
+import type { FolderGap, MailboxCompleteness } from '../../../domain/mailboxes.ts';
 
 /**
  * The completeness check and its repair (docs/specs/SPEC-COMPLETENESS-REPAIR.md). After each
@@ -10,6 +10,13 @@ import type { FolderGap } from '../../../domain/mailboxes.ts';
  * to be copied again explain is not a difference. A gap nothing explains is recorded with the
  * time it was first seen; if it lasts, the folder is read again from the start (at most once a
  * day), and if it still lasts a day, an activity entry (and so an alert) says so.
+ *
+ * Hidden folders and folders that do not hold mail (Outlook's PersonMetadata, contacts,
+ * calendars) are not compared at all: their counts are cleared.
+ *
+ * An admin sees three states: Checking (a gap Lookstow is still working on: nothing to do),
+ * Explained (on the mailbox page only), and Needs a look (still missing a day after a re-read:
+ * the only one that alerts and shows on the dashboard).
  */
 
 /** A gap must outlast this (about two routine syncs) before the folder is read again. */
@@ -18,6 +25,11 @@ export const RECHECK_AFTER_MS = 30 * 60_000;
 const RECHECK_EVERY_MS = 24 * 3_600_000;
 /** A gap that outlasts a re-read by this much is reported. */
 export const REPORT_AFTER_MS = 24 * 3_600_000;
+
+/** What the counts alone say; `unexplained` becomes Checking or Needs a look by its history. */
+type CountGap =
+	| Exclude<FolderGap, { kind: 'checking' | 'needs-look' }>
+	| { kind: 'unexplained'; stored: number; source: number };
 
 /**
  * Why a folder's stored count and Microsoft's differ, or that they do not. Microsoft's count
@@ -29,7 +41,7 @@ export function explainGap(
 	source: number | null,
 	failures: { waiting: number; givenUp: number },
 	otherItems: number | null
-): FolderGap {
+): CountGap {
 	if (source === null) return { kind: 'unchecked' };
 	if (source === stored) return { kind: 'match' };
 	const accounted = failures.waiting + failures.givenUp + (otherItems ?? 0);
@@ -78,6 +90,42 @@ export function folderFailures(
 	return byFolder;
 }
 
+/** Whether a gap nothing explains has outlasted a re-read by a day: it needs a look. */
+function needsLook(
+	folder: { differsSince: Date | null; recheckedAt: Date | null },
+	now: number
+): boolean {
+	return (
+		folder.differsSince !== null &&
+		folder.recheckedAt !== null &&
+		folder.recheckedAt.getTime() >= folder.differsSince.getTime() &&
+		now - folder.differsSince.getTime() >= REPORT_AFTER_MS
+	);
+}
+
+/**
+ * The state an admin sees for one folder: the counts' explanation, and for a gap nothing
+ * explains, Checking (a re-read is due, running, or done less than a day ago) or Needs a look.
+ */
+export function folderGap(
+	gap: CountGap,
+	folder: { differsSince: Date | null; recheckedAt: Date | null },
+	now: number
+): FolderGap {
+	if (gap.kind !== 'unexplained') return gap;
+	const since = (folder.differsSince ?? new Date(now)).toISOString();
+	const recheckedAt =
+		folder.recheckedAt !== null &&
+		folder.differsSince !== null &&
+		folder.recheckedAt.getTime() >= folder.differsSince.getTime()
+			? folder.recheckedAt.toISOString()
+			: null;
+	const counts = { stored: gap.stored, source: gap.source, since, recheckedAt };
+	return needsLook(folder, now)
+		? { kind: 'needs-look', ...counts }
+		: { kind: 'checking', ...counts };
+}
+
 /**
  * Microsoft's count for each folder whose sync just reached its delta link, read after that
  * sync: saved, compared with the stored messages, and the folder's difference started or
@@ -88,13 +136,27 @@ export function folderFailures(
 export function recordFolderCounts(
 	db: Queryable,
 	mailboxId: string,
-	counts: readonly { folderId: string; count: number; listed: number | null }[],
+	counts: readonly { folderId: string; count: number | null; listed: number | null }[],
 	now: number
 ): void {
 	const failures = folderFailures(db, mailboxId);
 	for (const { folderId, count: source, listed } of counts) {
 		const folder = db.select().from(mailFolders).where(eq(mailFolders.id, folderId)).get();
 		if (folder === undefined) continue;
+		if (source === null) {
+			// Not compared (hidden, or not mail): no count, so no difference.
+			db.update(mailFolders)
+				.set({
+					sourceCount: null,
+					sourceCountAt: new Date(now),
+					otherItemCount: null,
+					differsSince: null,
+					differenceAlertedAt: null
+				})
+				.where(eq(mailFolders.id, folderId))
+				.run();
+			continue;
+		}
 		const otherItems = listed === null ? folder.otherItemCount : Math.max(0, source - listed);
 		const gap = explainGap(
 			storedCount(db, folderId),
@@ -150,14 +212,29 @@ export function startRecheck(
 	});
 }
 
-/** Mailboxes with a folder that differs from Microsoft's count with nothing to explain it. */
-export function mailboxesDifferingFromSource(db: Queryable): Set<string> {
+/**
+ * Mailboxes with a folder whose gap nothing explains: Checking, or Needs a look when any such
+ * folder has outlasted a re-read by a day. Mailboxes not listed are complete.
+ */
+export function mailboxCompleteness(
+	db: Queryable,
+	now: number
+): Map<string, Exclude<MailboxCompleteness, 'complete'>> {
 	const rows = db
-		.selectDistinct({ mailboxId: mailFolders.mailboxId })
+		.select({
+			mailboxId: mailFolders.mailboxId,
+			differsSince: mailFolders.differsSince,
+			recheckedAt: mailFolders.recheckedAt
+		})
 		.from(mailFolders)
 		.where(and(isNotNull(mailFolders.differsSince), isNull(mailFolders.goneAt)))
 		.all();
-	return new Set(rows.map((row) => row.mailboxId));
+	const byMailbox = new Map<string, Exclude<MailboxCompleteness, 'complete'>>();
+	for (const row of rows) {
+		if (needsLook(row, now)) byMailbox.set(row.mailboxId, 'needs-look');
+		else if (!byMailbox.has(row.mailboxId)) byMailbox.set(row.mailboxId, 'checking');
+	}
+	return byMailbox;
 }
 
 /**

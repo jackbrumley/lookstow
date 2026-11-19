@@ -75,18 +75,30 @@ export function withUniqueStoragePaths(
 /**
  * Microsoft's count for each folder that synced to its delta link, from the folder list read
  * after the sync, with how many messages a full listing returned where the sync listed the
- * folder from the start. A folder Microsoft did not count, or no longer lists, has none.
+ * folder from the start. A folder Microsoft did not count, or no longer lists, has none; one the
+ * check does not compare (hidden, or not mail) has a null count, which clears its old one.
  */
 export function countsFor(
 	synced: readonly { id: string; graphId: string }[],
-	after: readonly { graphId: string; totalItemCount: number | null }[],
+	after: readonly { graphId: string; totalItemCount: number | null; compared: boolean }[],
 	fullListings: ReadonlyMap<string, number>
-): { folderId: string; count: number; listed: number | null }[] {
-	const byGraphId = new Map(after.map((folder) => [folder.graphId, folder.totalItemCount]));
-	return synced.flatMap((folder) => {
-		const count = byGraphId.get(folder.graphId) ?? null;
-		return count === null
-			? []
-			: [{ folderId: folder.id, count, listed: fullListings.get(folder.id) ?? null }];
-	});
+): { folderId: string; count: number | null; listed: number | null }[] {
+	const byGraphId = new Map(after.map((folder) => [folder.graphId, folder]));
+	return synced.flatMap(
+		(folder): { folderId: string; count: number | null; listed: number | null }[] => {
+			const listed = byGraphId.get(folder.graphId);
+			if (listed === undefined) return [];
+			// A folder Lookstow does not compare (hidden, or not mail) has its count cleared.
+			if (!listed.compared) return [{ folderId: folder.id, count: null, listed: null }];
+			return listed.totalItemCount === null
+				? []
+				: [
+						{
+							folderId: folder.id,
+							count: listed.totalItemCount,
+							listed: fullListings.get(folder.id) ?? null
+						}
+					];
+		}
+	);
 }

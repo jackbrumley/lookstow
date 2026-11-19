@@ -27,7 +27,8 @@ export const load = (async ({ params, parent, depends }) => {
 		database,
 		params.id,
 		effectiveBackupRoot(database, dataDir()),
-		(id) => syncing.has(id)
+		(id) => syncing.has(id),
+		Date.parse(live.at)
 	);
 	if (detail === null) {
 		error(404, 'No such mailbox');
