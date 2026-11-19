@@ -22,10 +22,15 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 - **Archive items as .eml.** Done in 0.6.0: Lookstow reads `.fts` files, indexes archive items for Search, and downloads them as `.eml`. Archive items copied before 0.6.0 are filed by their received date once they are indexed. Next: a live item count during a long first copy.
 - **Message view.** Plain-text body and attachment list on the message page; optionally body search (SQLite FTS5).
 
+## Next: 0.7 and 0.8, backup integrity (docs/specs/SPEC-BACKUP-INTEGRITY.md)
+
+- **Split engine.ts** by responsibility, with no change in behaviour, after 0.6.2.
+- **0.7: index snapshot.** A daily copy of the index on the backup drive (7 kept), a documented restore, and archive items that cannot be read are tried once per version.
+- **0.8: completeness check.** Each folder's item count from Microsoft beside the index's, reported before any alert.
+
 ## Later
 
 - **Backup folder outside the data folder.** The Linux unit only lets the service write `/var/lib/lookstow`, and LocalService can only write folders it is granted: the installer grants a chosen folder (`--backup-dir`).
-- **Completeness check.** Compare each folder's item count in Graph with the index once a day, and show mailboxes that drift.
 - **Restore.** Download a mailbox or folder as a zip of .eml or one .mbox; later, put messages back with Graph.
 - **Retention.** Optionally delete files of messages deleted at the source more than N days ago (off by default).
 - **Remote console** with sign-in (Entra sign-in for admins), then allow other computers.
