@@ -2,9 +2,18 @@ import { count } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Queryable } from '../../database/connection.ts';
 import { mailboxes, messages } from '../../database/schema.ts';
-import { SEARCH_PAGE_SIZE, type MessageQuery } from '../../../domain/messages.ts';
-import { searchMessages } from '../messages/search.ts';
-import { loadMessage, sha256Of, type LoadedMessage } from './message-content.ts';
+import type { MessageQuery } from '../../../domain/messages.ts';
+import {
+	contentIndexProgress,
+	saveContent,
+	SMALL_PICTURE_BYTES,
+	summarise
+} from './content-index.ts';
+import { loadMessage, sha256Of } from './message-content.ts';
+import { aiSearch, topSenders, type AiHit, type ContentFilters } from './search.ts';
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
 
 /**
  * The AI tools (served over MCP at /mcp): read-only access to the backed-up mail, so an agent
@@ -40,9 +49,37 @@ const searchInput = z.object({
 	after: date,
 	before: date,
 	includeDeleted: z.boolean().optional(),
+	body: z.string().optional(),
+	hasAttachments: z.boolean().optional(),
+	hasPhotos: z.boolean().optional(),
+	hasPdf: z.boolean().optional(),
+	minAttachmentKb: z.number().min(0).optional(),
 	page: z.number().int().min(0).optional(),
+	pageSize: z.number().int().min(1).max(MAX_PAGE_SIZE).optional(),
 	withContent: z.boolean().optional()
 });
+
+const sendersInput = searchInput.extend({ limit: z.number().int().min(1).max(500).optional() });
+
+const FILTER_PROPERTIES = {
+	mailboxId: { type: 'string' },
+	text: { type: 'string', description: 'Words in the subject, sender or recipients' },
+	from: { type: 'string' },
+	to: { type: 'string' },
+	subject: { type: 'string' },
+	folder: { type: 'string', description: 'Folder path contains' },
+	after: { type: 'string', description: 'yyyy-mm-dd, inclusive' },
+	before: { type: 'string', description: 'yyyy-mm-dd, inclusive' },
+	includeDeleted: { type: 'boolean', description: 'Include messages deleted in Microsoft 365' },
+	body: { type: 'string', description: 'Words in the message text (content index)' },
+	hasAttachments: { type: 'boolean' },
+	hasPhotos: {
+		type: 'boolean',
+		description: `Has a picture of ${String(SMALL_PICTURE_BYTES / 1000)} KB or more (logos excluded)`
+	},
+	hasPdf: { type: 'boolean' },
+	minAttachmentKb: { type: 'number', description: 'Largest real attachment at least this big' }
+} as const;
 
 const messageInput = z.object({ messageId: z.string().min(1) });
 const attachmentInput = z.object({ messageId: z.string().min(1), index: z.number().int().min(0) });
@@ -56,25 +93,24 @@ export const TOOLS = [
 	},
 	{
 		name: 'search_messages',
-		description: `Finds stored messages, newest first, ${String(SEARCH_PAGE_SIZE)} a page. Filters: mailboxId (from list_mailboxes), text (words in subject, sender or recipients), from, to, subject, folder (path contains), after and before (yyyy-mm-dd, inclusive). Message bodies are not searched. withContent: true also reads each message and adds its attachments (name, type, size) and the first ${String(PREVIEW_CHARS)} characters of its text, for sorting candidates quickly. Online archive items stored before Lookstow 0.6 may have no subject or sender in the index: search them by mailbox, folder and date with withContent.`,
+		description: `Finds stored messages, newest first (pageSize up to ${String(MAX_PAGE_SIZE)}, default ${String(DEFAULT_PAGE_SIZE)}). Filters: mailboxId (from list_mailboxes), text (words in subject, sender or recipients), from, to, subject, folder, after and before (yyyy-mm-dd, inclusive); and from the content index: body (words in the message text), hasAttachments, hasPhotos (pictures of ${String(SMALL_PICTURE_BYTES / 1000)} KB or more, so not logos), hasPdf, minAttachmentKb. Content filters match only messages the index has read: the reply's contentIndex says how far it has got and notIndexed how many matches it may still miss. withContent: true adds each message's attachments (name, type, size) and the first ${String(PREVIEW_CHARS)} characters of its text.`,
 		inputSchema: {
 			type: 'object',
 			properties: {
-				mailboxId: { type: 'string' },
-				text: { type: 'string' },
-				from: { type: 'string' },
-				to: { type: 'string' },
-				subject: { type: 'string' },
-				folder: { type: 'string' },
-				after: { type: 'string', description: 'yyyy-mm-dd' },
-				before: { type: 'string', description: 'yyyy-mm-dd' },
-				includeDeleted: {
-					type: 'boolean',
-					description: 'Include messages deleted in Microsoft 365'
-				},
+				...FILTER_PROPERTIES,
 				page: { type: 'integer', minimum: 0 },
+				pageSize: { type: 'integer', minimum: 1, maximum: MAX_PAGE_SIZE },
 				withContent: { type: 'boolean' }
 			}
+		}
+	},
+	{
+		name: 'top_senders',
+		description:
+			'Who sent the most messages matching the same filters as search_messages (for example to payroll@ with photos), with their first and last message dates. For finding every farm manager and farm mailbox that sent timesheets.',
+		inputSchema: {
+			type: 'object',
+			properties: { ...FILTER_PROPERTIES, limit: { type: 'integer', minimum: 1, maximum: 500 } }
 		}
 	},
 	{
@@ -139,21 +175,8 @@ function listMailboxes(db: Queryable): ToolResult {
 	);
 }
 
-function attachmentSummary(loaded: LoadedMessage) {
-	return loaded.parsed.attachments.map((attachment) => ({
-		index: attachment.index,
-		filename: attachment.filename,
-		contentType: attachment.contentType,
-		bytes: attachment.data.length,
-		inline: attachment.inline
-	}));
-}
-
-async function search(
-	context: ToolContext,
-	input: z.infer<typeof searchInput>
-): Promise<ToolResult> {
-	const query: MessageQuery = {
+function queryOf(input: z.infer<typeof searchInput>): MessageQuery {
+	return {
 		mailboxId: input.mailboxId ?? null,
 		text: input.text ?? '',
 		from: input.from ?? '',
@@ -165,8 +188,41 @@ async function search(
 		before: input.before ?? '',
 		includeDeleted: input.includeDeleted ?? false
 	};
+}
+
+function filtersOf(input: z.infer<typeof searchInput>): ContentFilters {
+	return {
+		body: input.body ?? '',
+		hasAttachments: input.hasAttachments ?? null,
+		hasPhotos: input.hasPhotos ?? null,
+		hasPdf: input.hasPdf ?? null,
+		minAttachmentKb: input.minAttachmentKb ?? null
+	};
+}
+
+/** A hit's text and attachments: from the content index, or read now (and indexed) if new. */
+async function contentOf(context: ToolContext, hit: AiHit) {
+	if (hit.content !== null) return hit.content;
+	const loaded = await loadMessage(context.db, context.backupRoot, hit.id);
+	saveContent(context.db, hit.id, 'error' in loaded ? loaded : loaded.parsed, Date.now());
+	if ('error' in loaded) return { text: '', attachments: [], problem: loaded.error };
+	const summary = summarise(loaded.parsed);
+	return { text: summary.text, attachments: summary.attachments, problem: null };
+}
+
+async function search(
+	context: ToolContext,
+	input: z.infer<typeof searchInput>
+): Promise<ToolResult> {
 	const page = input.page ?? 0;
-	const { hits, total } = searchMessages(context.db, query, page);
+	const pageSize = input.pageSize ?? DEFAULT_PAGE_SIZE;
+	const { hits, total, notIndexed } = aiSearch(
+		context.db,
+		queryOf(input),
+		filtersOf(input),
+		page,
+		pageSize
+	);
 	const results = [];
 	for (const hit of hits) {
 		const row = {
@@ -182,19 +238,13 @@ async function search(
 			deletedInMicrosoft365: hit.deletedAt
 		};
 		if (input.withContent === true) {
-			const loaded = await loadMessage(context.db, context.backupRoot, hit.id);
-			results.push(
-				'error' in loaded
-					? { ...row, problem: loaded.error }
-					: {
-							...row,
-							subject:
-								row.subject === '' ? (loaded.parsed.headers.get('subject') ?? '') : row.subject,
-							from: row.from === '' ? (loaded.parsed.headers.get('from') ?? '') : row.from,
-							attachments: attachmentSummary(loaded),
-							textStart: loaded.parsed.text.slice(0, PREVIEW_CHARS)
-						}
-			);
+			const content = await contentOf(context, hit);
+			results.push({
+				...row,
+				attachments: content.attachments,
+				textStart: content.text.slice(0, PREVIEW_CHARS),
+				...(content.problem === null ? {} : { problem: content.problem })
+			});
 		} else {
 			results.push(row);
 		}
@@ -202,10 +252,16 @@ async function search(
 	return text({
 		total,
 		page,
-		pageSize: SEARCH_PAGE_SIZE,
-		morePages: (page + 1) * SEARCH_PAGE_SIZE < total,
+		pageSize,
+		morePages: (page + 1) * pageSize < total,
+		contentIndex: contentIndexProgress(context.db),
+		notIndexed,
 		messages: results
 	});
+}
+
+function senders(context: ToolContext, input: z.infer<typeof sendersInput>): ToolResult {
+	return text(topSenders(context.db, queryOf(input), filtersOf(input), input.limit ?? 100));
 }
 
 async function getMessage(context: ToolContext, messageId: string): Promise<ToolResult> {
@@ -241,6 +297,7 @@ async function getMessage(context: ToolContext, messageId: string): Promise<Tool
 			bytes: attachment.data.length,
 			sha256: sha256Of(attachment.data),
 			inline: attachment.inline,
+			insideAttachment: attachment.insideAttachment,
 			url: attachmentUrl(context.baseUrl, detail.id, attachment.index)
 		})),
 		folderHistory: detail.history
@@ -287,7 +344,7 @@ async function getAttachment(
 	return text({
 		...facts,
 		howToOpen:
-			'Download it: curl -s -H "Authorization: Bearer <token>" -o <file> <url>, then open the file.'
+			'Download it: curl -s -H "Authorization: Bearer <token>" -o <file> <url>, then open the file. A HEIC photo (or any photo too big to view) can be turned into a JPEG first, for example with ImageMagick: magick <file> -auto-orient -resize 2000x2000> <file>.jpg'
 	});
 }
 
@@ -304,6 +361,11 @@ export async function callTool(
 			const input = searchInput.safeParse(args ?? {});
 			if (!input.success) return failure(input.error.issues[0]?.message ?? 'Bad arguments');
 			return search(context, input.data);
+		}
+		case 'top_senders': {
+			const input = sendersInput.safeParse(args ?? {});
+			if (!input.success) return failure(input.error.issues[0]?.message ?? 'Bad arguments');
+			return senders(context, input.data);
 		}
 		case 'get_message': {
 			const input = messageInput.safeParse(args);

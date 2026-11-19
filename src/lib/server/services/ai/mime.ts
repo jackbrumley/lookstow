@@ -11,6 +11,8 @@ type MimeAttachment = {
 	data: Buffer;
 	/** Shown inside the message (a signature logo, a pasted picture) rather than attached. */
 	inline: boolean;
+	/** Inside a forwarded email (an attached message): that attachment's index, else null. */
+	insideAttachment: number | null;
 };
 
 export type ParsedMessage = {
@@ -129,9 +131,39 @@ function htmlToText(html: string): string {
 		.replace(/&gt;/g, '>')
 		.replace(/&quot;/g, '"')
 		.replace(/&#39;/g, "'")
-		.replace(/[ \t]+\n/g, '\n')
-		.replace(/\n{3,}/g, '\n\n')
-		.trim();
+		.replace(/&#(\d{1,7});/g, (_, code: string) => fromCodePoint(Number.parseInt(code, 10)))
+		.replace(/&#x([0-9a-f]{1,6});/gi, (_, code: string) =>
+			fromCodePoint(Number.parseInt(code, 16))
+		);
+}
+
+function fromCodePoint(code: number): string {
+	return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+}
+
+/**
+ * Text without the invisible padding mail programs add (Gmail and Outlook fill a message's
+ * preview with hundreds of zero-width joiners), with runs of spaces and blank lines closed up.
+ */
+const INVISIBLE = new Set([
+	0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xfeff, 0x034f,
+	0x00ad, 0x180e
+]);
+const NO_BREAK_SPACE = String.fromCharCode(0xa0);
+
+function cleanText(text: string): string {
+	return (
+		Array.from(text)
+			.filter((character) => !INVISIBLE.has(character.codePointAt(0) ?? 0))
+			.join('')
+			.replaceAll(NO_BREAK_SPACE, ' ')
+			// The mail filter's "external sender" banner, between its markers.
+			.replace(/ZjQcmQRYFpfptBannerStart[\s\S]*?ZjQcmQRYFpfptBannerEnd/g, '')
+			.replace(/[ \t]+/g, ' ')
+			.replace(/ *\r?\n */g, '\n')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim()
+	);
 }
 
 function splitMultipart(body: Buffer, boundary: string): Buffer[] {
@@ -155,8 +187,9 @@ function splitMultipart(body: Buffer, boundary: string): Buffer[] {
 	return parts;
 }
 
-export function parseEml(raw: Buffer): ParsedMessage {
+export function parseEml(raw: Buffer, nesting = 0): ParsedMessage {
 	const root = splitPart(raw);
+	const forwarded: string[] = [];
 	const texts: { plain: string[]; html: string[] } = { plain: [], html: [] };
 	const attachments: MimeAttachment[] = [];
 	const walk = (part: Part, depth: number): void => {
@@ -176,13 +209,35 @@ export function parseEml(raw: Buffer): ParsedMessage {
 			/^attachment/i.test(disposition) ||
 			!(mediaType.startsWith('text/') || mediaType === 'message/delivery-status');
 		if (isAttachment) {
+			const data = decodeBody(part);
+			const own = attachments.length;
+			const inner =
+				mediaType === 'message/rfc822' && nesting < 5 ? parseEml(data, nesting + 1) : null;
+			const subject = inner?.headers.get('subject') ?? null;
 			attachments.push({
-				index: attachments.length,
-				filename: filename ?? `attachment-${String(attachments.length + 1)}`,
+				index: own,
+				filename:
+					filename ?? (subject === null ? `attachment-${String(own + 1)}` : `${subject}.eml`),
 				contentType: mediaType,
-				data: decodeBody(part),
-				inline: /^inline/i.test(disposition) || part.headers.has('content-id')
+				data,
+				inline: /^inline/i.test(disposition) || part.headers.has('content-id'),
+				insideAttachment: null
 			});
+			// A forwarded email: its text and attachments count as this message's own.
+			if (inner !== null) {
+				const from = inner.headers.get('from') ?? '';
+				const date = inner.headers.get('date') ?? '';
+				forwarded.push(
+					`--- Attached email: ${subject ?? ''} (from ${from}, ${date}) ---\n${inner.text}`
+				);
+				for (const nested of inner.attachments) {
+					attachments.push({
+						...nested,
+						index: attachments.length,
+						insideAttachment: nested.insideAttachment ?? own
+					});
+				}
+			}
 			return;
 		}
 		const text = charsetDecode(decodeBody(part), parameter(type, 'charset') ?? 'utf-8');
@@ -190,10 +245,9 @@ export function parseEml(raw: Buffer): ParsedMessage {
 		else texts.plain.push(text);
 	};
 	walk(root, 0);
-	const text =
-		texts.plain.length > 0
-			? texts.plain.join('\n\n').trim()
-			: texts.html.map(htmlToText).join('\n\n');
+	const body =
+		texts.plain.length > 0 ? texts.plain.join('\n\n') : texts.html.map(htmlToText).join('\n\n');
+	const text = cleanText([body, ...forwarded].join('\n\n'));
 	const headers = new Map([...root.headers].map(([name, value]) => [name, decodeWords(value)]));
 	return { headers, text, attachments };
 }

@@ -16,7 +16,7 @@ import {
  * Message bodies are not indexed, and archive items carry no subject or addresses until they are
  * converted, so they are found by mailbox, folder and date.
  */
-function contains(column: SQLiteColumn, text: string): SQL {
+export function contains(column: SQLiteColumn, text: string): SQL {
 	// SQLite has no default escape character for LIKE: name one (!), so a typed % or _ is literal.
 	const escaped = text.replace(/[!%_]/g, (character) => `!${character}`);
 	return sql`${column} like ${`%${escaped}%`} escape '!'`;
@@ -27,7 +27,7 @@ function dayStart(date: string): Date | null {
 	return Number.isNaN(time) ? null : new Date(time);
 }
 
-function conditions(query: MessageQuery): SQL[] {
+export function conditions(query: MessageQuery): SQL[] {
 	const all: (SQL | undefined)[] = [];
 	if (query.mailboxId !== null) {
 		all.push(eq(messages.mailboxId, query.mailboxId));
@@ -58,7 +58,7 @@ function conditions(query: MessageQuery): SQL[] {
 	return all.filter((condition) => condition !== undefined);
 }
 
-const hitColumns = {
+export const hitColumns = {
 	id: messages.id,
 	mailboxId: messages.mailboxId,
 	mailboxAddress: mailboxes.address,
@@ -86,7 +86,7 @@ type HitRow = {
 	deletedAt: Date | null;
 };
 
-function toHit(row: HitRow): MessageHit {
+export function toHit(row: HitRow): MessageHit {
 	return {
 		...row,
 		receivedAt: row.receivedAt?.toISOString() ?? null,

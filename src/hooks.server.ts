@@ -5,6 +5,8 @@ import { startThroughputMonitor } from '#lib/server/services/throughput/monitor.
 import { throughputExtras } from '#lib/server/services/throughput/extras.ts';
 import { startAutomaticUpdates } from '#lib/server/services/engine/auto-update.ts';
 import { pruneActivity } from '#lib/server/services/activity/activity.ts';
+import { startContentIndexer } from '#lib/server/services/ai/content-index.ts';
+import { effectiveBackupRoot, readAiAccess } from '#lib/server/services/settings/settings.ts';
 import { errorText, serverLog } from '#lib/server/log.ts';
 import { serverUpdates, startUpdateChecks } from '#lib/server/services/server-updates/live.ts';
 
@@ -29,6 +31,12 @@ export const init: ServerInit = () => {
 	alertService().start();
 	backupEngine().start();
 	startUpdateChecks();
+	// The AI tools' content index: built in the background while AI tools are on.
+	const contentIndex = startContentIndexer(
+		database,
+		() => effectiveBackupRoot(database, dataDir()),
+		() => readAiAccess(database).enabled
+	);
 	startAutomaticUpdates(database, serverUpdates);
 	// The activity log keeps 90 days (the Activity page says so).
 	const prune = (): void => {
@@ -40,7 +48,7 @@ export const init: ServerInit = () => {
 		process.once(signal, () => {
 			void backupEngine()
 				.stop()
-				.then(() => throughput.stop());
+				.then(() => Promise.all([throughput.stop(), contentIndex.stop()]));
 		});
 	}
 	serverLog('info', 'startup', `Lookstow ${__LOOKSTOW_VERSION__} started`);

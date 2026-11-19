@@ -7,6 +7,7 @@ import { openDatabase } from '../../database/connection.ts';
 import { applyDiscovery, insertMessage, syncFolderList } from '../mailboxes/repository.ts';
 import { resolveStoragePath, writeMessageFile } from '../storage/eml-store.ts';
 import { authoriseAi, newAiToken, setAiEnabled } from './access.ts';
+import { indexContent } from './content-index.ts';
 import { AUDIT_FOLDER, handleMcp } from './mcp.ts';
 import { parseEml } from './mime.ts';
 
@@ -66,6 +67,45 @@ describe('reading a stored message', () => {
 		]);
 		expect(parsed.attachments[0]?.data).toEqual(PNG);
 		expect(parsed.attachments[1]?.contentType).toBe('application/pdf');
+	});
+
+	it('drops invisible padding and the external-sender banner, and opens forwarded emails', () => {
+		const zwj = String.fromCharCode(0x200d);
+		const forwarded = Buffer.concat([
+			Buffer.from(
+				[
+					'From: Jason <jason@example.com>',
+					'Subject: Fwd: hours',
+					'Content-Type: multipart/mixed; boundary="f"',
+					'',
+					'--f',
+					'Content-Type: text/plain; charset=utf-8',
+					'',
+					`See attached${` ${zwj}`.repeat(200)}`,
+					'ZjQcmQRYFpfptBannerStart',
+					'This Message Is From an External Sender',
+					'ZjQcmQRYFpfptBannerEnd',
+					'--f',
+					'Content-Type: message/rfc822',
+					'',
+					''
+				].join('\r\n'),
+				'utf8'
+			),
+			EML,
+			Buffer.from('\r\n--f--\r\n')
+		]);
+		const parsed = parseEml(forwarded);
+		expect(parsed.text).toMatch(/^See attached\n\n--- Attached email: Timesheet – week 1/);
+		expect(parsed.text).toContain('“North” farm');
+		expect(parsed.text).not.toContain('External Sender');
+		expect(
+			parsed.attachments.map((attachment) => [attachment.filename, attachment.insideAttachment])
+		).toEqual([
+			['Timesheet – week 1.eml', null],
+			['sheet.png', 0],
+			['week 1.pdf', 0]
+		]);
 	});
 });
 
@@ -144,7 +184,7 @@ async function setup() {
 		const reply = await handleMcp(context, { jsonrpc: '2.0', id, method, params });
 		return replySchema.parse(reply.body);
 	};
-	return { db, call, mailbox, dataDir };
+	return { db, call, mailbox, dataDir, backupRoot };
 }
 
 function json(reply: z.infer<typeof replySchema>): unknown {
@@ -179,6 +219,7 @@ describe('the AI tools over MCP', () => {
 		expect(tools.map((tool) => tool.name)).toEqual([
 			'list_mailboxes',
 			'search_messages',
+			'top_senders',
 			'get_message',
 			'get_attachment'
 		]);
@@ -240,6 +281,37 @@ describe('the AI tools over MCP', () => {
 			.split('\n');
 		expect(lines).toHaveLength(6);
 		expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ tool: 'list_mailboxes', ok: true });
+	});
+
+	it('indexes message content, then filters by body words and attachments, and counts senders', async () => {
+		const { db, call, backupRoot } = await setup();
+		expect(
+			await indexContent(
+				db,
+				() => backupRoot,
+				() => false
+			)
+		).toBe(1);
+		const searchFor = async (args: Record<string, unknown>) =>
+			parsed(
+				json(await call('tools/call', { name: 'search_messages', arguments: args })),
+				z.object({
+					total: z.number(),
+					contentIndex: z.object({ indexed: z.number(), total: z.number() }),
+					messages: z.array(z.object({ id: z.string() }))
+				})
+			);
+		const found = await searchFor({ body: 'north farm', hasPdf: true });
+		expect(found.total).toBe(1);
+		expect(found.contentIndex).toEqual({ indexed: 1, total: 1 });
+		// The 70-byte PNG is too small to be a photo (a logo, say).
+		expect((await searchFor({ hasPhotos: true })).total).toBe(0);
+		expect((await searchFor({ body: 'south' })).total).toBe(0);
+		const senders = parsed(
+			json(await call('tools/call', { name: 'top_senders', arguments: { hasAttachments: true } })),
+			z.array(z.object({ sender: z.string(), messages: z.number() }))
+		);
+		expect(senders).toEqual([{ sender: 'manager@example.com', messages: 1 }]);
 	});
 
 	it('answers notifications with nothing and unknown methods with an error', async () => {
