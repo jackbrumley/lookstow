@@ -26,7 +26,7 @@ import {
 	savePause
 } from '../settings/settings.ts';
 import { diskStatus, measureDisk } from '../storage/disk.ts';
-import { relayoutFiles, type RelayoutProgress } from '../storage/relayout.ts';
+import { refileArchiveItems, relayoutFiles, type RelayoutProgress } from '../storage/relayout.ts';
 import { indexArchiveItems } from '../fts/fts-index.ts';
 import { inScope } from './scope.ts';
 import { planSyncs } from './scheduler.ts';
@@ -379,22 +379,41 @@ export class Engine {
 	async #indexArchive(): Promise<void> {
 		const { db, dataDir } = this.#deps;
 		try {
-			const outcome = await indexArchiveItems(
-				db,
-				effectiveBackupRoot(db, dataDir),
-				() => this.#stopping
-			);
-			if (outcome.total === 0 || outcome.stopped) return;
-			recordActivity(db, {
-				level: outcome.problems === 0 ? 'info' : 'warn',
-				kind: 'engine',
-				actor: 'system',
-				summary: `${String(outcome.indexed)} online archive items stored earlier can now be found in Search`,
-				detail:
-					outcome.problems === 0
-						? null
-						: `${String(outcome.problems)} could not be read; see the Log. Their files are kept as they are.`
+			const backupRoot = effectiveBackupRoot(db, dataDir);
+			const outcome = await indexArchiveItems(db, backupRoot, () => this.#stopping);
+			if (outcome.stopped) return;
+			if (outcome.total > 0) {
+				recordActivity(db, {
+					level: outcome.problems === 0 ? 'info' : 'warn',
+					kind: 'engine',
+					actor: 'system',
+					summary: `${String(outcome.indexed)} online archive items stored earlier can now be found in Search`,
+					detail:
+						outcome.problems === 0
+							? null
+							: `${String(outcome.problems)} could not be read; see the Log. Their files are kept as they are.`
+				});
+			}
+			// Then files each one under the month it was received, now that the index knows it.
+			const refiled = await refileArchiveItems(db, backupRoot, {
+				stopping: () => this.#stopping,
+				progress: () => undefined,
+				problem: (message) => {
+					serverLog('warn', 'storage', `Filing an archive item by its received date: ${message}`);
+				}
 			});
+			if (refiled.total > 0 && !refiled.stopped) {
+				recordActivity(db, {
+					level: refiled.problems === 0 ? 'info' : 'warn',
+					kind: 'engine',
+					actor: 'system',
+					summary: `${String(refiled.moved)} online archive items were filed under the month they were received`,
+					detail:
+						refiled.problems === 0
+							? null
+							: `${String(refiled.problems)} could not be moved; see the Log. They keep their place and still open from Search.`
+				});
+			}
 		} catch (error) {
 			serverLog('error', 'archive', `Reading archive items for Search failed: ${errorText(error)}`);
 		}

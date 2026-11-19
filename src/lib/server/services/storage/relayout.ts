@@ -3,7 +3,12 @@ import { dirname } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
 import { mailboxes, messages } from '../../database/schema.ts';
-import { mailboxFolderName, messageFileName, resolveStoragePath } from './eml-store.ts';
+import {
+	mailboxFolderName,
+	messageFileName,
+	resolveStoragePath,
+	stampedName
+} from './eml-store.ts';
 
 /**
  * Moves message files stored before 0.4.0 (under mail-folder paths such as
@@ -52,42 +57,96 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
+type RelayoutOptions = {
+	stopping: () => boolean;
+	progress: (progress: RelayoutProgress) => void;
+	problem: (message: string) => void;
+};
+
 export async function relayoutFiles(
 	db: Queryable,
 	backupRoot: string,
-	options: {
-		stopping: () => boolean;
-		progress: (progress: RelayoutProgress) => void;
-		problem: (message: string) => void;
-	}
+	options: RelayoutOptions
 ): Promise<RelayoutOutcome> {
-	const rows = oldLayoutRows(db);
-	const outcome: RelayoutOutcome = { total: rows.length, moved: 0, problems: 0, stopped: false };
+	const moves = oldLayoutRows(db).map((row) => ({
+		id: row.id,
+		from: row.filePath,
+		to: `${mailboxFolderName(row.address, row.kind)}/${messageFileName(row.receivedAt?.getTime() ?? null, row.subject, row.graphId)}`
+	}));
+	return moveStoredFiles(db, backupRoot, moves, options);
+}
+
+/** `yyyy-mm-dd_hhmmss_` at the start of a stored file's name, and the rest after it. */
+const STAMPED_NAME = /^(.*\/)\d{4}\/\d{2}\/\d{4}-\d{2}-\d{2}_\d{6}_([^/]+)$/;
+
+/**
+ * Online archive items copied before 0.6.0 were filed by the date they moved into the archive
+ * (all the export says); 0.6.0 reads each item's received date into the index. This moves each
+ * file to the month it was received, keeping the rest of its name. Items whose received date is
+ * not known keep their place, and so does every item already filed by it.
+ */
+export async function refileArchiveItems(
+	db: Queryable,
+	backupRoot: string,
+	options: RelayoutOptions
+): Promise<RelayoutOutcome> {
+	const moves = archiveRows(db).flatMap((row) => {
+		const parts = STAMPED_NAME.exec(row.filePath);
+		if (parts === null || row.receivedAt === null) return [];
+		const to = `${parts[1] ?? ''}${stampedName(row.receivedAt.getTime(), parts[2] ?? '')}`;
+		return to === row.filePath ? [] : [{ id: row.id, from: row.filePath, to }];
+	});
+	return moveStoredFiles(db, backupRoot, moves, options);
+}
+
+function archiveRows(db: Queryable) {
+	return db
+		.select({ id: messages.id, filePath: messages.filePath, receivedAt: messages.receivedAt })
+		.from(messages)
+		.innerJoin(mailboxes, eq(messages.mailboxId, mailboxes.id))
+		.where(eq(mailboxes.kind, 'archive'))
+		.all()
+		.filter((row) => row.filePath.endsWith('.fts'));
+}
+
+type Move = { id: string; from: string; to: string };
+
+/**
+ * Moves stored files to new paths under the backup folder and records each new path: a rename
+ * on the same drive, so the bytes (and SHA-256) are unchanged. A file already at its new path
+ * only gets its row updated; a move that would replace a file is refused and both are kept.
+ * The folders left empty are removed.
+ */
+async function moveStoredFiles(
+	db: Queryable,
+	backupRoot: string,
+	moves: readonly Move[],
+	options: RelayoutOptions
+): Promise<RelayoutOutcome> {
+	const outcome: RelayoutOutcome = { total: moves.length, moved: 0, problems: 0, stopped: false };
 	const roots = new Set<string>();
-	for (const row of rows) {
+	for (const move of moves) {
 		if (options.stopping()) {
 			outcome.stopped = true;
 			break;
 		}
-		const mailboxRoot = mailboxFolderName(row.address, row.kind);
-		const target = `${mailboxRoot}/${messageFileName(row.receivedAt?.getTime() ?? null, row.subject, row.graphId)}`;
-		const from = resolveStoragePath(backupRoot, row.filePath);
-		const to = resolveStoragePath(backupRoot, target);
-		roots.add(row.filePath.split('/')[0] ?? mailboxRoot);
+		const from = resolveStoragePath(backupRoot, move.from);
+		const to = resolveStoragePath(backupRoot, move.to);
+		roots.add(move.from.split('/')[0] ?? '');
 		try {
 			const sourceThere = await exists(from);
 			const targetThere = await exists(to);
 			if (sourceThere && targetThere) {
-				throw new Error(`both ${row.filePath} and ${target} exist; both are kept`);
+				throw new Error(`both ${move.from} and ${move.to} exist; both are kept`);
 			}
 			if (!sourceThere && !targetThere) {
-				throw new Error(`${row.filePath} is missing from the backup folder`);
+				throw new Error(`${move.from} is missing from the backup folder`);
 			}
 			if (sourceThere) {
 				await mkdir(dirname(to), { recursive: true });
 				await rename(from, to);
 			}
-			db.update(messages).set({ filePath: target }).where(eq(messages.id, row.id)).run();
+			db.update(messages).set({ filePath: move.to }).where(eq(messages.id, move.id)).run();
 			outcome.moved += 1;
 		} catch (error) {
 			outcome.problems += 1;
@@ -101,7 +160,7 @@ export async function relayoutFiles(
 		}
 	}
 	for (const root of roots) {
-		await removeEmptyFolders(resolveStoragePath(backupRoot, root), true);
+		if (root !== '') await removeEmptyFolders(resolveStoragePath(backupRoot, root), true);
 	}
 	options.progress(outcome);
 	return outcome;

@@ -80,6 +80,11 @@ export function archiveItemFileName(
 	return `${datePath(new Date(createdAt ?? 0))}_${safeSegment(type, 30)}_${tag}.fts`;
 }
 
+/** A stored file's dated path for another date, keeping the rest of its name after the stamp. */
+export function stampedName(when: number, rest: string): string {
+	return `${datePath(new Date(when))}_${rest}`;
+}
+
 /** `yyyy/mm/yyyy-mm-dd_hhmmss`: where and under what date a message file is written (UTC). */
 function datePath(when: Date): string {
 	const iso = when.toISOString();

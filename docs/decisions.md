@@ -89,3 +89,7 @@ AGENTS.md states many rules that no tool enforced, so an agent could break them 
 ## Delete covers every mailbox that is not backed up; counts come from the stored messages (2026-11-19)
 
 What is backed up offered Delete only for mailboxes leaving in that save. A mailbox left out earlier with Keep could never be deleted from there, and choosing Delete later did nothing without saying so. Delete now means: the backup drive holds only what is backed up. And a mailbox's item count was written only when a sync finished, so a first copy stopped part-way showed 0 and its backup was invisible to every delete path. The stored messages are now the one record of what a mailbox holds: storing a message raises its count in the same transaction, deleting a backup clears it, and start-up corrects any count left wrong.
+
+## Archive items filed by their received date (2026-11-19)
+
+The export API dates an archive item by when it moved into the archive, often two years after it was received, so archive folders did not match the mailbox's own. From 0.6.0 new items are filed by the received date read from the item; items copied earlier are moved once, after the start-up indexing has read their received date, through the same safe move as the 0.4.3 relayout (`moveStoredFiles`): a rename on the same drive, never replacing a file, the new path recorded. An item whose received date is unknown keeps its place.

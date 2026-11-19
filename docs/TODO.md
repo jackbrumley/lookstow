@@ -19,7 +19,7 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 
 ## Then: 0.6, read archives and mail
 
-- **Archive items as .eml.** Done in 0.6.0: Lookstow reads `.fts` files, indexes archive items for Search, and downloads them as `.eml`. Next: re-file archive items copied before 0.6.0 by their received date (they sit under the date they moved into the archive), and a live item count during a long first copy.
+- **Archive items as .eml.** Done in 0.6.0: Lookstow reads `.fts` files, indexes archive items for Search, and downloads them as `.eml`. Archive items copied before 0.6.0 are filed by their received date once they are indexed. Next: a live item count during a long first copy.
 - **Message view.** Plain-text body and attachment list on the message page; optionally body search (SQLite FTS5).
 
 ## Later
