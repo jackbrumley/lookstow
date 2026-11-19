@@ -20,6 +20,26 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.12.2',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Open Sarah Croft’s online archive on the Mailboxes page and wait for a sync. Expected: its first copy carries on and finishes instead of failing with "reply broke off"; any item Microsoft cannot export is listed under Items that could not be copied',
+				'On the dashboard, a mailbox that fails because a reply broke off is counted as network, not Microsoft error',
+				'Open Mailboxes. Expected: only mailboxes in the backup are listed, and the State list’s Every mailbox shows the rest. The note about picked mailboxes is a quiet line, not a warning',
+				'On the dashboard, follow a link on the Completeness line. Expected: Mailboxes opens showing only those mailboxes',
+				'Open a mailbox with a difference. Expected: one line per folder saying what is missing, what Lookstow is doing about it and when it last checked; PersonMetadata shows Not compared after its next sync'
+			]
+		},
+		changes: [
+			'An online archive whose export replies Microsoft keeps cutting off no longer fails its whole sync. Lookstow splits the batch and tries again, down to single items; an item that still cannot be exported is listed under Items that could not be copied and tried again later, and the rest of the archive is copied. Export batches are smaller (8 MB), so replies are cut off less often',
+			'A failure because a reply broke off is counted as a network failure on the dashboard, not as a Microsoft error',
+			'Completeness speaks plainly. A difference is Checking while Lookstow works on it (nothing to do), Explained when items waiting to be copied again or items that are not messages account for it, and Needs a look only when it is still there a day after the folder was read again. Only Needs a look alerts',
+			'Hidden folders and folders that do not hold mail (such as Outlook’s PersonMetadata) are no longer compared with Microsoft’s count',
+			'Mailboxes shows the mailboxes in the backup by default; Every mailbox is one choice away. The State list can show incomplete mailboxes, and the dashboard links straight to them. The note about picked mailboxes is now a quiet line instead of a warning'
+		]
+	},
+	{
 		version: '0.12.1',
 		testing: {
 			kind: 'steps',
