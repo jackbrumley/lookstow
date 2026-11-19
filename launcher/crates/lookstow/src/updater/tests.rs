@@ -174,8 +174,8 @@ fn flag_is_only_a_trigger() {
     // No flag: nothing is fetched, nothing is touched.
     let rig = make_rig("updater-flag-none", &[OLD], &[]);
     assert_eq!(rig.updater().update().unwrap(), Outcome::NothingToDo);
-    assert!(rig.source.opened.borrow().is_empty());
-    assert!(rig.calls().is_empty());
+    assert_eq!(*rig.source.opened.borrow(), Vec::<String>::new());
+    assert_eq!(rig.calls(), Vec::<String>::new());
 
     // A flag naming an older version (or anything else) changes nothing:
     // the updater picks the newest signed release itself.
@@ -243,7 +243,7 @@ fn refused_releases_change_nothing() {
         .status()
         .message
         .contains("not from a trusted release key"));
-    assert!(rig.calls().is_empty());
+    assert_eq!(rig.calls(), Vec::<String>::new());
     assert!(!release_dir(&rig.layout.program, NEW).exists());
 
     // An archive that differs from its signed hash.

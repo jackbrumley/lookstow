@@ -33,3 +33,6 @@ panic = "abort"
 
 [workspace.lints.clippy]
 pedantic = { level = "deny", priority = -1 }
+# A function that can fail on one platform only (a Windows known folder) keeps one
+# signature on every platform; this lint would make each platform's callers differ.
+unnecessary_wraps = "allow"

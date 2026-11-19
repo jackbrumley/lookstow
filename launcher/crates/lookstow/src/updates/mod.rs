@@ -42,7 +42,7 @@ mod tests {
     #[test]
     fn this_build_trusts_the_project_release_key() {
         let keys = super::trusted_keys().unwrap();
-        assert!(!keys.is_empty());
+        assert_ne!(keys.len(), 0);
         assert!(super::decode_key("test", "not a key").is_err());
     }
 }
