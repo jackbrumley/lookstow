@@ -119,7 +119,7 @@ function readToken(reply: unknown): { accessToken: string; expiresInS: number } 
 }
 
 /** Entra's own words for a refused sign-in, first line only (the rest is trace ids). */
-export function entraErrorText(reply: unknown): string {
+function entraErrorText(reply: unknown): string {
 	if (typeof reply === 'object' && reply !== null) {
 		const description =
 			'error_description' in reply && typeof reply.error_description === 'string'

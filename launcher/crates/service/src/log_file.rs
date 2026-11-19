@@ -8,6 +8,10 @@ pub const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Opens `path` for appending, first moving it to `<name>.log.old` when it
 /// is over [`MAX_LOG_BYTES`] (replacing an older `.old`).
+///
+/// # Errors
+///
+/// Fails when the old log cannot be moved aside or the log cannot be opened.
 pub fn open_rotated(path: &Path) -> Result<File, String> {
     if let Ok(meta) = std::fs::metadata(path) {
         if meta.len() > MAX_LOG_BYTES {
@@ -37,7 +41,11 @@ mod tests {
         open_rotated(&path).unwrap().write_all(b"second\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "first\nsecond\n");
 
-        std::fs::write(&path, vec![b'x'; (MAX_LOG_BYTES + 1) as usize]).unwrap();
+        std::fs::write(
+            &path,
+            vec![b'x'; usize::try_from(MAX_LOG_BYTES + 1).unwrap()],
+        )
+        .unwrap();
         open_rotated(&path).unwrap().write_all(b"fresh\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "fresh\n");
         assert_eq!(

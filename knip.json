@@ -1,0 +1,28 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": ["src/routes/**/+*.{ts,svelte}", "scripts/*.ts", "tests/**/*.ts", "src/**/*.test.ts"],
+	"project": ["src/**/*.{ts,svelte}", "scripts/**/*.ts", "tests/**/*.ts"],
+	"paths": {
+		"#lib/*": ["src/lib/*"],
+		"#tests/*": ["tests/*"],
+		"$app/*": ["node_modules/@sveltejs/kit/src/runtime/app/*"]
+	},
+	"include": [
+		"files",
+		"dependencies",
+		"unlisted",
+		"binaries",
+		"unresolved",
+		"exports",
+		"types",
+		"enumMembers",
+		"namespaceMembers",
+		"duplicates",
+		"cycles"
+	],
+	"rules": {
+		"cycles": "error"
+	},
+	"ignoreIssues": { "tsconfig.json": ["unlisted"] },
+	"ignoreBinaries": ["schtasks.exe"]
+}

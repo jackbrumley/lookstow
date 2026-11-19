@@ -17,3 +17,6 @@ libc.workspace = true
 windows-service.workspace = true
 # The data folder rules (`restrict_dir`): SDDL to a protected DACL, reset down the tree.
 windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization"] }
+
+[lints]
+workspace = true

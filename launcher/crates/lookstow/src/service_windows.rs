@@ -1,5 +1,5 @@
 //! Windows: the service "Lookstow" runs `<prefix>\current\lookstow.exe
-//! run --service` as LocalService, which may change only the data folder;
+//! run --service` as `LocalService`, which may change only the data folder;
 //! Node's output goes to `server.log` there (SPEC-INSTALL-AND-UPDATES I6). The
 //! root updater is a scheduled task that runs as SYSTEM every minute, and at
 //! once when the service starts it; it exits at once when the console has not
@@ -45,7 +45,7 @@ pub fn service_spec(layout: &Layout) -> ServiceSpec {
     }
 }
 
-/// LocalService may change the data folder; nobody else but SYSTEM and Administrators may read it.
+/// `LocalService` may change the data folder; nobody else but SYSTEM and Administrators may read it.
 pub fn data_grants() -> Vec<Grant> {
     vec![Grant {
         sid: LOCAL_SERVICE_SID,
@@ -53,7 +53,7 @@ pub fn data_grants() -> Vec<Grant> {
     }]
 }
 
-/// Who may do what to the updater task: SYSTEM and Administrators everything; LocalService (the
+/// Who may do what to the updater task: SYSTEM and Administrators everything; `LocalService` (the
 /// service's account) may read and run it, so the console starts an update at once with
 /// `schtasks /Run` instead of waiting for the next minute. Running it only makes the updater
 /// look for the console's request and install the latest signed release; it takes no input.
@@ -180,7 +180,7 @@ pub fn start_service() -> Result<()> {
     service::start(SERVICE_NAME)
 }
 
-/// The console listens on 127.0.0.1 by default, so unlike BMuster no
+/// The console listens on 127.0.0.1 by default, so unlike `BMuster` no
 /// firewall rule is added; an admin who changes HOST opens the port.
 pub fn install_service(layout: &Layout) -> Result<()> {
     if service::exists(SERVICE_NAME) {
@@ -208,15 +208,15 @@ pub fn remove_service() -> Result<()> {
     Ok(())
 }
 
-pub fn remove_user() -> Result<()> {
-    Ok(())
-}
-
 /// Deletes the program folder. A running program cannot delete its own
 /// file, so when this launcher lives there a detached `cmd` removes the
 /// folder (its releases and the `current` link, never what a link points
 /// at) a few seconds after it exits.
 pub fn remove_program(layout: &Layout) -> Result<()> {
+    use std::os::windows::process::CommandExt as _;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+
     let current = std::env::current_exe()?;
     let inside = current
         .canonicalize()
@@ -227,9 +227,6 @@ pub fn remove_program(layout: &Layout) -> Result<()> {
         return std::fs::remove_dir_all(&layout.program)
             .with_context(|| format!("could not remove {}", layout.program.display()));
     }
-    use std::os::windows::process::CommandExt as _;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
     Command::new("cmd.exe")
         .raw_arg(format!(
             "/d /c \"ping -n 4 127.0.0.1 >nul & rmdir /s /q \"{}\"\"",
@@ -335,7 +332,7 @@ mod tests {
             "{task}"
         );
         assert!(task.contains(
-            r#"<Arguments>update --prefix &quot;C:\Program Files\Lookstow&quot; --data-dir &quot;C:\ProgramData\Lookstow&quot;</Arguments>"#
+            r"<Arguments>update --prefix &quot;C:\Program Files\Lookstow&quot; --data-dir &quot;C:\ProgramData\Lookstow&quot;</Arguments>"
         ), "{task}");
         assert_eq!(&utf16_file("<")[..], &[0xFF, 0xFE, b'<', 0][..]);
         assert_eq!(spec.name, "Lookstow");

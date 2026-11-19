@@ -23,7 +23,8 @@ import {
 	syncFolderList
 } from '../mailboxes/repository.ts';
 import { resolveStoragePath, writeMessageFile } from '../storage/eml-store.ts';
-import { syncMailbox, type SyncContext } from './mailbox-sync.ts';
+import { syncMailbox } from './mailbox-sync.ts';
+import type { SyncContext } from './sync-common.ts';
 
 const BETA = 'https://graph.microsoft.com/beta/admin/exchange/mailboxes';
 const MAIN = `${BETA}/MBX:arc@t`;

@@ -6,6 +6,11 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Succeeds only for root.
+///
+/// # Errors
+///
+/// Fails for any other user.
 pub fn require_root() -> Result<()> {
     // SAFETY: geteuid has no preconditions and cannot fail.
     if unsafe { libc::geteuid() } != 0 {
@@ -14,6 +19,11 @@ pub fn require_root() -> Result<()> {
     Ok(())
 }
 
+/// Succeeds only when systemd runs this machine.
+///
+/// # Errors
+///
+/// Fails when systemd is not running.
 pub fn require_systemd() -> Result<()> {
     if !Path::new("/run/systemd/system").is_dir() {
         bail!("systemd is not running on this machine; Lookstow needs it to run as a service");
@@ -21,6 +31,11 @@ pub fn require_systemd() -> Result<()> {
     Ok(())
 }
 
+/// Runs `systemctl` with `args`.
+///
+/// # Errors
+///
+/// Fails when systemctl cannot be run or reports a failure.
 pub fn systemctl(args: &[&str]) -> Result<()> {
     let status = Command::new("systemctl")
         .args(args)
@@ -39,15 +54,23 @@ pub struct Unit {
 }
 
 impl Unit {
+    /// Where the unit file lives.
+    #[must_use]
     pub fn path(&self) -> PathBuf {
         Path::new("/etc/systemd/system").join(self.name)
     }
 
+    /// Whether the unit file is there.
+    #[must_use]
     pub fn exists(&self) -> bool {
         self.path().exists()
     }
 
     /// Writes the unit (0644), reloads systemd, then enables and starts it.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file cannot be written or systemctl fails.
     pub fn install(&self, text: &str) -> Result<()> {
         let path = self.path();
         fs::write(&path, text).with_context(|| format!("could not write {}", path.display()))?;
@@ -57,6 +80,10 @@ impl Unit {
     }
 
     /// Stops, disables and deletes the unit; false when there was none.
+    ///
+    /// # Errors
+    ///
+    /// Fails when systemctl fails or the file cannot be removed.
     pub fn remove(&self) -> Result<bool> {
         let path = self.path();
         if !path.exists() {
@@ -69,6 +96,10 @@ impl Unit {
     }
 
     /// Stops the service if it runs; returns whether it was running.
+    ///
+    /// # Errors
+    ///
+    /// Fails when systemctl cannot stop it.
     pub fn stop_if_active(&self) -> Result<bool> {
         if !self.exists() || self.state() != "active" {
             return Ok(false);
@@ -77,11 +108,17 @@ impl Unit {
         Ok(true)
     }
 
+    /// Starts the service.
+    ///
+    /// # Errors
+    ///
+    /// Fails when systemctl cannot start it.
     pub fn start(&self) -> Result<()> {
         systemctl(&["start", self.name])
     }
 
     /// One word from `systemctl is-active`, or "not installed".
+    #[must_use]
     pub fn state(&self) -> String {
         if !self.exists() {
             return "not installed".into();

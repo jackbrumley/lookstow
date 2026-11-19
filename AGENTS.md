@@ -47,27 +47,29 @@ These rules are not suggestions. "Must" and "never" mean exactly that. If a rule
 
 Node 26 (`.node-version` pins `26.13.0`; `engines` requires `>=26`; `.npmrc` sets `engine-strict` and `save-exact`). TypeScript runs directly in Node: scripts under `scripts/` run with plain `node`.
 
-| Task                        | Command                                                                | Section |
-| :-------------------------- | :--------------------------------------------------------------------- | :------ |
-| Install                     | `npm ci` (or `npm install` when you change a dependency)               | 20      |
-| Dev server                  | `npm run dev` (`127.0.0.1:8031`; needs `.env` from `.env.example`)     | —       |
-| Production start            | `npm start` (`server.ts`, after `npm run build`)                       | —       |
-| Verify the app              | `npm run verify` (prettier check, eslint, svelte-check, vitest, build) | 4       |
-| Format                      | `npm run fmt`                                                          | 4       |
-| Format check                | `npm run fmt:check`                                                    | 4       |
-| Lint                        | `npm run lint`                                                         | 4       |
-| Type check                  | `npm run check` (`svelte-check --fail-on-warnings`)                    | 4       |
-| Tests                       | `npm test` (`vitest run`)                                              | 16      |
-| Build                       | `npm run build`                                                        | 4       |
-| Generate a migration        | `npm run db:generate` (drizzle-kit; additive only)                     | 10      |
-| Launcher format check       | `cd launcher && cargo +1.99.1 fmt --all --check`                       | 4, 14   |
-| Launcher lint               | `cd launcher && cargo clippy --all-targets -- -D warnings`             | 4, 14   |
-| Launcher tests              | `cd launcher && cargo test`                                            | 4, 14   |
-| Check a tag before tagging  | `npm run release:check -- vX.Y.Z`                                      | 3       |
-| Release notes for a version | `npm run release:notes -- vX.Y.Z`                                      | 3       |
-| Release key copies agree    | `npm run release:key -- --check`                                       | 3       |
-| Local release build         | `npm run release:local` (writes `dist/release/`)                       | 3       |
-| Scratch update test (Linux) | `npm run release:update-test`                                          | 14      |
+| Task                        | Command                                                                                                | Section |
+| :-------------------------- | :----------------------------------------------------------------------------------------------------- | :------ |
+| Install                     | `npm ci` (or `npm install` when you change a dependency)                                               | 20      |
+| Dev server                  | `npm run dev` (`127.0.0.1:8031`; needs `.env` from `.env.example`)                                     | —       |
+| Production start            | `npm start` (`server.ts`, after `npm run build`)                                                       | —       |
+| Verify the app              | `npm run verify` (prettier check, eslint, svelte-check, vitest, hygiene, knip in parallel, then build) | 4       |
+| Format                      | `npm run fmt`                                                                                          | 4       |
+| Format check                | `npm run fmt:check`                                                                                    | 4       |
+| Lint                        | `npm run lint`                                                                                         | 4       |
+| Type check                  | `npm run check` (`svelte-check --fail-on-warnings`)                                                    | 4       |
+| Tests                       | `npm test` (`vitest run`)                                                                              | 16      |
+| Hygiene                     | `npm run hygiene` (`scripts/hygiene.ts`: the rules below that lint cannot check)                       | 8       |
+| Dead code and cycles        | `npm run knip` (unused files, exports and dependencies; import cycles)                                 | 8       |
+| Build                       | `npm run build`                                                                                        | 4       |
+| Generate a migration        | `npm run db:generate` (drizzle-kit; additive only)                                                     | 10      |
+| Launcher format check       | `cd launcher && cargo +1.99.1 fmt --all --check`                                                       | 4, 14   |
+| Launcher lint               | `cd launcher && cargo clippy --all-targets -- -D warnings`                                             | 4, 14   |
+| Launcher tests              | `cd launcher && cargo test`                                                                            | 4, 14   |
+| Check a tag before tagging  | `npm run release:check -- vX.Y.Z`                                                                      | 3       |
+| Release notes for a version | `npm run release:notes -- vX.Y.Z`                                                                      | 3       |
+| Release key copies agree    | `npm run release:key -- --check`                                                                       | 3       |
+| Local release build         | `npm run release:local` (writes `dist/release/`)                                                       | 3       |
+| Scratch update test (Linux) | `npm run release:update-test`                                                                          | 14      |
 
 `cargo +1.99.1` is needed on the development machine because its default toolchain (1.89) has no rustfmt. CI runs `cargo fmt --all --check` on its own toolchain. `npm run build` needs `DATABASE_PATH` and `SECRETS_KEY` (a `.env` from `.env.example`; CI uses `:memory:` and a throwaway key).
 
@@ -136,7 +138,7 @@ Before tagging: `npm run release:check -- vX.Y.Z` passes, `npm run release:key -
 
 Run every step as its own command, never chained with `&&`, so one failure cannot hide another. All must pass **with zero warnings** before every commit and every push:
 
-1. `npm run verify` (in the repo root): `fmt:check`, `lint`, `check`, `test`, `build`. While fixing a failure you may re-run only the failing step, then run the full `npm run verify` once at the end.
+1. `npm run verify` (in the repo root): `fmt:check`, `lint`, `check:types`, `test`, `hygiene` and `knip` side by side (`run-p`, so every failure shows), then `build`. While fixing a failure you may re-run only the failing step, then run the full `npm run verify` once at the end.
 2. `cargo +1.99.1 fmt --all --check` (in `launcher/`)
 3. `cargo clippy --all-targets -- -D warnings` (in `launcher/`)
 4. `cargo test` (in `launcher/`)
@@ -234,12 +236,12 @@ tests/support/         the fake Microsoft Graph tests use
 
 The compiler and the linter are the safety net. They are never loosened.
 
-- **`tsconfig.json` is strict and stays strict:** `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noPropertyAccessFromIndexSignature`, `verbatimModuleSyntax`, `erasableSyntaxOnly`. Never turn one off or narrow `include`.
+- **`tsconfig.json` is strict and stays strict:** `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noPropertyAccessFromIndexSignature`, `noUnusedLocals`, `noUnusedParameters`, `noUncheckedSideEffectImports`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `verbatimModuleSyntax`, `erasableSyntaxOnly`. Never turn one off or narrow `include`.
 - **`eslint.config.js` is strict and stays strict:** `strictTypeChecked`, `stylisticTypeChecked`, `noInlineConfig`, `reportUnusedDisableDirectives: 'error'`. Never remove a rule, lower a rule to `warn`, add an `ignores` entry, add a `files` override that relaxes a rule, or widen the `scripts/**` `no-console` exception.
 - **No bypasses, ever:** no `eslint-disable` (in any form), `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`, `<!-- svelte-ignore -->` or `#[allow(...)]` added to silence a warning. Fix the code. If a rule is genuinely wrong for the whole repo, stop and ask; changing it is a reviewed decision, never a fix.
 - **No `any`.** Use `unknown` and narrow it, or write the type.
 - **No non-null assertions (`x!`).** Check and handle the missing case.
-- **No type assertions on values:** no `as T` to make the compiler agree, no `as unknown as T`, no `{ ... } as T` (`objectLiteralTypeAssertions: 'never'`). `as const` is fine. Narrow with a type guard, a discriminated union, `satisfies`, or a zod parse at a trust boundary.
+- **No type assertions:** no `as T`, no `as unknown as T`, no `<T>x` (`consistent-type-assertions` with `assertionStyle: 'never'`). `as const` is fine. Narrow with a type guard, a discriminated union, `satisfies`, or a zod parse at a trust boundary.
 - **Conditions say what they test** (`strict-boolean-expressions`): `x !== undefined`, `list.length > 0`, `text !== ''`, never bare truthiness. `===` only (`eqeqeq`).
 - **Discriminated unions, not optional flags.** Model "maybe" as `{ kind: 'none' } | { kind: 'found'; ... }`. Every `switch` on a union handles every case (`switch-exhaustiveness-check`).
 - **New parameters and props are mandatory.** Make the new thing required, run `npm run check`, and treat every error as the to-do list. Never add an optional parameter with a silent default to avoid updating callers.
@@ -247,7 +249,8 @@ The compiler and the linter are the safety net. They are never loosened.
 - **No `console`** outside `scripts/`. Server log lines go through `serverLog()` (`src/lib/server/log.ts`); things an admin should see go through `recordActivity()`.
 - **Names are descriptive:** no `amt`, `idx`, `tmp`, `data2`. Functions do one thing. JSON fields and URL parameters are camelCase; database columns are snake_case (Drizzle's `casing: 'snake_case'`).
 - **Comments explain why, not what.** No commented-out code, no `TODO`/`FIXME` markers (plans go in `docs/TODO.md`).
-- **Dead code is deleted** in the same change that makes it dead: unused exports, files, types, dependencies and CSS.
+- **Dead code is deleted** in the same change that makes it dead: unused exports, files, types, dependencies and CSS. `npm run knip` finds it, and import cycles too (`knip.json`).
+- **`scripts/hygiene.ts` enforces** what the compiler and linter cannot: file size, naming and placement, bypass comments, `TODO` markers, emoji, `process.env` outside `env.ts` and env defaults, the server and browser import boundaries, thin routes, the only files that may delete or move files on disk (Section 11), Microsoft hosts named only in `graph/`, focused or skipped tests, colour literals in components, and `#[allow]` in the launcher. A new exception is a reviewed decision, like a lint rule.
 
 ---
 
@@ -330,7 +333,7 @@ The backup is evidence that mail existed. Treat every file and index row as irre
 ## 14. The launcher, installers and updates (Rust)
 
 - `launcher/` is a Cargo workspace (`crates/lookstow`, `crates/service`), ported from BMuster. Keep behaviour in step with `docs/specs/SPEC-INSTALL-AND-UPDATES.md`; a change in behaviour updates the spec (acceptance criteria and "As built") in the same commit.
-- **Gate:** `cargo +1.99.1 fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, all clean. No `#[allow(...)]` to silence clippy, no `unsafe` without the maintainer's approval and a `// SAFETY:` comment, never add `unwrap()`, `expect()` or `panic!` on a path that handles outside data (files, the network, the command line, the registry); return a `Result` with context (`anyhow`). Code ported from BMuster still has some: when you change a function that holds one, replace it in the same change. Tests may unwrap.
+- **Gate:** `cargo +1.99.1 fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, all clean. Clippy runs with `pedantic` denied for the whole workspace (`[workspace.lints.clippy]` in `launcher/Cargo.toml`; each crate has `[lints] workspace = true`). No `#[allow(...)]` to silence clippy, no `unsafe` without the maintainer's approval and a `// SAFETY:` comment, never add `unwrap()`, `expect()` or `panic!` on a path that handles outside data (files, the network, the command line, the registry); return a `Result` with context (`anyhow`). Code ported from BMuster still has some: when you change a function that holds one, replace it in the same change. Tests may unwrap.
 - **Exact dependency versions** (`=x.y.z` in `[workspace.dependencies]`), `Cargo.lock` committed. A new crate is an architecture decision.
 - **Updates are signed and checked** with the compiled public key (`crates/lookstow/release-key.pub`); there is no unsigned fallback. Never relax manifest verification (signature, target, newer-only, `minimumLauncher`, archive name, size, hash, archive rules).
 - **The database is never replaced automatically.** The updater copies it before switching and never restores it by itself.

@@ -43,16 +43,16 @@ const githubReleaseSchema = z.object({
 	assets: z.array(z.object({ name: z.string(), size: z.int().nonnegative() })).max(100)
 });
 
-export function appArchiveName(target: ReleaseTarget): string {
+function appArchiveName(target: ReleaseTarget): string {
 	return `lookstow-app-${target}.tar.gz`;
 }
 
-export function manifestName(target: ReleaseTarget): string {
+function manifestName(target: ReleaseTarget): string {
 	return `lookstow-app-${target}.json`;
 }
 
 /** The raw 32-byte Ed25519 release key (standard base64) as a key object. */
-export function releaseKey(publicKey: string): KeyObject {
+function releaseKey(publicKey: string): KeyObject {
 	const keyBytes = Buffer.from(publicKey, 'base64');
 	if (keyBytes.length !== 32) throw new Error('Invalid release key or signature.');
 	return createPublicKey({

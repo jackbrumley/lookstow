@@ -108,7 +108,7 @@ export async function relayoutFiles(
 }
 
 /** Removes the folders under `folder` that hold no files; `keep` keeps `folder` itself. */
-export async function removeEmptyFolders(folder: string, keep: boolean): Promise<boolean> {
+async function removeEmptyFolders(folder: string, keep: boolean): Promise<boolean> {
 	let entries;
 	try {
 		entries = await readdir(folder, { withFileTypes: true });

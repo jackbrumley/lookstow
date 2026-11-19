@@ -158,7 +158,7 @@ fn fetch_checked(path: &Path, manifest: &manifest::Manifest, source: &dyn Source
     let mut input = source.open(&manifest.version, &manifest.archive)?;
     let mut total = 0;
     let mut hash = Sha256::new();
-    let mut buffer = [0; 64 * 1024];
+    let mut buffer = vec![0; 64 * 1024];
     loop {
         let count = input.read(&mut buffer)?;
         if count == 0 {

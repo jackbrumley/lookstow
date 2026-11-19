@@ -12,7 +12,7 @@
 /** One property value: its type and raw bytes (one buffer per value for multi-valued types). */
 export type FtsValue = { type: number; data: Buffer } | { type: number; values: Buffer[] };
 
-export type FtsNamedId = { guid: string; lid: number } | { guid: string; name: string };
+type FtsNamedId = { guid: string; lid: number } | { guid: string; name: string };
 
 export type FtsProperties = {
 	/** Properties with ids below 0x8000, by id. */
@@ -90,7 +90,7 @@ const MULTI = 0x1000;
 const CODE_PAGE_STRING = 0x8000;
 
 /** The FastTransfer stream inside an `.fts` file: every type 2 record, joined in order. */
-export function ftsStream(file: Buffer): Buffer {
+function ftsStream(file: Buffer): Buffer {
 	const parts: Buffer[] = [];
 	let at = 0;
 	while (at < file.length) {
@@ -198,7 +198,7 @@ function readNamedId(cursor: Cursor): FtsNamedId {
 }
 
 /** A GUID in its usual text form, from its little-endian bytes. */
-export function guidText(bytes: Buffer): string {
+function guidText(bytes: Buffer): string {
 	const hex = (from: number, to: number, reverse: boolean): string => {
 		const part = [...bytes.subarray(from, to)];
 		return (reverse ? part.reverse() : part)

@@ -10,7 +10,7 @@ pub const DOMAIN: &[u8] = b"LOOKSTOW-SERVER-UPDATE-1\n";
 pub const MAX_ARCHIVE: u64 = 1024 * 1024 * 1024;
 pub const MAX_MANIFEST: u64 = 32 * 1024;
 
-/// Field names are BMuster's, kept as they are so the release tooling
+/// Field names are `BMuster`'s, kept as they are so the release tooling
 /// (signing script, install.sh) stays the same for both projects. Every
 /// installed Lookstow reads exactly these, so they never change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,7 +142,7 @@ pub mod tests {
             sha256: sha256.into(),
             minimum_launcher: "0.4.0".into(),
             node_major: 26,
-            rollback_from: rollback.iter().map(|v| v.to_string()).collect(),
+            rollback_from: rollback.iter().map(|v| (*v).to_string()).collect(),
         }
     }
 

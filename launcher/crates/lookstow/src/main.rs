@@ -220,8 +220,8 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     pub use crate::service_windows::{
-        install_service, log_hint, refresh_units, remove_program, remove_service, remove_user,
-        require_admin, service_installed, service_state, start_service, stop_service,
+        install_service, log_hint, refresh_units, remove_program, remove_service, require_admin,
+        service_installed, service_state, start_service, stop_service,
     };
 }
 
@@ -255,10 +255,6 @@ mod platform {
     }
 
     pub fn remove_service() -> Result<()> {
-        Ok(())
-    }
-
-    pub fn remove_user() -> Result<()> {
         Ok(())
     }
 

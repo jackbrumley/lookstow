@@ -74,7 +74,10 @@ pub fn point_current(prefix: &Path, version: &str) -> Result<()> {
     remove_link(&staged)?;
     link_to(&Path::new(RELEASES).join(version), &staged)?;
     swap_link(&staged, &link)?;
-    sync_dir(prefix)
+    // Windows cannot sync a folder; only Unix needs the rename made durable this way.
+    #[cfg(unix)]
+    sync_dir(prefix)?;
+    Ok(())
 }
 
 /// The link is relative (`releases/<version>`) on every platform, so it
@@ -125,11 +128,6 @@ fn sync_dir(dir: &Path) -> Result<()> {
     fs::File::open(dir)
         .and_then(|folder| folder.sync_all())
         .with_context(|| format!("could not sync {}", dir.display()))
-}
-
-#[cfg(not(unix))]
-fn sync_dir(_dir: &Path) -> Result<()> {
-    Ok(())
 }
 
 /// Deletes every release and leftover except the versions in `keep`.

@@ -112,7 +112,7 @@ fn make_rig(name: &str, rollback: &[&str], broken: &[&str]) -> Rig {
         },
         service: FakeService {
             layout: layout.clone(),
-            broken: broken.iter().map(|v| v.to_string()).collect(),
+            broken: broken.iter().map(|v| (*v).to_string()).collect(),
             calls: RefCell::new(vec![]),
         },
         keys: vec![key().verifying_key()],

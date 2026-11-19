@@ -1,11 +1,16 @@
-import type { Queryable } from '../../database/connection.ts';
 import { syncArchive } from './archive-sync.ts';
-import { GraphError, PER_MAILBOX_CONCURRENCY, type GraphClient } from '../graph/client.ts';
+import {
+	applyRemovals,
+	withUniqueStoragePaths,
+	type PendingRemoval,
+	type SyncContext,
+	type SyncOutcome
+} from './sync-common.ts';
+import { GraphError, PER_MAILBOX_CONCURRENCY } from '../graph/client.ts';
 import { forEachLimited } from '../graph/discovery.ts';
 import { folderChanges, listFolders, messageMime, type MessageChange } from '../graph/mail.ts';
 import {
 	insertMessage,
-	markMessageDeleted,
 	moveMessage,
 	saveFolderProgress,
 	storedMessage,
@@ -14,7 +19,6 @@ import {
 	type MailboxRow
 } from '../mailboxes/repository.ts';
 import {
-	folderStoragePath,
 	mailboxFolderName,
 	messageFileName,
 	resolveStoragePath,
@@ -27,54 +31,6 @@ import {
  * the source deleted (their files stay). Progress is saved after every page, so a stop or crash
  * in the middle of a 50 GB first copy loses at most one page.
  */
-export type SyncContext = {
-	db: Queryable;
-	client: GraphClient;
-	backupRoot: string;
-	now: () => number;
-	/** Set when the service is stopping: the sync ends after the current page. */
-	stopping: () => boolean;
-	/** Live progress for the console. */
-	progress: (update: { folder: string; stored: number; bytes: number }) => void;
-};
-
-export type SyncOutcome = {
-	added: number;
-	removed: number;
-	byteCount: number;
-	firstCopyDone: boolean;
-	stoppedEarly: boolean;
-};
-
-/** A message a folder's delta says left it, applied once every folder has been read. */
-export type PendingRemoval = { folderId: string; graphId: string };
-
-/**
- * Records deletions at the end of a sync, not as each folder reports them. A moved message
- * leaves its old folder (that folder's delta says removed) and arrives in the new one; reading
- * every folder first means a move is recorded as a move, and only a message still filed where it
- * left is recorded as deleted at the source.
- */
-export function applyRemovals(
-	context: SyncContext,
-	mailboxId: string,
-	pending: readonly PendingRemoval[]
-): number {
-	let removed = 0;
-	for (const removal of pending) {
-		if (
-			markMessageDeleted(context.db, mailboxId, removal.folderId, removal.graphId, context.now())
-		) {
-			removed += 1;
-		}
-	}
-	return removed;
-}
-
-export class StopRequested extends Error {
-	override name = 'StopRequested';
-}
-
 export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Promise<SyncOutcome> {
 	if (mailbox.kind === 'archive') {
 		return syncArchive(context, mailbox);
@@ -210,24 +166,5 @@ async function applyChanges(
 		totals.added += 1;
 		totals.byteCount += stored.byteCount;
 		context.progress({ folder: folder.path, stored: totals.added, bytes: totals.byteCount });
-	});
-}
-
-/**
- * Storage paths for Graph's folders. Two folders whose names only differ in characters Windows
- * forbids would map to the same path, so the later one gets a numbered suffix.
- */
-export function withUniqueStoragePaths(
-	folders: readonly { graphId: string; path: string }[]
-): { graphId: string; path: string; storagePath: string }[] {
-	const used = new Set<string>();
-	return folders.map((folder) => {
-		const base = folderStoragePath(folder.path);
-		let storagePath = base;
-		for (let n = 2; used.has(storagePath.toLowerCase()); n++) {
-			storagePath = `${base} ~${n}`;
-		}
-		used.add(storagePath.toLowerCase());
-		return { ...folder, storagePath };
 	});
 }

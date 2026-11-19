@@ -13,7 +13,7 @@ use windows_service::service::{
 };
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
-/// SID of LocalSystem (`NT AUTHORITY\SYSTEM`).
+/// SID of `LocalSystem` (`NT AUTHORITY\SYSTEM`).
 pub const SYSTEM_SID: &str = "S-1-5-18";
 /// SID of `NT AUTHORITY\LocalService`.
 pub const LOCAL_SERVICE_SID: &str = "S-1-5-19";
@@ -21,6 +21,10 @@ pub const LOCAL_SERVICE_SID: &str = "S-1-5-19";
 pub const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 
 /// A Windows known folder from its environment variable; never guessed.
+///
+/// # Errors
+///
+/// Fails when the variable is unset or empty.
 pub fn known_folder(variable: &str) -> Result<PathBuf> {
     match std::env::var_os(variable) {
         Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
@@ -28,6 +32,11 @@ pub fn known_folder(variable: &str) -> Result<PathBuf> {
     }
 }
 
+/// Opens the local service manager.
+///
+/// # Errors
+///
+/// Fails when the caller may not open the service manager with that access.
 pub fn manager(access: ServiceManagerAccess) -> Result<ServiceManager> {
     ServiceManager::local_computer(None::<&str>, access).context(
         "could not open the Windows service manager; run this from an Administrator prompt",
@@ -35,6 +44,10 @@ pub fn manager(access: ServiceManagerAccess) -> Result<ServiceManager> {
 }
 
 /// Succeeds only for an Administrator (who may create services).
+///
+/// # Errors
+///
+/// Fails for anyone who is not an Administrator.
 pub fn require_admin() -> Result<()> {
     manager(ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE).map(|_| ())
 }
@@ -60,6 +73,7 @@ pub struct ServiceSpec {
 }
 
 /// The service manager's view of `spec`: starts with Windows, own process.
+#[must_use]
 pub fn service_info(spec: &ServiceSpec) -> ServiceInfo {
     ServiceInfo {
         name: OsString::from(spec.name),
@@ -80,6 +94,7 @@ pub fn service_info(spec: &ServiceSpec) -> ServiceInfo {
 
 /// Restart 10 s after each failure (forgotten after a day). A clean stop,
 /// even with an exit code, is not a failure.
+#[must_use]
 pub fn failure_actions() -> ServiceFailureActions {
     ServiceFailureActions {
         reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(86_400)),
@@ -96,6 +111,10 @@ pub fn failure_actions() -> ServiceFailureActions {
 }
 
 /// Registers the service with its description and restart rules, and starts it.
+///
+/// # Errors
+///
+/// Fails when the service cannot be created, configured or started.
 pub fn create_and_start(spec: &ServiceSpec) -> Result<()> {
     let manager = manager(ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE)?;
     let service = manager
@@ -115,6 +134,7 @@ pub fn create_and_start(spec: &ServiceSpec) -> Result<()> {
         .context("could not start the service")
 }
 
+#[must_use]
 pub fn exists(name: &str) -> bool {
     manager(ServiceManagerAccess::CONNECT)
         .and_then(|manager| {
@@ -146,6 +166,10 @@ fn stop_and_wait(service: &Service) -> Result<bool> {
 }
 
 /// Stops the service if it runs; returns whether it was running.
+///
+/// # Errors
+///
+/// Fails when the service manager cannot be opened or the service does not stop.
 pub fn stop(name: &str) -> Result<bool> {
     let manager = manager(ServiceManagerAccess::CONNECT)?;
     let Ok(service) = manager.open_service(name, ServiceAccess::QUERY_STATUS | ServiceAccess::STOP)
@@ -155,6 +179,11 @@ pub fn stop(name: &str) -> Result<bool> {
     stop_and_wait(&service)
 }
 
+/// Starts the service.
+///
+/// # Errors
+///
+/// Fails when the service cannot be opened or started.
 pub fn start(name: &str) -> Result<()> {
     let manager = manager(ServiceManagerAccess::CONNECT)?;
     let service = manager
@@ -166,6 +195,10 @@ pub fn start(name: &str) -> Result<()> {
 }
 
 /// Stops and deletes the service; false when there was none.
+///
+/// # Errors
+///
+/// Fails when the service does not stop or cannot be deleted.
 pub fn stop_and_delete(name: &str) -> Result<bool> {
     let manager = manager(ServiceManagerAccess::CONNECT)?;
     let Ok(service) = manager.open_service(
@@ -180,6 +213,7 @@ pub fn stop_and_delete(name: &str) -> Result<bool> {
 }
 
 /// One word for `status`: running, stopped, … or "not installed".
+#[must_use]
 pub fn state(name: &str) -> String {
     let Ok(manager) = manager(ServiceManagerAccess::CONNECT) else {
         return "unknown (could not open the service manager)".into();
@@ -215,6 +249,7 @@ pub struct Grant {
 /// rule is inherited from the folder above) giving SYSTEM and Administrators
 /// full control, plus `extra`, every rule inherited by files (`OI`) and
 /// folders (`CI`) inside.
+#[must_use]
 pub fn restricted_dir_sddl(extra: &[Grant]) -> String {
     let mut sddl = format!("D:P(A;OICI;FA;;;{SYSTEM_SID})(A;OICI;FA;;;{ADMINISTRATORS_SID})");
     for grant in extra {
@@ -222,7 +257,9 @@ pub fn restricted_dir_sddl(extra: &[Grant]) -> String {
             Rights::Modify => "0x1301bf",
             Rights::ReadExecute => "0x1200a9",
         };
-        sddl.push_str(&format!("(A;OICI;{rights};;;{})", grant.sid));
+        for part in ["(A;OICI;", rights, ";;;", grant.sid, ")"] {
+            sddl.push_str(part);
+        }
     }
     sddl
 }
@@ -231,7 +268,11 @@ pub fn restricted_dir_sddl(extra: &[Grant]) -> String {
 /// inside it to inherit those rules alone: any rule set on a file or folder
 /// inside (and any protection from inheritance there) is removed, so an
 /// existing settings file or database ends up exactly as private as a new
-/// one. Needs an Administrator or SYSTEM (WRITE_DAC on every object).
+/// one. Needs an Administrator or SYSTEM (`WRITE_DAC` on every object).
+///
+/// # Errors
+///
+/// Fails when the rules cannot be built or applied to the folder or anything inside it.
 pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
     use ::windows::core::{BOOL, PCWSTR};
     use ::windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
@@ -258,36 +299,41 @@ pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             PCWSTR(sddl.as_ptr()),
             SDDL_REVISION_1,
-            &mut descriptor,
+            &raw mut descriptor,
             None,
         )
         .context("could not build the folder's rules")?;
         let mut present = BOOL::default();
         let mut defaulted = BOOL::default();
         let mut dacl: *mut ACL = std::ptr::null_mut();
-        let reset = GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted)
-            .map(|()| {
-                TreeResetNamedSecurityInfoW(
-                    PCWSTR(path.as_ptr()),
-                    SE_FILE_OBJECT,
-                    DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                    None,
-                    None,
-                    Some(dacl.cast_const()),
-                    None,
-                    false,
-                    None,
-                    ProgressInvokeNever,
-                    None,
-                )
-            });
+        let reset = GetSecurityDescriptorDacl(
+            descriptor,
+            &raw mut present,
+            &raw mut dacl,
+            &raw mut defaulted,
+        )
+        .map(|()| {
+            TreeResetNamedSecurityInfoW(
+                PCWSTR(path.as_ptr()),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                Some(dacl.cast_const()),
+                None,
+                false,
+                None,
+                ProgressInvokeNever,
+                None,
+            )
+        });
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
         let error = reset.context("could not read the folder's rules")?;
         if error != ERROR_SUCCESS {
             bail!(
                 "could not restrict {}: {}",
                 dir.display(),
-                std::io::Error::from_raw_os_error(error.0 as i32)
+                std::io::Error::from_raw_os_error(error.0.cast_signed())
             );
         }
     }
@@ -299,6 +345,10 @@ pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
 /// file in it, which for a backup of tens of thousands of messages takes
 /// minutes; every upgrade calls this, so an unchanged folder is left alone.
 /// Returns whether it reset the tree.
+///
+/// # Errors
+///
+/// Fails when the wanted rules cannot be built, or the reset fails.
 pub fn restrict_dir_if_changed(dir: &Path, extra: &[Grant]) -> Result<bool> {
     let wanted = canonical_dacl(&restricted_dir_sddl(extra))?;
     match dir_dacl(dir) {
@@ -310,6 +360,7 @@ pub fn restrict_dir_if_changed(dir: &Path, extra: &[Grant]) -> Result<bool> {
 /// Whether two DACLs in SDDL are protected alike and hold the same rules.
 /// Windows adds `AI` (auto-inherited) to a folder it has reset, so only the
 /// protection flag and the rules themselves are compared.
+#[must_use]
 pub fn same_rules(current: &str, wanted: &str) -> bool {
     fn split(sddl: &str) -> (bool, &str) {
         let body = sddl.strip_prefix("D:").unwrap_or(sddl);
@@ -338,7 +389,7 @@ fn canonical_dacl(sddl: &str) -> Result<String> {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             PCWSTR(wide.as_ptr()),
             SDDL_REVISION_1,
-            &mut descriptor,
+            &raw mut descriptor,
             None,
         )
         .context("could not build the folder's rules")?;
@@ -369,13 +420,13 @@ fn dir_dacl(dir: &Path) -> Result<String> {
             None,
             None,
             None,
-            &mut descriptor,
+            &raw mut descriptor,
         );
         if error != ERROR_SUCCESS {
             bail!(
                 "could not read the rules of {}: {}",
                 dir.display(),
-                std::io::Error::from_raw_os_error(error.0 as i32)
+                std::io::Error::from_raw_os_error(error.0.cast_signed())
             );
         }
         let text = descriptor_dacl_text(descriptor);
@@ -406,7 +457,7 @@ unsafe fn descriptor_dacl_text(
             descriptor,
             SDDL_REVISION_1,
             DACL_SECURITY_INFORMATION,
-            &mut text,
+            &raw mut text,
             None,
         )
         .context("could not write the folder's rules as text")?;
@@ -418,6 +469,7 @@ unsafe fn descriptor_dacl_text(
 
 /// What a running service reports: stop and shutdown are accepted while it
 /// runs; a non-zero exit code is service-specific.
+#[must_use]
 pub fn status(state: ServiceState, exit_code: u32) -> ServiceStatus {
     ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,

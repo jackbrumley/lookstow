@@ -8,7 +8,7 @@
 import { build } from 'vite';
 import { packageVersion } from './targets.ts';
 
-export const APP_ENTRIES = { server: 'server.ts' } as const;
+const APP_ENTRIES = { server: 'server.ts' } as const;
 
 /** Bundles every entry into `outDir` as `<name>.js`; shared code would go to chunks/. */
 export async function bundleAppEntries(outDir: string): Promise<void> {

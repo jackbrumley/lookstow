@@ -51,10 +51,6 @@ export function derSmallInteger(value: number): Buffer {
 	return derElement(0x02, Buffer.from([value]));
 }
 
-export function derBoolean(value: boolean): Buffer {
-	return derElement(0x01, Buffer.from([value ? 0xff : 0x00]));
-}
-
 /** An object identifier from its dotted form, e.g. `2.5.4.3`. */
 export function derObjectId(dotted: string): Buffer {
 	const parts = dotted.split('.').map((part) => Number.parseInt(part, 10));
@@ -77,10 +73,6 @@ export function derUtf8String(text: string): Buffer {
 	return derElement(0x0c, Buffer.from(text, 'utf8'));
 }
 
-export function derOctetString(bytes: Buffer): Buffer {
-	return derElement(0x04, bytes);
-}
-
 /** A bit string whose bits fill whole bytes, except `unusedBits` at the end. */
 export function derBitString(bytes: Buffer, unusedBits: number): Buffer {
 	return derElement(0x03, Buffer.concat([Buffer.from([unusedBits]), bytes]));
@@ -98,9 +90,4 @@ export function derTime(date: Date): Buffer {
 /** `[n] EXPLICIT`: a constructed context tag around a whole element. */
 export function derExplicit(tagNumber: number, element: Buffer): Buffer {
 	return derElement(0xa0 | tagNumber, element);
-}
-
-/** `[n] IMPLICIT` on a primitive value: the context tag replaces the value's own tag. */
-export function derImplicitPrimitive(tagNumber: number, contents: Buffer): Buffer {
-	return derElement(0x80 | tagNumber, contents);
 }

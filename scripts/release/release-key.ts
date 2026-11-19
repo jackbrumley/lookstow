@@ -11,7 +11,7 @@ import { PUBLIC_KEY_FILE } from './targets.ts';
 const SPKI_HEADER = Buffer.from('302a300506032b6570032100', 'hex');
 
 /** Raw base64 of an Ed25519 public key object. */
-export function rawPublicKey(key: KeyObject): string {
+function rawPublicKey(key: KeyObject): string {
 	const spki = key.export({ format: 'der', type: 'spki' });
 	return spki.subarray(spki.byteLength - 32).toString('base64');
 }

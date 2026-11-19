@@ -17,7 +17,7 @@ export type OutgoingEmail = { to: string; subject: string; text: string; html: s
 
 export type MailFetch = (url: string, init: RequestInit) => Promise<Response>;
 
-export class MailgunError extends Error {
+class MailgunError extends Error {
 	override name = 'MailgunError';
 }
 

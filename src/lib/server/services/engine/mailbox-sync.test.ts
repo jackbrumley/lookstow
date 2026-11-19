@@ -15,7 +15,8 @@ import { TokenSource } from '../graph/token.ts';
 import { applyDiscovery, foldersOf, mailboxById } from '../mailboxes/repository.ts';
 import { messageEvents, messages } from '../../database/schema.ts';
 import { eq } from 'drizzle-orm';
-import { syncMailbox, withUniqueStoragePaths, type SyncContext } from './mailbox-sync.ts';
+import { syncMailbox } from './mailbox-sync.ts';
+import { withUniqueStoragePaths, type SyncContext } from './sync-common.ts';
 
 const USER = 'u1';
 const INBOX = `/v1.0/users/${USER}/mailFolders`;

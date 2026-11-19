@@ -157,7 +157,7 @@ impl Launcher {
 
 /// SIGTERM (Unix) so the app closes its connections, then a kill after the
 /// grace period; Windows has no signal for a console-less child, and
-/// SQLite's write-ahead log keeps the database whole.
+/// `SQLite`'s write-ahead log keeps the database whole.
 fn stop_child(child: &mut Child) {
     #[cfg(unix)]
     if let Ok(pid) = i32::try_from(child.id()) {

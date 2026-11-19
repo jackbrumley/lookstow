@@ -11,7 +11,7 @@ export type DiskStatus = {
 	pausePercent: number;
 };
 
-export type PauseState =
+type PauseState =
 	{ paused: false } | { paused: true; reason: 'manual' | 'disk'; since: string | null };
 
 export type EngineStatus = {

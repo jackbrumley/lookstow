@@ -1,4 +1,4 @@
-//! The data folder holds `server.env` (with SECRETS_KEY), the database and
+//! The data folder holds `server.env` (with `SECRETS_KEY`), the database and
 //! its backups, so only Lookstow's own service account and administrators may
 //! open it (SPEC-INSTALL-AND-UPDATES I16).
 //!
@@ -7,12 +7,12 @@
 //!   root by the updater) and every start (`run`, as the owner) tighten
 //!   whichever is looser.
 //! - Windows: a protected DACL (nothing inherited from `C:\ProgramData`):
-//!   SYSTEM and Administrators full control, LocalService (the service
+//!   SYSTEM and Administrators full control, `LocalService` (the service
 //!   account) modify, and everything already inside reset to inherit just
 //!   that. Install applies it (Administrator); every upgrade (SYSTEM)
 //!   checks the folder's own rules and resets the tree only when they
 //!   changed, because the backup inside can hold tens of thousands of files;
-//!   the service itself runs as LocalService, which may not change rules,
+//!   the service itself runs as `LocalService`, which may not change rules,
 //!   so a start cannot.
 
 use anyhow::Result;

@@ -12,7 +12,7 @@
 use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 
-/// The app's settings: SECRETS_KEY, HOST, PORT and anything the admin adds.
+/// The app's settings: `SECRETS_KEY`, HOST, PORT and anything the admin adds.
 pub const ENV_FILE: &str = "server.env";
 pub const DATABASE_FILE: &str = "lookstow.db";
 /// The Windows service's log (Node's output); journald on Linux.
@@ -165,8 +165,7 @@ pub fn check_bundle(dir: &Path) -> Result<()> {
 /// The app version in a bundle's VERSION file.
 pub fn bundle_version(dir: &Path) -> String {
     std::fs::read_to_string(dir.join(VERSION_FILE))
-        .map(|text| text.trim().to_string())
-        .unwrap_or_else(|_| "unknown".into())
+        .map_or_else(|_| "unknown".into(), |text| text.trim().to_string())
 }
 
 #[cfg(test)]

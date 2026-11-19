@@ -13,7 +13,7 @@ import { asRecord, GraphError, stringField, type GraphClient } from './client.ts
  * Permissions (application): MailboxFolder.Read.All, MailboxItem.Read.All,
  * MailboxItem.Export.All.
  */
-export const BETA_MAILBOXES = 'https://graph.microsoft.com/beta/admin/exchange/mailboxes';
+const BETA_MAILBOXES = 'https://graph.microsoft.com/beta/admin/exchange/mailboxes';
 /** exportItems takes at most this many item ids per request, all from one mailbox. */
 export const EXPORT_BATCH = 20;
 
@@ -192,7 +192,7 @@ export async function exportArchiveItems(
 }
 
 /** The mailbox URL in an ErrorArchiveFolderMovedPermanently message, ending before /exportItems. */
-export function movedTo(message: string): string | null {
+function movedTo(message: string): string | null {
 	const match = /https:\/\/graph\.microsoft\.com\/[^\s"']+/.exec(message);
 	if (match === null) {
 		return null;

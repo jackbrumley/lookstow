@@ -30,3 +30,6 @@ codegen-units = 1
 strip = true
 opt-level = "z"
 panic = "abort"
+
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }

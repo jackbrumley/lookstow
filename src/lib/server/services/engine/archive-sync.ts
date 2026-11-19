@@ -31,7 +31,7 @@ import {
 	type PendingRemoval,
 	type SyncContext,
 	type SyncOutcome
-} from './mailbox-sync.ts';
+} from './sync-common.ts';
 
 /**
  * One sync of one online archive: the same shape as a mailbox sync (folder list, then each

@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { isStableVersion } from '../../src/lib/domain/releases/version.ts';
 
 export const LAUNCHER_DIR = 'launcher';
-export const LAUNCHER_MANIFEST = 'launcher/Cargo.toml';
+const LAUNCHER_MANIFEST = 'launcher/Cargo.toml';
 /** The release public key, raw 32-byte Ed25519 in base64; the launcher compiles it in. */
 export const PUBLIC_KEY_FILE = 'launcher/crates/lookstow/release-key.pub';
 /** Where server-update-compatibility.json lives (served by GitHub Pages, read by people). */
@@ -23,7 +23,7 @@ export const PLATFORMS = {
 } as const;
 export type Platform = keyof typeof PLATFORMS;
 export type Target = (typeof PLATFORMS)[Platform]['target'];
-export const TARGETS: readonly Target[] = Object.values(PLATFORMS).map((spec) => spec.target);
+const TARGETS: readonly Target[] = Object.values(PLATFORMS).map((spec) => spec.target);
 
 export function isTarget(text: string): text is Target {
 	return TARGETS.some((target) => target === text);

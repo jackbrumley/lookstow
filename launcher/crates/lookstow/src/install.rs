@@ -182,7 +182,10 @@ pub fn uninstall(target: &Layout, purge: bool) -> Result<()> {
         "Removed {} (database, settings and secrets key).",
         target.data.display()
     );
-    platform::remove_user()
+    // Only Linux creates a service user; Windows runs the service as LocalService.
+    #[cfg(target_os = "linux")]
+    platform::remove_user()?;
+    Ok(())
 }
 
 /// Removes a folder, retrying for a while when its files are still open.

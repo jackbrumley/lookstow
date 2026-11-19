@@ -6,7 +6,7 @@ import type { FetchLike, TokenSource } from './token.ts';
  * (503, 504), honouring Retry-After. Mailbox ids are always immutable ids, so a message keeps
  * its id when it moves between folders.
  */
-export const GRAPH_ROOT = 'https://graph.microsoft.com';
+const GRAPH_ROOT = 'https://graph.microsoft.com';
 
 const MAX_ATTEMPTS = 6;
 /** How many times a reply that arrives empty, cut off or garbled is asked for again. */
