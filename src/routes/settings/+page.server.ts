@@ -13,6 +13,7 @@ import {
 import {
 	effectiveBackupRoot,
 	graphCredentials,
+	readAiAccess,
 	readSchedule,
 	saveBackup,
 	saveDisk,
@@ -25,6 +26,7 @@ import {
 } from '#lib/server/services/settings/settings.ts';
 import { snapshotSummary } from '#lib/server/services/storage/index-snapshot.ts';
 import { forgetLearnedPace, learnedPace } from '#lib/server/services/throughput/monitor.ts';
+import { newAiToken, setAiEnabled } from '#lib/server/services/ai/access.ts';
 import { hostname } from 'node:os';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
@@ -32,8 +34,18 @@ export const load = (() => ({
 	settings: settingsView(database, dataDir()),
 	backupsOutsideScope: backupsOutsideScope(database),
 	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir()),
-	learnedPace: learnedPace()
+	learnedPace: learnedPace(),
+	ai: aiView()
 })) satisfies PageServerLoad;
+
+function aiView() {
+	const access = readAiAccess(database);
+	return {
+		enabled: access.enabled,
+		tokenHint: access.tokenHint,
+		tokenCreatedAt: access.tokenCreatedAt
+	};
+}
 
 function saved(summary: string, message: string) {
 	recordActivity(database, { level: 'info', kind: 'settings', actor: 'console', summary });
@@ -151,6 +163,36 @@ export const actions = {
 			});
 			return saved('The schedule was changed', 'Saved the schedule.');
 		});
+	},
+	aiEnabled: async ({ request }) => {
+		const enabled = checked(await request.formData(), 'enabled');
+		return attempt(() => {
+			setAiEnabled(database, enabled);
+			return saved(
+				enabled ? 'AI tools were turned on' : 'AI tools were turned off',
+				enabled
+					? 'AI tools are on: an agent on this computer with the access token can read the backup.'
+					: 'AI tools are off: /mcp refuses every request.'
+			);
+		});
+	},
+	aiToken: () => {
+		try {
+			const token = newAiToken(database);
+			recordActivity(database, {
+				level: 'info',
+				kind: 'settings',
+				actor: 'console',
+				summary: 'A new AI tools access token was created'
+			});
+			return {
+				ok: true,
+				message: 'Created a new access token. Copy it now: it is not shown again.',
+				token
+			};
+		} catch (error) {
+			return refused(error instanceof Error ? error.message : String(error));
+		}
 	},
 	forgetPace: () =>
 		attempt(() => {

@@ -32,6 +32,12 @@
 	let updatesOpen = $state(false);
 	let diskOpen = $state(false);
 	let forgetOpen = $state(false);
+	let aiOpen = $state(false);
+	const ai = $derived(data.ai);
+	const newToken = $derived(form !== null && 'token' in form ? form.token : null);
+	const connectCommand = $derived(
+		`claude mcp add --transport http lookstow http://127.0.0.1:8030/mcp --header "Authorization: Bearer ${newToken ?? '<token>'}"`
+	);
 	const pace = $derived(data.learnedPace);
 	// The scope form's mode, reset from the saved setting each time the form opens.
 	let scopeMode = $state<'all' | 'selected'>('all');
@@ -240,6 +246,51 @@
 	<p>
 		Lookstow goes back to its first-run pace and finds Microsoft’s limit again over the next hour or
 		so. Use this after Microsoft’s limits change, or if copying stays slow for no clear reason.
+	</p>
+</FormModal>
+
+<Card title="AI tools">
+	{#snippet actions()}
+		<Button variant="secondary" onclick={() => (aiOpen = true)}>Change…</Button>
+	{/snippet}
+	<p>
+		{#if ai.enabled}
+			<Badge tone="ok">On</Badge> An AI agent on this computer (such as Claude Code) can search the backup,
+			read messages and look at attachments through <code>http://127.0.0.1:8030/mcp</code>, with the
+			access token. It cannot change anything.
+		{:else}
+			<Badge tone="neutral">Off</Badge> No AI agent can read the backup.
+		{/if}
+	</p>
+	<p class="muted small">
+		{#if ai.tokenHint === null}
+			No access token yet.
+		{:else}
+			Access token ending …{ai.tokenHint}, created {formatDateTime(ai.tokenCreatedAt ?? '')}.
+		{/if}
+		Every message and attachment an agent opens is written to the ai-audit folder in the data folder.
+	</p>
+	{#if newToken !== null}
+		<p><strong>New access token (shown once):</strong></p>
+		<pre class="token">{newToken}</pre>
+		<p class="muted small">Add Lookstow to Claude Code on this computer:</p>
+		<pre class="token">{connectCommand}</pre>
+	{/if}
+	<form method="POST" action="?/aiToken" use:enhance>
+		<Button variant="secondary" type="submit"
+			>{ai.tokenHint === null ? 'Create access token' : 'Replace access token'}</Button
+		>
+	</form>
+</Card>
+
+<FormModal bind:open={aiOpen} title="AI tools" action="?/aiEnabled">
+	<label class="check">
+		<input type="checkbox" name="enabled" checked={ai.enabled} />
+		Let AI agents on this computer read the backup (with the access token)
+	</label>
+	<p class="muted small">
+		They can search, read messages and download attachments. They cannot change, delete or send
+		anything.
 	</p>
 </FormModal>
 
@@ -565,6 +616,16 @@
 		display: flex;
 		align-items: flex-start;
 		gap: var(--space-2);
+	}
+
+	.token {
+		white-space: pre-wrap;
+		word-break: break-all;
+		font-family: var(--font-mono);
+		font-size: var(--font-size-sm);
+		background: var(--colour-surface-alt);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-md);
 	}
 
 	form {

@@ -67,7 +67,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 			{ status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } }
 		);
 	}
-	if (crossSiteWrite(event.request)) {
+	// AI tools (MCP clients) send no Origin; the access token protects /mcp instead.
+	const aiTool = event.url.pathname === '/mcp' && event.request.headers.get('origin') === null;
+	if (!aiTool && crossSiteWrite(event.request)) {
 		return new Response('Cross-site requests are refused', { status: 403 });
 	}
 	const response = await resolve(event);

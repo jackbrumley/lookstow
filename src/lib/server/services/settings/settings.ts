@@ -138,6 +138,21 @@ const learnedPaceSchema = z
 	})
 	.nullable();
 
+/**
+ * Access for AI tools (the MCP endpoint, /mcp): off until turned on in Settings, and then only
+ * with the access token, of which only the SHA-256 is kept.
+ */
+const aiAccessSchema = z.object({
+	enabled: z.boolean(),
+	tokenSha256: z
+		.string()
+		.regex(/^[0-9a-f]{64}$/)
+		.nullable(),
+	tokenHint: z.string().max(12).nullable(),
+	tokenCreatedAt: z.string().nullable()
+});
+export type AiAccess = z.infer<typeof aiAccessSchema>;
+
 function emptyEmail(): StoredEmail {
 	return { mailgun: null, recipients: [] };
 }
@@ -150,7 +165,11 @@ const KEYS = {
 	updates: { schema: updatesSchema, fallback: UPDATE_DEFAULTS },
 	disk: { schema: diskSchema, fallback: DISK_DEFAULTS },
 	email: { schema: emailSchema, fallback: emptyEmail() },
-	throughput: { schema: learnedPaceSchema, fallback: null }
+	throughput: { schema: learnedPaceSchema, fallback: null },
+	ai: {
+		schema: aiAccessSchema,
+		fallback: { enabled: false, tokenSha256: null, tokenHint: null, tokenCreatedAt: null }
+	}
 } as const;
 type Key = keyof typeof KEYS;
 
@@ -228,6 +247,14 @@ export function savePause(
 
 export function readUpdates(db: Queryable): UpdateSettings {
 	return read(db, 'updates', KEYS.updates.schema, KEYS.updates.fallback);
+}
+
+export function readAiAccess(db: Queryable): AiAccess {
+	return read(db, 'ai', KEYS.ai.schema, KEYS.ai.fallback);
+}
+
+export function saveAiAccess(db: Queryable, access: AiAccess): void {
+	write(db, 'ai', aiAccessSchema.parse(access));
 }
 
 export function saveUpdates(db: Queryable, updates: UpdateSettings): void {

@@ -20,6 +20,27 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.11.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Settings > AI tools: press Change…, tick the box and save; the card says On',
+				'Press Create access token: the token and a claude mcp add command are shown once. Copy the command',
+				'On the server, run the command in a terminal, then start Claude Code there and run /mcp: lookstow is connected with 4 tools',
+				'Ask Claude to list the mailboxes, then to search Jason’s mailbox for messages with photos from a farm manager: it finds them and can show a photo',
+				'Open the data folder’s ai-audit folder: today’s file has one line for each tool Claude used',
+				'Turn AI tools off: Claude’s next tool call is refused'
+			]
+		},
+		changes: [
+			'AI tools: an AI agent on the server, such as Claude Code, can now search the backup, read messages and look at their attachments, through an MCP endpoint at http://127.0.0.1:8030/mcp. This is for reviews such as finding timesheets sent to payroll',
+			'It is off until turned on under Settings > AI tools, needs an access token made there (only its fingerprint is kept), and answers only on the server itself. It can only read: nothing in the backup can be changed, deleted or sent',
+			'Four tools: list mailboxes; search messages by mailbox, sender, recipient, subject, folder and date (optionally with each message’s attachments and the start of its text); open a message with its text and attachment list; and open an attachment (photos up to 1 MB are shown to the agent, anything else is downloaded from its link with the token)',
+			'Online archive items are read the same way, converted from their .fts files',
+			'Every message and attachment an agent opens is written to an audit log (the ai-audit folder in the data folder, one file a day), and each is named by Lookstow’s id and its SHA-256, so findings can be traced back to the backup'
+		]
+	},
+	{
 		version: '0.10.0',
 		testing: {
 			kind: 'steps',
