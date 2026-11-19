@@ -55,7 +55,7 @@ Two messages are the same email when all of these hold:
 - **Message page:** "Also in the online archive" (or "Also in the mailbox") with a link to the other copy, and the `archived` event in the history.
 - **Search:** an archive item linked to a mailbox copy is listed once (as the mailbox copy, marked "also in the online archive"); a tick shows both.
 - **AI tools:** `get_message` adds `otherCopy: { id, mailbox, folder }`; `search_messages` lists a linked pair once unless `includeArchiveCopies` is set.
-- **Completeness check:** a message with `left_at` set is not counted as being in its mailbox folder (Microsoft no longer counts it there).
+- **Completeness check and folder counts:** a message with `left_at` set is not counted as being in its mailbox folder (Microsoft no longer counts it there). That applies in `storedCount()` (`services/mailboxes/completeness.ts`), `folderItemCounts` (`repository.ts`) and the mailbox views. lookstow-7e agreed that this work adds the condition there.
 
 ## 7. Tests
 
