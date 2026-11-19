@@ -24,13 +24,15 @@ import {
 	settingsView
 } from '#lib/server/services/settings/settings.ts';
 import { snapshotSummary } from '#lib/server/services/storage/index-snapshot.ts';
+import { forgetLearnedPace, learnedPace } from '#lib/server/services/throughput/monitor.ts';
 import { hostname } from 'node:os';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
 export const load = (() => ({
 	settings: settingsView(database, dataDir()),
 	backupsOutsideScope: backupsOutsideScope(database),
-	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir())
+	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir()),
+	learnedPace: learnedPace()
 })) satisfies PageServerLoad;
 
 function saved(summary: string, message: string) {
@@ -150,6 +152,14 @@ export const actions = {
 			return saved('The schedule was changed', 'Saved the schedule.');
 		});
 	},
+	forgetPace: () =>
+		attempt(() => {
+			forgetLearnedPace(database);
+			return saved(
+				'The learned speed was forgotten',
+				'Lookstow starts again from the first-run pace and finds Microsoft’s limit again.'
+			);
+		}),
 	disk: async ({ request }) => {
 		const data = await request.formData();
 		return attempt(() => {

@@ -15,6 +15,8 @@ import { formatBytes, plural } from '../../../utils/format.ts';
 export type SyncPassResult = {
 	/** Stopped by Pause, the disk guard or a cancel: carry on as soon as it may. */
 	stoppedEarly: boolean;
+	/** Why it failed, or null when it did not. */
+	failed: string | null;
 };
 
 /**
@@ -74,7 +76,7 @@ export async function syncOneMailbox(
 				mailboxId: mailbox.id
 			});
 		}
-		return { stoppedEarly: outcome.stoppedEarly };
+		return { stoppedEarly: outcome.stoppedEarly, failed: null };
 	} catch (error) {
 		const message = errorText(error);
 		markSyncFinished(db, mailbox.id, now(), {
@@ -106,6 +108,6 @@ export async function syncOneMailbox(
 				`${name}: failed again in ${Math.round((now() - started) / 1000)} s (${message})`
 			);
 		}
-		return { stoppedEarly: false };
+		return { stoppedEarly: false, failed: message };
 	}
 }

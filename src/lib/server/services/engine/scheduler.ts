@@ -8,13 +8,28 @@
  *
  * First copies may take every slot but one (when there is more than one), so a mailbox
  * already backed up is never held up for days behind a 50 GB first copy.
+ *
+ * A mailbox whose last syncs failed waits a back-off instead of its interval: 30 seconds after
+ * the first failure, doubling to at most 15 minutes, so a passing fault is retried soon and a
+ * lasting one is not hammered (docs/specs/SPEC-THROUGHPUT.md 4.9.6).
  */
+const BACKOFF_FIRST_MS = 30_000;
+const BACKOFF_MOST_MS = 15 * 60_000;
+
+/** How long a mailbox waits after its latest failure, given how many failed in a row. */
+export function failureBackoffMs(failuresInARow: number): number {
+	const doublings = Math.min(Math.max(0, failuresInARow - 1), 10);
+	return Math.min(BACKOFF_MOST_MS, BACKOFF_FIRST_MS * 2 ** doublings);
+}
+
 export type Candidate = {
 	id: string;
 	firstCopyDone: boolean;
 	/** ms since 1970, or null when it has never synced. */
 	lastSyncStartedAt: number | null;
 	lastSyncFinishedAt: number | null;
+	/** Syncs that failed in a row, most recent first; 0 (or absent) when the last one did not. */
+	failuresInARow?: number;
 };
 
 export type SchedulePlan = {
@@ -44,25 +59,23 @@ export function planSyncs(options: {
 }): SchedulePlan {
 	const { candidates, running, requested, allRequestedAt, now, intervalMs, slots } = options;
 	const idle = candidates.filter((candidate) => !running.has(candidate.id));
+	const waitOf = (candidate: Candidate) => {
+		const failures = candidate.failuresInARow ?? 0;
+		return failures > 0 ? failureBackoffMs(failures) : intervalMs;
+	};
+	const rested = (candidate: Candidate) =>
+		now - (candidate.lastSyncFinishedAt ?? 0) >= waitOf(candidate);
 	const isRequested = (candidate: Candidate) =>
 		requested.has(candidate.id) ||
 		(allRequestedAt !== null && (candidate.lastSyncStartedAt ?? 0) < allRequestedAt);
 	const asked = idle.filter(isRequested);
 	const due = idle
-		.filter(
-			(candidate) =>
-				!isRequested(candidate) &&
-				candidate.firstCopyDone &&
-				now - (candidate.lastSyncFinishedAt ?? 0) >= intervalMs
-		)
+		.filter((candidate) => !isRequested(candidate) && candidate.firstCopyDone && rested(candidate))
 		.sort((a, b) => (a.lastSyncFinishedAt ?? 0) - (b.lastSyncFinishedAt ?? 0));
 	const firstCopies = idle
 		.filter((candidate) => !isRequested(candidate) && !candidate.firstCopyDone)
 		// A first copy that stopped part-way (paused, failed) waits its interval like any other.
-		.filter(
-			(candidate) =>
-				candidate.lastSyncFinishedAt === null || now - candidate.lastSyncFinishedAt >= intervalMs
-		)
+		.filter((candidate) => candidate.lastSyncFinishedAt === null || rested(candidate))
 		.sort((a, b) => (a.lastSyncStartedAt ?? -1) - (b.lastSyncStartedAt ?? -1));
 
 	const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
@@ -91,7 +104,7 @@ export function planSyncs(options: {
 	const queued = new Set([...asked, ...due, ...firstCopies].map((candidate) => candidate.id));
 	const later = idle.filter((candidate) => !queued.has(candidate.id));
 	const nextDue = later
-		.map((candidate) => (candidate.lastSyncFinishedAt ?? 0) + intervalMs)
+		.map((candidate) => (candidate.lastSyncFinishedAt ?? 0) + waitOf(candidate))
 		.reduce<number | null>(
 			(soonest, at) => (soonest === null || at < soonest ? at : soonest),
 			null

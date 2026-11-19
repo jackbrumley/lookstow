@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte } from 'drizzle-orm';
 import type { AppDatabase, Queryable } from '../../database/connection.ts';
 import { runs } from '../../database/schema.ts';
 import { errorText, serverLog } from '../../log.ts';
@@ -25,8 +25,9 @@ import { planSyncs } from './scheduler.ts';
 import { closeLastStop, moveToDateLayout, readOlderArchiveItems } from './startup-tasks.ts';
 import { newestSnapshotAt, snapshotIndex } from './snapshot-task.ts';
 import { syncOneMailbox } from './sync-pass.ts';
-import { AdaptiveSlots, Throughput } from './throughput.ts';
+import { MailboxSlots, Throughput } from './throughput.ts';
 import type { DiskStatus, EngineStatus } from '../../../domain/engine.ts';
+import { failureKind, type FailureKind } from '../../../domain/failure-kind.ts';
 import { formatPercent } from '../../../utils/format.ts';
 
 /**
@@ -86,8 +87,10 @@ export class Engine {
 	};
 	#disk: DiskStatus | null = null;
 	readonly #meter = new Throughput();
-	readonly #slots: AdaptiveSlots;
-	#currentSlots = 1;
+	readonly #slots: MailboxSlots;
+	#currentSlots = MailboxSlots.START;
+	/** Mailboxes whose latest syncs failed: how many in a row, and the latest failure's kind. */
+	readonly #failing = new Map<string, { count: number; kind: FailureKind }>();
 	#discoveryProgress: DiscoveryProgress | null = null;
 	/** Moving files stored before 0.4.0 into the date layout; syncs wait until it is done. */
 	#relayout: Promise<void> | null = null;
@@ -101,14 +104,15 @@ export class Engine {
 
 	constructor(deps: EngineDeps) {
 		this.#deps = { now: Date.now, ...deps };
-		// Start below the maximum and grow while Graph does not throttle.
-		this.#slots = new AdaptiveSlots(3, this.#deps.now());
+		// Start with a few mailboxes and add more while the governor has room for them.
+		this.#slots = new MailboxSlots(this.#deps.now());
 	}
 
 	start(): void {
 		const { db, dataDir, now } = this.#deps;
 		closeLastStop(db, now());
 		this.#lastDiscoveryAt = lastFinished(db, 'discovery');
+		for (const [id, failing] of failingMailboxes(db, now())) this.#failing.set(id, failing);
 		const backupRoot = effectiveBackupRoot(db, dataDir);
 		this.#snapshotAt = newestSnapshotAt(backupRoot);
 		const stopping = () => this.#stopping;
@@ -252,6 +256,7 @@ export class Engine {
 				current: Math.min(this.#currentSlots, schedule.parallelMailboxes),
 				maximum: schedule.parallelMailboxes
 			},
+			failing: this.#failingCounts(),
 			rates: {
 				lastMinute: this.#meter.rates(this.#deps.now(), 60_000),
 				last15Minutes: this.#meter.rates(this.#deps.now(), 15 * 60_000)
@@ -264,6 +269,12 @@ export class Engine {
 			relayout: this.#relayout === null ? null : this.#relayoutProgress,
 			indexSnapshot: { running: this.#snapshot !== null, lastAt: iso(this.#snapshotAt) }
 		};
+	}
+
+	#failingCounts(): EngineStatus['failing'] {
+		const counts: EngineStatus['failing'] = {};
+		for (const { kind } of this.#failing.values()) counts[kind] = (counts[kind] ?? 0) + 1;
+		return counts;
 	}
 
 	#measureDisk(): DiskStatus {
@@ -328,12 +339,13 @@ export class Engine {
 			// Files are moving to the date layout: a sync now would race the move.
 			return;
 		}
-		this.#currentSlots = this.#slots.adjust(
-			schedule.parallelMailboxes,
-			this.#meter.rates(time, 60_000).throttled,
-			this.#running.size > 0,
-			time
-		);
+		this.#currentSlots = this.#slots.adjust({
+			maximum: schedule.parallelMailboxes,
+			headroom: sharedGovernor().headroom().more,
+			running: this.#running.size,
+			waiting: this.#waiting.requested + this.#waiting.due + this.#waiting.firstCopy,
+			now: time
+		});
 		const scope = readScope(db);
 		const eligible = allMailboxes(db).filter(
 			(row) => row.goneAt === null && !row.paused && inScope(row, scope)
@@ -343,7 +355,8 @@ export class Engine {
 				id: row.id,
 				firstCopyDone: row.firstCopyDone,
 				lastSyncStartedAt: row.lastSyncStartedAt?.getTime() ?? null,
-				lastSyncFinishedAt: row.lastSyncFinishedAt?.getTime() ?? null
+				lastSyncFinishedAt: row.lastSyncFinishedAt?.getTime() ?? null,
+				failuresInARow: this.#failing.get(row.id)?.count ?? 0
 			})),
 			running: new Set(this.#running.keys()),
 			requested: this.#requested,
@@ -472,6 +485,14 @@ export class Engine {
 			mailbox
 		)
 			.then((result) => {
+				if (result.failed === null) {
+					this.#failing.delete(mailbox.id);
+				} else {
+					this.#failing.set(mailbox.id, {
+						count: (this.#failing.get(mailbox.id)?.count ?? 0) + 1,
+						kind: failureKind(result.failed)
+					});
+				}
 				// Stopped by Pause, the disk guard or a cancel, not finished: it carries on as soon as
 				// it may (Resume), instead of waiting a whole interval like a mailbox that was done.
 				if (result.stoppedEarly && !this.#stopping) {
@@ -499,6 +520,37 @@ function lastFinished(db: Queryable, kind: 'discovery' | 'sync'): number | null 
 		.limit(1)
 		.get();
 	return row?.finishedAt?.getTime() ?? null;
+}
+
+/**
+ * Mailboxes whose latest syncs failed, from the last day of runs: how many failed in a row and
+ * the latest failure's kind, so a restart keeps each one's back-off.
+ */
+function failingMailboxes(
+	db: Queryable,
+	now: number
+): Map<string, { count: number; kind: FailureKind }> {
+	const rows = db
+		.select({ mailboxId: runs.mailboxId, outcome: runs.outcome, error: runs.error })
+		.from(runs)
+		.where(and(eq(runs.kind, 'sync'), gte(runs.startedAt, new Date(now - 24 * 3_600_000))))
+		.orderBy(desc(runs.startedAt))
+		.all();
+	const failing = new Map<string, { count: number; kind: FailureKind }>();
+	const settled = new Set<string>();
+	for (const row of rows) {
+		if (row.mailboxId === null || settled.has(row.mailboxId) || row.outcome === 'running') continue;
+		if (row.outcome !== 'failed') {
+			settled.add(row.mailboxId);
+			continue;
+		}
+		const seen = failing.get(row.mailboxId);
+		failing.set(row.mailboxId, {
+			count: (seen?.count ?? 0) + 1,
+			kind: seen?.kind ?? failureKind(row.error ?? '')
+		});
+	}
+	return failing;
 }
 
 function iso(time: number | null): string | null {

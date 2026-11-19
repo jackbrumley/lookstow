@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planSyncs, type Candidate } from './scheduler.ts';
+import { failureBackoffMs, planSyncs, type Candidate } from './scheduler.ts';
 
 const MINUTE = 60_000;
 const NOW = 1_000 * MINUTE;
@@ -94,5 +94,32 @@ describe('planning syncs', () => {
 			]
 		});
 		expect(plan.start).toEqual([]);
+	});
+});
+
+describe('a failing mailbox', () => {
+	it('waits 30 seconds after one failure, doubling to at most 15 minutes', () => {
+		expect(failureBackoffMs(1)).toBe(30_000);
+		expect(failureBackoffMs(2)).toBe(60_000);
+		expect(failureBackoffMs(4)).toBe(4 * MINUTE);
+		expect(failureBackoffMs(6)).toBe(15 * MINUTE);
+		expect(failureBackoffMs(50)).toBe(15 * MINUTE);
+	});
+
+	it('is retried after its back-off, not its interval, and waits longer the more it fails', () => {
+		const failing = (id: string, failures: number): Candidate => ({
+			...mailbox(id, true, 1),
+			failuresInARow: failures
+		});
+		const plan = planSyncs({
+			...base,
+			intervalMs: 60 * MINUTE,
+			slots: 4,
+			candidates: [failing('once', 1), failing('often', 8), mailbox('fine', true, 1)]
+		});
+		expect(plan.start).toEqual(['once']);
+		expect(plan.waiting.later).toBe(2);
+		// The soonest of those left is the one failing often: 15 minutes after it last finished.
+		expect(plan.waiting.nextDueAt).toBe(NOW - MINUTE + 15 * MINUTE);
 	});
 });

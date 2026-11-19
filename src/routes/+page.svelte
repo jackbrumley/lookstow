@@ -9,6 +9,7 @@
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import SpeedCard from './speed-card.svelte';
+	import { failureSummary } from '#lib/domain/failure-kind.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 	import {
 		formatBytes,
@@ -20,6 +21,11 @@
 	} from '#lib/utils/format.ts';
 
 	let { data, form }: PageProps = $props();
+
+	const failingTotal = $derived(
+		Object.values(data.engine.failing).reduce((sum, count) => sum + count, 0)
+	);
+	const failingText = $derived(failureSummary(data.engine.failing));
 
 	$effect(() => {
 		toastFormResult(form);
@@ -132,6 +138,14 @@
 			{plural(data.engine.syncing.length, 'mailbox', 'mailboxes')} now. Lookstow runs up to {data
 				.engine.slots.current} at a time (at most {data.engine.slots.maximum}).
 		</dd>
+		{#if failingText !== ''}
+			<dt>Failing</dt>
+			<dd>
+				<Badge tone="warn">{plural(failingTotal, 'mailbox', 'mailboxes')}</Badge>
+				{failingText}. Each is tried again after 30 seconds, then less often, up to every 15
+				minutes.
+			</dd>
+		{/if}
 		<dt>Microsoft throttling</dt>
 		<dd>
 			{#if data.engine.throttled.lastMinute > 0}

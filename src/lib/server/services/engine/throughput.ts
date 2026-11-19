@@ -57,43 +57,43 @@ export class Throughput {
 }
 
 /**
- * How many mailboxes sync at once, adjusted like TCP's congestion control: one more every few
- * minutes while Graph does not throttle, half as many when it does, never above the setting's
- * maximum or below one. Graph limits each mailbox to about 4 requests at a time, so parallel
- * mailboxes are where the speed comes from, and throttling is the signal to back off.
+ * How many mailboxes sync at once (docs/specs/SPEC-THROUGHPUT.md 4.3). The governor paces every
+ * request, so more mailboxes cannot overload Microsoft; they only help while the governor has
+ * room for more work. So a mailbox slot is added every few seconds while mailboxes are waiting,
+ * every slot is busy and the governor has headroom, up to the setting's maximum. When it has no
+ * headroom (Microsoft asked it to slow down, or requests wait for its pace), the slots shrink to
+ * those in use, so no new mailbox starts until there is room again.
  */
-export class AdaptiveSlots {
-	#slots: number;
-	#lastChange: number;
-	static readonly GROW_EVERY_MS = 2 * 60_000;
-	/** Throttled replies in the last minute that mean "too many". */
-	static readonly BACK_OFF_AT = 5;
+export class MailboxSlots {
+	static readonly START = 3;
+	static readonly GROW_EVERY_MS = 10_000;
+	#slots = MailboxSlots.START;
+	#lastGrowth: number;
 
-	constructor(start: number, now: number) {
-		this.#slots = Math.max(1, start);
-		this.#lastChange = now;
+	constructor(now: number) {
+		this.#lastGrowth = now;
 	}
 
-	/** The slots to use now, given the setting's maximum and throttling in the last minute. */
-	adjust(maximum: number, throttledLastMinute: number, busy: boolean, now: number): number {
-		if (this.#slots > maximum) {
-			this.#slots = maximum;
-			this.#lastChange = now;
-		}
-		if (throttledLastMinute >= AdaptiveSlots.BACK_OFF_AT) {
-			if (now - this.#lastChange >= 60_000 && this.#slots > 1) {
-				this.#slots = Math.max(1, Math.floor(this.#slots / 2));
-				this.#lastChange = now;
-			}
+	/** The slots to use now. */
+	adjust(state: {
+		maximum: number;
+		headroom: boolean;
+		running: number;
+		waiting: number;
+		now: number;
+	}): number {
+		const { maximum, headroom, running, waiting, now } = state;
+		if (!headroom) {
+			this.#slots = Math.max(1, Math.min(this.#slots, running));
 		} else if (
-			busy &&
-			throttledLastMinute === 0 &&
-			this.#slots < maximum &&
-			now - this.#lastChange >= AdaptiveSlots.GROW_EVERY_MS
+			waiting > 0 &&
+			running >= this.#slots &&
+			now - this.#lastGrowth >= MailboxSlots.GROW_EVERY_MS
 		) {
 			this.#slots += 1;
-			this.#lastChange = now;
+			this.#lastGrowth = now;
 		}
+		this.#slots = Math.max(1, Math.min(this.#slots, maximum));
 		return this.#slots;
 	}
 }

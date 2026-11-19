@@ -3,7 +3,12 @@ import { join } from 'node:path';
 import type { Queryable } from '../../database/connection.ts';
 import { errorText, serverLog } from '../../log.ts';
 import type { GovernorSnapshot } from '../../../domain/throughput.ts';
-import { startSharedGovernor, type Governor } from '../graph/governor.ts';
+import {
+	sharedGovernor,
+	startSharedGovernor,
+	type Governor,
+	type LearnedPace
+} from '../graph/governor.ts';
 import { readLearnedPace, saveLearnedPace } from '../settings/settings.ts';
 
 /**
@@ -68,6 +73,18 @@ export function startThroughputMonitor(
 			await writing;
 		}
 	};
+}
+
+/** What the running governor has learned, for Settings > Speed. */
+export function learnedPace(): LearnedPace {
+	return sharedGovernor().learned();
+}
+
+/** Settings > Speed, Forget what was learned: back to the first-run pace, saved at once. */
+export function forgetLearnedPace(db: Queryable, now = Date.now()): void {
+	const governor = sharedGovernor();
+	governor.forget();
+	saveLearnedPace(db, governor.learned(), now);
 }
 
 export function historyFileName(at: number): string {

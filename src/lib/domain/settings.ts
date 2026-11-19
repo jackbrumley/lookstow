@@ -87,7 +87,7 @@ export const SCOPE_DEFAULTS: ScopeSettings = {
 export const SCHEDULE_DEFAULTS: ScheduleSettings = {
 	syncEveryMinutes: 15,
 	discoverEveryHours: 6,
-	parallelMailboxes: 8,
+	parallelMailboxes: 32,
 	paused: false,
 	pausedReason: null,
 	pausedAt: null

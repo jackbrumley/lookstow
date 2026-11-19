@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AdaptiveSlots, Throughput } from './throughput.ts';
+import { MailboxSlots, Throughput } from './throughput.ts';
 
 const MINUTE = 60_000;
 
@@ -23,24 +23,32 @@ describe('throughput', () => {
 	});
 });
 
-describe('adaptive slots', () => {
-	it('adds a mailbox every two minutes while busy and not throttled, up to the maximum', () => {
-		const slots = new AdaptiveSlots(2, 0);
-		expect(slots.adjust(4, 0, true, MINUTE)).toBe(2);
-		expect(slots.adjust(4, 0, true, 2 * MINUTE)).toBe(3);
-		expect(slots.adjust(4, 0, true, 4 * MINUTE)).toBe(4);
-		expect(slots.adjust(4, 0, true, 6 * MINUTE)).toBe(4);
+describe('mailboxes at once', () => {
+	const busy = { maximum: 32, headroom: true, waiting: 10 };
+
+	it('adds a mailbox every 10 seconds while all slots are busy, work waits and the governor has room', () => {
+		const slots = new MailboxSlots(0);
+		expect(slots.adjust({ ...busy, running: 3, now: 5_000 })).toBe(3);
+		expect(slots.adjust({ ...busy, running: 3, now: 10_000 })).toBe(4);
+		expect(slots.adjust({ ...busy, running: 4, now: 15_000 })).toBe(4);
+		expect(slots.adjust({ ...busy, running: 4, now: 20_000 })).toBe(5);
+		// A free slot or no work waiting: no growth.
+		expect(slots.adjust({ ...busy, running: 3, now: 40_000 })).toBe(5);
+		expect(slots.adjust({ ...busy, waiting: 0, running: 5, now: 60_000 })).toBe(5);
 	});
 
-	it('halves when Graph throttles, but not more than once a minute', () => {
-		const slots = new AdaptiveSlots(8, 0);
-		expect(slots.adjust(8, 10, true, MINUTE)).toBe(4);
-		expect(slots.adjust(8, 10, true, MINUTE + 10_000)).toBe(4);
-		expect(slots.adjust(8, 10, true, 2 * MINUTE)).toBe(2);
+	it('shrinks to the mailboxes running while the governor has no headroom', () => {
+		const slots = new MailboxSlots(0);
+		for (let at = 10_000; at <= 100_000; at += 10_000) {
+			slots.adjust({ ...busy, running: 32, now: at });
+		}
+		expect(slots.adjust({ ...busy, running: 32, now: 110_000 })).toBe(14);
+		expect(slots.adjust({ ...busy, headroom: false, running: 7, now: 111_000 })).toBe(7);
+		expect(slots.adjust({ ...busy, headroom: false, running: 0, now: 112_000 })).toBe(1);
 	});
 
-	it('never goes above a lowered maximum', () => {
-		const slots = new AdaptiveSlots(8, 0);
-		expect(slots.adjust(3, 0, true, 1)).toBe(3);
+	it('never goes above the maximum', () => {
+		const slots = new MailboxSlots(0);
+		expect(slots.adjust({ ...busy, maximum: 2, running: 0, now: 1 })).toBe(2);
 	});
 });

@@ -32,6 +32,7 @@ function status(): EngineStatus {
 		],
 		waiting: { requested: 1, due: 2, firstCopy: 3, later: 4, nextDueAt: null },
 		slots: { current: 6, maximum: 8 },
+		failing: {},
 		rates: {
 			lastMinute: { bytesPerSecond: 100, messagesPerSecond: 1 },
 			last15Minutes: { bytesPerSecond: 50, messagesPerSecond: 0.5 }

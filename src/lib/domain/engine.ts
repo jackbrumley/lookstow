@@ -1,3 +1,5 @@
+import type { FailureKind } from './failure-kind.ts';
+
 /** What the engine is doing right now, for the dashboard and the page frame (browser-safe). */
 export type DiskStatus = {
 	/** The backup folder that was measured. */
@@ -45,8 +47,10 @@ export type EngineStatus = {
 		later: number;
 		nextDueAt: string | null;
 	};
-	/** Mailboxes synced at once now (adjusted to Graph's throttling) and the setting's maximum. */
+	/** Mailboxes synced at once now (from the governor's headroom) and the setting's maximum. */
 	slots: { current: number; maximum: number };
+	/** Mailboxes whose latest sync failed, by kind of failure. */
+	failing: Partial<Record<FailureKind, number>>;
 	/** Download rates over the last minute and the last 15 minutes. */
 	rates: {
 		lastMinute: { bytesPerSecond: number; messagesPerSecond: number };

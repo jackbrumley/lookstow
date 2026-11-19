@@ -31,6 +31,8 @@
 	let backupOpen = $state(false);
 	let updatesOpen = $state(false);
 	let diskOpen = $state(false);
+	let forgetOpen = $state(false);
+	const pace = $derived(data.learnedPace);
 	// The scope form's mode, reset from the saved setting each time the form opens.
 	let scopeMode = $state<'all' | 'selected'>('all');
 	let scopeExisting = $state<'keep' | 'delete'>('keep');
@@ -201,10 +203,45 @@
 		</li>
 		<li>
 			<strong>{settings.schedule.parallelMailboxes}</strong> mailboxes at most are synced at the same
-			time; Lookstow uses fewer while Microsoft asks it to slow down.
+			time; Lookstow adds them while Microsoft has room, and uses fewer while it asks Lookstow to slow
+			down.
 		</li>
 	</ul>
 </Card>
+
+<Card title="Speed">
+	{#snippet actions()}
+		<Button variant="secondary" onclick={() => (forgetOpen = true)}>Forget what was learned…</Button
+		>
+	{/snippet}
+	<p>
+		Lookstow finds how fast Microsoft lets it copy, holds just under that, and keeps what it learned
+		across restarts. Now: <strong>{pace.startsPerSecond.toFixed(1)} requests a second</strong>, at
+		most
+		<strong>{pace.inFlightCap}</strong> at once.
+	</p>
+	<p class="muted small">
+		{#if pace.ceiling === null}
+			Microsoft has not asked Lookstow to slow down yet.
+		{:else}
+			Microsoft last asked it to slow down at {pace.ceiling.startsPerSecond.toFixed(1)} requests a second,
+			{formatDateTime(new Date(pace.ceiling.at).toISOString())}.
+		{/if}
+		Mailboxes are added while Microsoft has room for them, up to the schedule's maximum.
+	</p>
+</Card>
+
+<FormModal
+	bind:open={forgetOpen}
+	title="Forget what was learned?"
+	action="?/forgetPace"
+	submitLabel="Forget"
+>
+	<p>
+		Lookstow goes back to its first-run pace and finds Microsoft’s limit again over the next hour or
+		so. Use this after Microsoft’s limits change, or if copying stays slow for no clear reason.
+	</p>
+</FormModal>
 
 <Card title="Backup folder">
 	{#snippet actions()}
