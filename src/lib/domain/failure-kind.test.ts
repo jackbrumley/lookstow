@@ -12,6 +12,10 @@ describe('kinds of failure', () => {
 		expect(failureKind('AADSTS7000215: Invalid client secret provided.')).toBe('permission');
 		expect(failureKind('ENOSPC: no space left on device, write')).toBe('disk');
 		expect(failureKind('fetch failed (ECONNRESET)')).toBe('network');
+		// Seen on Sarah Croft's archive: a broken reply is the network, not a Microsoft error.
+		expect(
+			failureKind("Microsoft Graph's reply broke off 3 times in a row (terminated) (terminated)")
+		).toBe('network');
 		expect(failureKind('Graph answered 503 ServiceUnavailable')).toBe('microsoft');
 		expect(failureKind('Something odd')).toBe('other');
 	});

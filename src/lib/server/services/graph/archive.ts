@@ -183,9 +183,11 @@ export async function exportArchiveItems(
 	const results = Array.isArray(reply['value']) ? reply['value'].map(asRecord) : [];
 	const exported: ExportedItem[] = [];
 	const moved = new Map<string, string[]>();
+	const asked = new Set(itemIds);
 	for (const result of results) {
 		const graphId = stringField(result, 'itemId') ?? stringField(result, 'id');
-		if (graphId === null) {
+		// Only the items asked for: a split batch must never export another half's item.
+		if (graphId === null || !asked.has(graphId)) {
 			continue;
 		}
 		const data = stringField(result, 'data');
