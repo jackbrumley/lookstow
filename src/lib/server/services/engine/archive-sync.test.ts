@@ -17,6 +17,7 @@ import { GraphClient } from '../graph/client.ts';
 import { unpacedGovernor } from '../graph/governor.ts';
 import { TokenSource } from '../graph/token.ts';
 import { indexArchiveItems } from '../fts/fts-index.ts';
+import { mailboxItemFailures } from '../mailboxes/item-failures.ts';
 import {
 	applyDiscovery,
 	foldersOf,
@@ -190,14 +191,40 @@ describe('copying an online archive', () => {
 		await expect(syncMailbox(context, row)).rejects.toThrow(/MailboxItem\.Export\.All/);
 	});
 
-	it('keeps its place and reports items that could not be exported', async () => {
+	it('records items that could not be exported, moves on, and exports them later', async () => {
+		let refusing = true;
 		const graph = archive().on(/MBX:aux@t\/exportItems$/, () =>
-			json({ value: [{ itemId: 'i2', error: { code: 'ErrorItemCorrupt', message: 'Corrupt' } }] })
+			refusing
+				? json({
+						value: [
+							{ itemId: 'i2', error: { code: 'ErrorItemCorrupt', message: 'Corrupt' } },
+							{ itemId: 'i3', error: { code: 'ErrorItemCorrupt', message: 'Corrupt' } }
+						]
+					})
+				: json({ value: [exported('i2'), exported('i3')] })
 		);
 		const { db, row, context } = await setup(graph);
-		await expect(syncMailbox(context, row)).rejects.toThrow(/could not be exported/);
+		await expect(syncMailbox(context, row)).resolves.toMatchObject({ added: 1 });
+		// The folders moved on past the items that failed.
 		const inbox = foldersOf(db, row.id).find((folder) => folder.graphId === 'inbox');
-		expect(inbox?.deltaLink).toBeNull();
+		expect(inbox?.deltaLink).not.toBeNull();
+		expect(
+			mailboxItemFailures(db, row.id)
+				.map((failure) => failure.graphId)
+				.sort()
+		).toEqual(['i2', 'i3']);
+		// Microsoft exports them now; once due, the next sync stores them.
+		refusing = false;
+		await syncMailbox({ ...context, now: () => 1000 + 16 * 60_000 }, row);
+		expect(
+			db
+				.select()
+				.from(messages)
+				.all()
+				.map((message) => message.graphId)
+				.sort()
+		).toEqual(['i1', 'i2', 'i3']);
+		expect(mailboxItemFailures(db, row.id)).toEqual([]);
 	});
 });
 

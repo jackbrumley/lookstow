@@ -147,6 +147,43 @@
 	{/if}
 </Card>
 
+{#if data.failures.total > 0}
+	<Card title={`Items that could not be copied (${formatCount(data.failures.total)})`} tone="warn">
+		{#snippet actions()}
+			<form method="POST" action="?/retryFailures" use:enhance>
+				<Button type="submit" variant="secondary">Try again now</Button>
+			</form>
+		{/snippet}
+		<p class="small muted">
+			Microsoft refused these items, or their download kept breaking. The rest of each folder is
+			copied; these are tried again after 15 minutes, 1 hour, 4 hours and then daily, five times in
+			all. They also explain why a folder's count from Microsoft can be higher than what is stored.
+		</p>
+		<table>
+			<thead
+				><tr><th>Folder</th><th>Subject</th><th>Received</th><th>Tries</th><th>Problem</th></tr
+				></thead
+			>
+			<tbody>
+				{#each data.failures.items as failure (failure.graphId)}
+					<tr>
+						<td>{failure.folderPath}</td>
+						<td>{failure.subject === '' ? '—' : failure.subject}</td>
+						<td>{formatDateTime(failure.receivedAt)}</td>
+						<td>
+							{failure.attempts}
+							{#if failure.terminal}<Badge tone="bad">Stopped</Badge>{:else}<span
+									class="small muted">next {formatRelative(failure.nextTryAt)}</span
+								>{/if}
+						</td>
+						<td class="small">{failure.lastError}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</Card>
+{/if}
+
 <Card title="Recent syncs">
 	{#if mailbox.recentRuns.length === 0}
 		<p class="muted">Not synced yet.</p>

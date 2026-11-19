@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 
 /**
@@ -119,6 +119,38 @@ export async function writeMessageFile(path: string, bytes: Buffer): Promise<Sto
 		throw error;
 	}
 	return { byteCount: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+/**
+ * writeMessageFile for a download still arriving: written to the temporary file chunk by chunk,
+ * hashed on the way, then renamed into place, so memory stays small whatever the message's
+ * size. If the stream breaks, the temporary file is removed and the error passes on.
+ */
+export async function writeMessageStream(
+	path: string,
+	body: ReadableStream<Uint8Array>
+): Promise<StoredFile> {
+	await mkdir(dirname(path), { recursive: true });
+	const temporary = `${path}.${randomBytes(4).toString('hex')}.partial`;
+	const hash = createHash('sha256');
+	let byteCount = 0;
+	try {
+		const file = await open(temporary, 'w');
+		try {
+			for await (const chunk of body) {
+				hash.update(chunk);
+				byteCount += chunk.byteLength;
+				await file.write(chunk);
+			}
+		} finally {
+			await file.close();
+		}
+		await rename(temporary, path);
+	} catch (error) {
+		await rm(temporary, { force: true });
+		throw error;
+	}
+	return { byteCount, sha256: hash.digest('hex') };
 }
 
 /** Forward slashes for what is stored in the database, whatever the platform. */

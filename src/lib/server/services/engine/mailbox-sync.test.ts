@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +14,7 @@ import { openDatabase } from '../../database/connection.ts';
 import { GraphClient } from '../graph/client.ts';
 import { unpacedGovernor } from '../graph/governor.ts';
 import { TokenSource } from '../graph/token.ts';
+import { mailboxItemFailures } from '../mailboxes/item-failures.ts';
 import { applyDiscovery, foldersOf, mailboxById } from '../mailboxes/repository.ts';
 import { messageEvents, messages } from '../../database/schema.ts';
 import { eq } from 'drizzle-orm';
@@ -301,5 +303,88 @@ describe('syncing one mailbox', () => {
 			{ graphId: 'b', path: 'Q1? plan' }
 		]).map((folder) => folder.storagePath);
 		expect(paths).toEqual(['Q1_ plan', 'Q1_ plan ~2']);
+	});
+});
+
+describe('one bad message never stops a folder', () => {
+	const pageOf =
+		(...ids: string[]) =>
+		() =>
+			json({
+				value: ids.map((id) => message(id, `Subject ${id}`)),
+				'@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-delta-1'
+			});
+
+	it('records a message that cannot be copied, moves the folder on, and copies it later', async () => {
+		let refusals = 1;
+		const graph = mailbox({
+			'mailFolders/inbox/messages/delta': pageOf('m1', 'm2', 'm3'),
+			'^/v1\\.0/inbox-delta-1$': pageOf(),
+			'mailFolders/(sent|proj)/messages/delta': empty,
+			'^/v1\\.0/empty-delta$': empty
+		})
+			.on(/\/messages\/m2\/\$value$/, () => {
+				if (refusals > 0) {
+					refusals -= 1;
+					return graphError(400, 'ErrorCorruptData', 'The item is corrupt');
+				}
+				return new Response('Subject: m2\r\n\r\nbody of m2');
+			})
+			// Deleted after the delta listed it: skipped, not a failure.
+			.on(/\/messages\/m3\/\$value$/, () => graphError(404, 'ErrorItemNotFound', 'Not found'))
+			.on(/\/messages\/m2\?\$select=/, () =>
+				json({ ...message('m2', 'Subject m2'), parentFolderId: 'inbox' })
+			);
+		const { db, row, backupRoot, context } = await setup(graph);
+		await syncMailbox(context, row);
+		const stored = () =>
+			db
+				.select()
+				.from(messages)
+				.all()
+				.map((each) => each.graphId)
+				.sort();
+		expect(stored()).toEqual(['m1']);
+		const inbox = foldersOf(db, row.id).find((folder) => folder.graphId === 'inbox');
+		expect(inbox?.deltaLink).toBe('https://graph.microsoft.com/v1.0/inbox-delta-1');
+		expect(mailboxItemFailures(db, row.id)).toMatchObject([
+			{ graphId: 'm2', attempts: 1, terminal: false, lastError: 'The item is corrupt' }
+		]);
+		// The streamed file is the message, and its SHA-256 matches.
+		const first = db.select().from(messages).all()[0];
+		const bytes = await readFile(join(backupRoot, ...(first?.filePath ?? '').split('/')));
+		expect(first?.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+
+		// Not due yet: nothing is tried.
+		await syncMailbox(context, row);
+		expect(stored()).toEqual(['m1']);
+		// Due: tried again, copied, and no longer listed.
+		const later: SyncContext = { ...context, now: () => 1000 + 16 * 60_000 };
+		await syncMailbox(later, row);
+		expect(stored()).toEqual(['m1', 'm2']);
+		expect(mailboxItemFailures(db, row.id)).toEqual([]);
+	});
+
+	it('after a delta restart, marks deleted a message Microsoft 365 no longer has', async () => {
+		let fresh = 0;
+		const graph = mailbox({
+			'mailFolders/inbox/messages/delta': () => {
+				fresh += 1;
+				return fresh === 1 ? pageOf('m1', 'm2')() : pageOf('m1')();
+			},
+			'^/v1\\.0/inbox-delta-1$': () => graphError(410, 'SyncStateNotFound', 'Expired'),
+			'mailFolders/(sent|proj)/messages/delta': empty,
+			'^/v1\\.0/empty-delta$': empty
+		}).on(/\/messages\/m2\?\$select=/, () => graphError(404, 'ErrorItemNotFound', 'Not found'));
+		const { db, row, context } = await setup(graph);
+		await syncMailbox(context, row);
+		// The second sync finds its delta link expired, starts again, and lists only m1.
+		await syncMailbox(context, row);
+		const gone = db
+			.select()
+			.from(messages)
+			.all()
+			.find((each) => each.graphId === 'm2');
+		expect(gone?.deletedAt).not.toBeNull();
 	});
 });

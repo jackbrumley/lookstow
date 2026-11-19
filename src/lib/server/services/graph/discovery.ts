@@ -186,14 +186,24 @@ export async function forEachLimited<T>(
 	work: (item: T) => Promise<void>
 ): Promise<void> {
 	let next = 0;
+	// The first failure: once set, no new work starts, and work already running finishes before
+	// the error is passed on, so nothing is left running unwatched.
+	const state: { failed: { error: unknown } | null } = { failed: null };
 	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-		while (next < items.length) {
+		while (state.failed === null && next < items.length) {
 			const item = items[next];
 			next += 1;
 			if (item !== undefined) {
-				await work(item);
+				try {
+					await work(item);
+				} catch (error) {
+					state.failed ??= { error };
+				}
 			}
 		}
 	});
 	await Promise.all(workers);
+	if (state.failed !== null) {
+		throw state.failed.error;
+	}
 }

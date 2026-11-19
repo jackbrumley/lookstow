@@ -9,6 +9,11 @@ import {
 	setExcluded,
 	setMailboxPaused
 } from '#lib/server/services/mailboxes/repository.ts';
+import {
+	countItemFailures,
+	mailboxItemFailures,
+	retryItemFailures
+} from '#lib/server/services/mailboxes/item-failures.ts';
 import { mailboxDetail } from '#lib/server/services/mailboxes/views.ts';
 import { effectiveBackupRoot, readScope } from '#lib/server/services/settings/settings.ts';
 
@@ -27,7 +32,20 @@ export const load = (({ params }) => {
 	return {
 		mailbox: detail,
 		picking: readScope(database).mode === 'selected',
-		activity: listActivity(database, { limit: 30, mailboxId: params.id })
+		activity: listActivity(database, { limit: 30, mailboxId: params.id }),
+		failures: {
+			total: countItemFailures(database, params.id),
+			items: mailboxItemFailures(database, params.id).map((failure) => ({
+				graphId: failure.graphId,
+				folderPath: failure.folderPath,
+				subject: failure.subject,
+				receivedAt: failure.receivedAt?.toISOString() ?? null,
+				attempts: failure.attempts,
+				nextTryAt: failure.nextTryAt.toISOString(),
+				lastError: failure.lastError,
+				terminal: failure.terminal
+			}))
+		}
 	};
 }) satisfies PageServerLoad;
 
@@ -36,6 +54,22 @@ function found(id: string) {
 }
 
 export const actions = {
+	retryFailures: ({ params }) => {
+		const mailbox = found(params.id);
+		if (mailbox === undefined) {
+			return refused('No such mailbox', 404);
+		}
+		const items = retryItemFailures(database, mailbox.id, Date.now());
+		backupEngine().requestSync([mailbox.id]);
+		recordActivity(database, {
+			level: 'info',
+			kind: 'sync',
+			actor: 'console',
+			summary: `Items that could not be copied from ${mailbox.address} are tried again (${String(items)})`,
+			mailboxId: mailbox.id
+		});
+		return done(`${String(items)} items are tried again in the next sync.`);
+	},
 	syncNow: ({ params }) => {
 		const mailbox = found(params.id);
 		if (mailbox === undefined) {

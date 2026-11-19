@@ -12,6 +12,11 @@ import {
 	type ArchiveItemChange
 } from '../graph/archive.ts';
 import {
+	clearItemFailure,
+	dueItemFailures,
+	recordItemFailure
+} from '../mailboxes/item-failures.ts';
+import {
 	insertMessage,
 	moveMessage,
 	saveFolderProgress,
@@ -41,9 +46,23 @@ import { APP_VERSION } from '../../../utils/app-version.ts';
  * folder's delta from where it stopped, progress saved after every page), but through the
  * mailbox export API, and each item stored as Exchange's full-fidelity export (`.fts`).
  *
- * A page whose items could not all be exported keeps its place, so the next sync asks for
- * those items again; the sync reports them as a failure with Microsoft's reason.
+ * Folders run FOLDERS_AT_ONCE at a time and each exports several batches at once (the governor
+ * holds each mailbox to what Microsoft allows). An item that cannot be exported is recorded and
+ * tried again on later syncs, so it never holds its folder back (docs/specs/SPEC-THROUGHPUT.md
+ * 4.9.4).
  */
+const FOLDERS_AT_ONCE = 3;
+
+type Upsert = Extract<ArchiveItemChange, { kind: 'upsert' }>;
+
+type ArchiveRun = {
+	context: SyncContext;
+	mailbox: MailboxRow;
+	mailboxRoot: string;
+	totals: SyncOutcome;
+	pending: PendingRemoval[];
+};
+
 export async function syncArchive(context: SyncContext, mailbox: MailboxRow): Promise<SyncOutcome> {
 	if (mailbox.exchangeMailboxId === null) {
 		throw new Error('Discovery has not found this archive’s mailbox id yet. Run Discover now.');
@@ -62,64 +81,47 @@ export async function syncArchive(context: SyncContext, mailbox: MailboxRow): Pr
 		context.now()
 	);
 	const where = new Map(graphFolders.map((folder) => [folder.graphId, folder.mailboxUrl]));
-	const mailboxRoot = mailboxFolderName(mailbox.address, mailbox.kind);
-	const totals: SyncOutcome = {
-		added: 0,
-		removed: 0,
-		byteCount: 0,
-		firstCopyDone: true,
-		stoppedEarly: false
+	const run: ArchiveRun = {
+		context,
+		mailbox,
+		mailboxRoot: mailboxFolderName(mailbox.address, mailbox.kind),
+		totals: { added: 0, removed: 0, byteCount: 0, firstCopyDone: true, stoppedEarly: false },
+		pending: []
 	};
-	const failures: string[] = [];
-	const pending: PendingRemoval[] = [];
 	const microsoftCounts = new Map(
 		graphFolders.map((folder) => [folder.graphId, folder.totalItemCount])
 	);
 	const upToDate: { folderId: string; count: number }[] = [];
-	for (const folder of folders) {
+	await forEachLimited(folders, FOLDERS_AT_ONCE, async (folder) => {
 		if (context.stopping()) {
-			totals.stoppedEarly = true;
-			totals.firstCopyDone = false;
-			break;
+			run.totals.stoppedEarly = true;
+			run.totals.firstCopyDone = false;
+			return;
 		}
-		const folderMailbox = where.get(folder.graphId) ?? mailboxUrl;
-		const done = await syncArchiveFolder(
-			context,
-			mailbox,
-			mailboxRoot,
-			folder,
-			folderMailbox,
-			totals,
-			failures,
-			pending
-		);
+		const done = await syncArchiveFolder(run, folder, where.get(folder.graphId) ?? mailboxUrl);
 		const count = microsoftCounts.get(folder.graphId) ?? null;
 		if (!done) {
-			totals.firstCopyDone = false;
+			run.totals.firstCopyDone = false;
 		} else if (count !== null) {
 			upToDate.push({ folderId: folder.id, count });
 		}
-	}
-	totals.removed += applyRemovals(context, mailbox.id, pending);
+	});
+	run.totals.removed += applyRemovals(context, mailbox.id, run.pending);
 	setFolderSourceCounts(context.db, upToDate, context.now());
-	if (failures.length > 0) {
-		throw new Error(
-			`${failures.length} archive item${failures.length === 1 ? '' : 's'} could not be exported and will be tried again: ${failures.slice(0, 3).join('; ')}`
-		);
-	}
-	return totals;
+	return run.totals;
 }
 
 async function syncArchiveFolder(
-	context: SyncContext,
-	mailbox: MailboxRow,
-	mailboxRoot: string,
+	run: ArchiveRun,
 	folder: FolderRow,
-	folderMailbox: string,
-	totals: SyncOutcome,
-	failures: string[],
-	pending: PendingRemoval[]
+	folderMailbox: string
 ): Promise<boolean> {
+	const { context } = run;
+	try {
+		await retryFailedItems(run, folder, folderMailbox);
+	} catch (error) {
+		throw explain(error);
+	}
 	let resumeLink = folder.deltaLink;
 	let firstCopyDone = folder.firstCopyDone;
 	for (let attempt = 0; attempt < 2; attempt++) {
@@ -129,21 +131,7 @@ async function syncArchiveFolder(
 				{ graphId: folder.graphId, mailboxUrl: folderMailbox },
 				resumeLink
 			)) {
-				const pageFailures = await applyArchiveChanges(
-					context,
-					mailbox,
-					mailboxRoot,
-					folder,
-					folderMailbox,
-					page.changes,
-					totals,
-					pending
-				);
-				if (pageFailures.length > 0) {
-					// Keep the place before this page: the next sync exports what failed.
-					failures.push(...pageFailures);
-					return false;
-				}
+				await applyArchiveChanges(run, folder, folderMailbox, page.changes);
 				resumeLink = page.deltaLink ?? page.nextLink ?? resumeLink;
 				if (page.deltaLink !== null) {
 					firstCopyDone = true;
@@ -154,13 +142,14 @@ async function syncArchiveFolder(
 					now: context.now()
 				});
 				if (context.stopping() && page.nextLink !== null) {
-					totals.stoppedEarly = true;
+					run.totals.stoppedEarly = true;
 					return false;
 				}
 			}
 			return firstCopyDone;
 		} catch (error) {
-			if (attempt === 0 && error instanceof GraphError && error.status === 410) {
+			// An expired sync state (410, or Microsoft's code for it), as mail sync handles it.
+			if (attempt === 0 && isExpiredSyncState(error)) {
 				resumeLink = null;
 				firstCopyDone = false;
 				continue;
@@ -171,21 +160,25 @@ async function syncArchiveFolder(
 	return firstCopyDone;
 }
 
-/** Stores a page of changes; returns the items that could not be exported. */
+function isExpiredSyncState(error: unknown): boolean {
+	return (
+		error instanceof GraphError &&
+		(error.status === 410 || /syncstate|resyncrequired/i.test(error.code))
+	);
+}
+
+/** Stores a page of changes; items that cannot be exported are recorded for a later try. */
 async function applyArchiveChanges(
-	context: SyncContext,
-	mailbox: MailboxRow,
-	mailboxRoot: string,
+	run: ArchiveRun,
 	folder: FolderRow,
 	folderMailbox: string,
-	changes: readonly ArchiveItemChange[],
-	totals: SyncOutcome,
-	pending: PendingRemoval[]
-): Promise<string[]> {
-	const wanted = new Map<string, Extract<ArchiveItemChange, { kind: 'upsert' }>>();
+	changes: readonly ArchiveItemChange[]
+): Promise<void> {
+	const { context, mailbox } = run;
+	const wanted = new Map<string, Upsert>();
 	for (const change of changes) {
 		if (change.kind === 'removed') {
-			pending.push({ folderId: folder.id, graphId: change.graphId });
+			run.pending.push({ folderId: folder.id, graphId: change.graphId });
 			continue;
 		}
 		const existing = storedMessage(context.db, mailbox.id, change.graphId);
@@ -195,64 +188,132 @@ async function applyArchiveChanges(
 			moveMessage(context.db, existing, folder.id, context.now());
 		}
 	}
+	await exportAndStore(run, folder, folderMailbox, wanted);
+}
+
+/**
+ * Exports items in batches, several at once (the governor holds the mailbox to what Microsoft
+ * allows; the byte budget holds the replies in memory), stores each, and records each item that
+ * could not be exported.
+ */
+async function exportAndStore(
+	run: ArchiveRun,
+	folder: FolderRow,
+	folderMailbox: string,
+	wanted: Map<string, Upsert>
+): Promise<void> {
+	const { context } = run;
 	const batches = exportBatches(
 		[...wanted.values()].map((change) => ({ id: change.graphId, size: change.size }))
 	);
-	const failures: string[] = [];
-	// Several batches at once: the governor holds the mailbox to what Microsoft allows, and the
-	// byte budget holds the replies in memory to EXPORT_BUDGET_BYTES across every archive.
 	await forEachLimited(batches, EXPORT_PARALLEL, async (batch) => {
 		if (context.stopping()) {
 			return;
 		}
 		const release = await exportBudget.take(batch.bytes);
 		try {
-			await storeExported(await exportArchiveItems(context.client, folderMailbox, batch.ids));
+			const exported = await exportArchiveItems(context.client, folderMailbox, batch.ids);
+			for (const item of exported) {
+				const change = wanted.get(item.graphId);
+				if (change === undefined) continue;
+				if ('error' in item) {
+					recordArchiveFailure(run, folder, change, item.error);
+				} else {
+					await storeItem(run, folder, change, item.data);
+				}
+			}
 		} finally {
 			release();
 		}
 	});
-	return failures;
+}
 
-	async function storeExported(exported: Awaited<ReturnType<typeof exportArchiveItems>>) {
-		for (const item of exported) {
-			const change = wanted.get(item.graphId);
-			if (change === undefined) {
-				continue;
-			}
-			if ('error' in item) {
-				failures.push(`${folder.path}: ${item.error}`);
-				continue;
-			}
-			// The export says only when the item moved into the archive; the item itself says when it
-			// was received, so it is filed and found by that. An item the reader cannot read is
-			// still stored, under the archive date, and says why in the log.
-			const index = indexFts(item.data, `${mailbox.address} (online archive), ${folder.path}`);
-			const when = index?.receivedAt ?? change.createdAt;
-			const relative = `${mailboxRoot}/${archiveItemFileName(when, change.type, change.graphId)}`;
-			const stored = await writeMessageFile(
-				resolveStoragePath(context.backupRoot, relative),
-				item.data
-			);
-			insertMessage(context.db, {
-				mailboxId: mailbox.id,
-				folderId: folder.id,
-				graphId: change.graphId,
-				internetMessageId: index?.internetMessageId ?? null,
-				subject: index?.subject ?? '',
-				sender: index?.sender ?? '',
-				recipients: index?.recipients.join(' ') ?? '',
-				receivedAt: when === null ? null : new Date(when),
-				filePath: relative,
-				byteCount: stored.byteCount,
-				sha256: stored.sha256,
-				storedAt: new Date(context.now()),
-				indexFailedVersion: index === null ? APP_VERSION : null
-			});
-			totals.added += 1;
-			totals.byteCount += stored.byteCount;
-			context.progress({ folder: folder.path, stored: totals.added, bytes: totals.byteCount });
+async function storeItem(
+	run: ArchiveRun,
+	folder: FolderRow,
+	change: Upsert,
+	data: Buffer
+): Promise<void> {
+	const { context, mailbox, mailboxRoot, totals } = run;
+	// The export says only when the item moved into the archive; the item itself says when it
+	// was received, so it is filed and found by that. An item the reader cannot read is still
+	// stored, under the archive date, and says why in the log.
+	const index = indexFts(data, `${mailbox.address} (online archive), ${folder.path}`);
+	const when = index?.receivedAt ?? change.createdAt;
+	const relative = `${mailboxRoot}/${archiveItemFileName(when, change.type, change.graphId)}`;
+	const stored = await writeMessageFile(resolveStoragePath(context.backupRoot, relative), data);
+	insertMessage(context.db, {
+		mailboxId: mailbox.id,
+		folderId: folder.id,
+		graphId: change.graphId,
+		internetMessageId: index?.internetMessageId ?? null,
+		subject: index?.subject ?? '',
+		sender: index?.sender ?? '',
+		recipients: index?.recipients.join(' ') ?? '',
+		receivedAt: when === null ? null : new Date(when),
+		filePath: relative,
+		byteCount: stored.byteCount,
+		sha256: stored.sha256,
+		storedAt: new Date(context.now()),
+		indexFailedVersion: index === null ? APP_VERSION : null
+	});
+	clearItemFailure(context.db, mailbox.id, change.graphId);
+	totals.added += 1;
+	totals.byteCount += stored.byteCount;
+	context.progress({ folder: folder.path, stored: totals.added, bytes: totals.byteCount });
+}
+
+/** Microsoft's per-item answer when the item is gone from the archive. */
+function itemIsGone(error: string): boolean {
+	return /^ErrorItemNotFound\b/i.test(error);
+}
+
+function recordArchiveFailure(run: ArchiveRun, folder: FolderRow, change: Upsert, error: string) {
+	const { context, mailbox } = run;
+	if (itemIsGone(error)) {
+		clearItemFailure(context.db, mailbox.id, change.graphId);
+		return;
+	}
+	recordItemFailure(
+		context.db,
+		{
+			mailboxId: mailbox.id,
+			folderId: folder.id,
+			graphId: change.graphId,
+			subject: '',
+			receivedAt: change.createdAt,
+			error: `${folder.path}: ${error}`
+		},
+		context.now()
+	);
+}
+
+/**
+ * Exports again the folder's failed items whose next try is due. What the delta said about
+ * each is not kept, so they are stored as items of class IPM until their export is read.
+ */
+async function retryFailedItems(
+	run: ArchiveRun,
+	folder: FolderRow,
+	folderMailbox: string
+): Promise<void> {
+	const { context, mailbox } = run;
+	const wanted = new Map<string, Upsert>();
+	for (const failure of dueItemFailures(context.db, folder.id, context.now())) {
+		if (storedMessage(context.db, mailbox.id, failure.graphId) !== undefined) {
+			clearItemFailure(context.db, mailbox.id, failure.graphId);
+			continue;
 		}
+		wanted.set(failure.graphId, {
+			kind: 'upsert',
+			graphId: failure.graphId,
+			type: 'IPM',
+			size: null,
+			createdAt: failure.receivedAt?.getTime() ?? null
+		});
+	}
+	if (wanted.size > 0) {
+		await exportAndStore(run, folder, folderMailbox, wanted);
 	}
 }
 

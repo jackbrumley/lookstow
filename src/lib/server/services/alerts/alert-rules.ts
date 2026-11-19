@@ -98,7 +98,7 @@ export function alertFor(entry: AlertableActivity): EmailSource | null {
 				title: entry.summary,
 				body: body(
 					entry,
-					'Backups pause for about a minute while Lookstow restarts. If the new version does not start, the updater puts the old one back.'
+					'Backups pause for about three minutes while Lookstow restarts. If the new version does not start, the updater puts the old one back.'
 				),
 				page: 'Updates'
 			};

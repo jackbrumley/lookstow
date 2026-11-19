@@ -535,3 +535,13 @@ export function setMessageIndex(
 		.where(eq(messages.id, id))
 		.run();
 }
+
+/** The ids of a folder's stored messages that are not marked deleted. */
+export function liveMessageIds(db: Queryable, folderId: string): string[] {
+	return db
+		.select({ graphId: messages.graphId })
+		.from(messages)
+		.where(and(eq(messages.folderId, folderId), isNull(messages.deletedAt)))
+		.all()
+		.map((row) => row.graphId);
+}

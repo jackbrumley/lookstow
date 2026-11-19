@@ -1,4 +1,4 @@
-import { asRecord, stringField, type GraphClient } from './client.ts';
+import { asRecord, GraphError, stringField, type GraphClient } from './client.ts';
 
 /**
  * Reading a primary mailbox through Graph v1.0: its folder tree, each folder's changes since
@@ -11,6 +11,10 @@ export type GraphFolder = {
 	/** How many items Microsoft says the folder holds, or null when it did not say. */
 	totalItemCount: number | null;
 };
+
+/** The fields of a message the delta query asks for. */
+const MESSAGE_FIELDS =
+	'id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime';
 
 export type MessageChange =
 	| {
@@ -76,7 +80,7 @@ export async function* folderChanges(
 ): AsyncGenerator<{ changes: MessageChange[]; deltaLink: string | null; nextLink: string | null }> {
 	const start =
 		deltaLink ??
-		`/v1.0/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderGraphId)}/messages/delta?$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime`;
+		`/v1.0/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderGraphId)}/messages/delta?$select=${MESSAGE_FIELDS}`;
 	for await (const page of client.pages(start)) {
 		const changes = page.items.map(toChange).filter((change) => change !== null);
 		const delta = stringField(page.reply, '@odata.deltaLink');
@@ -118,13 +122,52 @@ function addresses(list: unknown): string[] {
 		.map((address) => address.toLowerCase());
 }
 
-/** The message exactly as Exchange holds it, attachments included (RFC 822 / MIME). */
-export async function messageMime(
+/**
+ * The message exactly as Exchange holds it, attachments included (RFC 822 / MIME), streamed to
+ * `consume` as it arrives.
+ */
+export async function streamMessageMime<T>(
+	client: GraphClient,
+	userId: string,
+	messageGraphId: string,
+	consume: (body: ReadableStream<Uint8Array>) => Promise<T>
+): Promise<T> {
+	return client.getStream(
+		`/v1.0/users/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageGraphId)}/$value`,
+		consume
+	);
+}
+
+/**
+ * One message as it is now: what a delta page would say about it, and the folder it is in; null
+ * when Microsoft 365 no longer has it (404). Used to try a failed message again, and to check a
+ * message a delta restart did not list again (docs/specs/SPEC-THROUGHPUT.md 4.9.4 and 4.9.5).
+ */
+export async function messageNow(
 	client: GraphClient,
 	userId: string,
 	messageGraphId: string
-): Promise<Buffer> {
-	return client.getBytes(
-		`/v1.0/users/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageGraphId)}/$value`
+): Promise<{
+	change: Extract<MessageChange, { kind: 'upsert' }>;
+	folderGraphId: string | null;
+} | null> {
+	let reply: unknown;
+	try {
+		reply = await client.getJson(
+			`/v1.0/users/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageGraphId)}?$select=${MESSAGE_FIELDS},parentFolderId`
+		);
+	} catch (error) {
+		if (isGone(error)) return null;
+		throw error;
+	}
+	const change = toChange(reply);
+	if (change?.kind !== 'upsert') return null;
+	return { change, folderGraphId: stringField(asRecord(reply), 'parentFolderId') };
+}
+
+/** Microsoft 365 no longer has the message. */
+export function isGone(error: unknown): boolean {
+	return (
+		error instanceof GraphError && (error.status === 404 || error.code === 'ErrorItemNotFound')
 	);
 }

@@ -6,11 +6,24 @@ import {
 	type SyncContext,
 	type SyncOutcome
 } from './sync-common.ts';
-import { GraphError, PER_MAILBOX_CONCURRENCY } from '../graph/client.ts';
+import { GraphError } from '../graph/client.ts';
 import { forEachLimited } from '../graph/discovery.ts';
-import { folderChanges, listFolders, messageMime, type MessageChange } from '../graph/mail.ts';
+import {
+	folderChanges,
+	isGone,
+	listFolders,
+	messageNow,
+	streamMessageMime,
+	type MessageChange
+} from '../graph/mail.ts';
+import {
+	clearItemFailure,
+	dueItemFailures,
+	recordItemFailure
+} from '../mailboxes/item-failures.ts';
 import {
 	insertMessage,
+	liveMessageIds,
 	moveMessage,
 	saveFolderProgress,
 	setFolderSourceCounts,
@@ -23,7 +36,7 @@ import {
 	mailboxFolderName,
 	messageFileName,
 	resolveStoragePath,
-	writeMessageFile
+	writeMessageStream
 } from '../storage/eml-store.ts';
 
 /**
@@ -31,7 +44,28 @@ import {
  * from where the last sync stopped, storing every new message as .eml and recording messages
  * the source deleted (their files stay). Progress is saved after every page, so a stop or crash
  * in the middle of a 50 GB first copy loses at most one page.
+ *
+ * Fast without losing that guarantee (docs/specs/SPEC-THROUGHPUT.md 4.3): folders run
+ * FOLDERS_AT_ONCE at a time and a folder's next page is fetched while its current page
+ * downloads, so the mailbox's requests (the governor holds them to what Microsoft allows) never
+ * sit idle at a page or folder edge; messages stream straight to disk. One message that cannot
+ * be copied is recorded and tried again later instead of stopping its folder (4.9.4).
  */
+const FOLDERS_AT_ONCE = 3;
+/** Downloads a page starts at once; the governor's lane is the real limit (4 at first). */
+const DOWNLOADS_AT_ONCE = 8;
+
+type Upsert = Extract<MessageChange, { kind: 'upsert' }>;
+
+type MailboxRun = {
+	context: SyncContext;
+	mailbox: MailboxRow;
+	mailboxRoot: string;
+	foldersByGraphId: Map<string, FolderRow>;
+	totals: SyncOutcome;
+	pending: PendingRemoval[];
+};
+
 export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Promise<SyncOutcome> {
 	if (mailbox.kind === 'archive') {
 		return syncArchive(context, mailbox);
@@ -43,58 +77,54 @@ export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Pr
 		withUniqueStoragePaths(graphFolders),
 		context.now()
 	);
-	const mailboxRoot = mailboxFolderName(mailbox.address, mailbox.kind);
-	const totals: SyncOutcome = {
-		added: 0,
-		removed: 0,
-		byteCount: 0,
-		firstCopyDone: true,
-		stoppedEarly: false
+	const run: MailboxRun = {
+		context,
+		mailbox,
+		mailboxRoot: mailboxFolderName(mailbox.address, mailbox.kind),
+		foldersByGraphId: new Map(folders.map((folder) => [folder.graphId, folder])),
+		totals: { added: 0, removed: 0, byteCount: 0, firstCopyDone: true, stoppedEarly: false },
+		pending: []
 	};
-	const pending: PendingRemoval[] = [];
 	const microsoftCounts = new Map(
 		graphFolders.map((folder) => [folder.graphId, folder.totalItemCount])
 	);
 	const upToDate: { folderId: string; count: number }[] = [];
-	for (const folder of folders) {
+	await forEachLimited(folders, FOLDERS_AT_ONCE, async (folder) => {
 		if (context.stopping()) {
-			totals.stoppedEarly = true;
-			totals.firstCopyDone = false;
-			break;
+			run.totals.stoppedEarly = true;
+			run.totals.firstCopyDone = false;
+			return;
 		}
-		const done = await syncFolder(context, mailbox, mailboxRoot, folder, totals, pending);
+		const done = await syncFolder(run, folder);
 		const count = microsoftCounts.get(folder.graphId) ?? null;
 		if (!done) {
-			totals.firstCopyDone = false;
+			run.totals.firstCopyDone = false;
 		} else if (count !== null) {
 			upToDate.push({ folderId: folder.id, count });
 		}
-	}
-	totals.removed += applyRemovals(context, mailbox.id, pending);
+	});
+	run.totals.removed += applyRemovals(context, mailbox.id, run.pending);
 	setFolderSourceCounts(context.db, upToDate, context.now());
-	return totals;
+	return run.totals;
 }
 
 /** Returns whether the folder reached its delta link (is fully copied). */
-async function syncFolder(
-	context: SyncContext,
-	mailbox: MailboxRow,
-	mailboxRoot: string,
-	folder: FolderRow,
-	totals: SyncOutcome,
-	pending: PendingRemoval[]
-): Promise<boolean> {
+async function syncFolder(run: MailboxRun, folder: FolderRow): Promise<boolean> {
+	const { context, mailbox } = run;
+	await retryFailedMessages(run, folder);
 	let resumeLink = folder.deltaLink;
 	let firstCopyDone = folder.firstCopyDone;
+	// Set while a delta restarted from the beginning: every message the fresh pass lists.
+	const restart: { seen: Set<string> | null } = { seen: null };
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
-			for await (const page of folderChanges(
-				context.client,
-				mailbox.userId,
-				folder.graphId,
-				resumeLink
+			for await (const page of prefetched(
+				folderChanges(context.client, mailbox.userId, folder.graphId, resumeLink)
 			)) {
-				await applyChanges(context, mailbox, mailboxRoot, folder, page.changes, totals, pending);
+				for (const change of page.changes) {
+					if (change.kind === 'upsert') restart.seen?.add(change.graphId);
+				}
+				await applyChanges(run, folder, page.changes);
 				// The next page's link while a round is under way, the delta link at its end: either
 				// way, where the next sync picks up.
 				resumeLink = page.deltaLink ?? page.nextLink ?? resumeLink;
@@ -107,17 +137,22 @@ async function syncFolder(
 					now: context.now()
 				});
 				if (context.stopping() && page.nextLink !== null) {
-					totals.stoppedEarly = true;
+					run.totals.stoppedEarly = true;
 					return false;
 				}
+			}
+			if (restart.seen !== null) {
+				await checkUnseen(run, folder, restart.seen);
 			}
 			return firstCopyDone;
 		} catch (error) {
 			// An expired sync state: start the folder's delta again. Messages already stored are
-			// recognised by id and skipped, so this costs listing, not downloading.
+			// recognised by id and skipped, so this costs listing, not downloading. Messages
+			// deleted meanwhile get no "removed" from a fresh start: they are checked at its end.
 			if (attempt === 0 && isExpiredSyncState(error)) {
 				resumeLink = null;
 				firstCopyDone = false;
+				restart.seen = new Set();
 				continue;
 			}
 			throw error;
@@ -133,18 +168,34 @@ function isExpiredSyncState(error: unknown): boolean {
 	);
 }
 
+/**
+ * Asks for the next item while the caller works on the current one: a folder's next delta page
+ * is on its way while this page's messages download.
+ */
+async function* prefetched<T>(source: AsyncGenerator<T>): AsyncGenerator<T> {
+	let next = source.next();
+	try {
+		for (;;) {
+			const current = await next;
+			if (current.done === true) return;
+			next = source.next();
+			yield current.value;
+		}
+	} finally {
+		// Stopped early: the page asked for in advance is not wanted, nor its error.
+		next.catch(() => undefined);
+	}
+}
+
 async function applyChanges(
-	context: SyncContext,
-	mailbox: MailboxRow,
-	mailboxRoot: string,
+	run: MailboxRun,
 	folder: FolderRow,
-	changes: readonly MessageChange[],
-	totals: SyncOutcome,
-	pending: PendingRemoval[]
+	changes: readonly MessageChange[]
 ): Promise<void> {
-	await forEachLimited(changes, PER_MAILBOX_CONCURRENCY, async (change) => {
+	const { context, mailbox } = run;
+	await forEachLimited(changes, DOWNLOADS_AT_ONCE, async (change) => {
 		if (change.kind === 'removed') {
-			pending.push({ folderId: folder.id, graphId: change.graphId });
+			run.pending.push({ folderId: folder.id, graphId: change.graphId });
 			return;
 		}
 		const existing = storedMessage(context.db, mailbox.id, change.graphId);
@@ -155,25 +206,130 @@ async function applyChanges(
 			}
 			return;
 		}
-		const mime = await messageMime(context.client, mailbox.userId, change.graphId);
-		const relative = `${mailboxRoot}/${messageFileName(change.receivedAt, change.subject, change.graphId)}`;
-		const stored = await writeMessageFile(resolveStoragePath(context.backupRoot, relative), mime);
-		insertMessage(context.db, {
-			mailboxId: mailbox.id,
-			folderId: folder.id,
-			graphId: change.graphId,
-			internetMessageId: change.internetMessageId,
-			subject: change.subject,
-			sender: change.sender,
-			recipients: change.recipients.join(' '),
-			receivedAt: change.receivedAt === null ? null : new Date(change.receivedAt),
-			filePath: relative,
-			byteCount: stored.byteCount,
-			sha256: stored.sha256,
-			storedAt: new Date(context.now())
-		});
-		totals.added += 1;
-		totals.byteCount += stored.byteCount;
-		context.progress({ folder: folder.path, stored: totals.added, bytes: totals.byteCount });
+		await storeOrRecord(run, folder, change);
+	});
+}
+
+/**
+ * Stores one message; one that cannot be copied is recorded for a later try instead of
+ * stopping its folder. A message gone from Microsoft 365 since the delta listed it is skipped.
+ * Problems with the whole mailbox (refused, unreachable) still end the sync.
+ */
+async function storeOrRecord(run: MailboxRun, folder: FolderRow, change: Upsert): Promise<void> {
+	const { context, mailbox } = run;
+	try {
+		await storeMessage(run, folder, change);
+	} catch (error) {
+		if (isGone(error)) {
+			clearItemFailure(context.db, mailbox.id, change.graphId);
+			return;
+		}
+		if (!isItemProblem(error)) throw error;
+		recordItemFailure(
+			context.db,
+			{
+				mailboxId: mailbox.id,
+				folderId: folder.id,
+				graphId: change.graphId,
+				subject: change.subject,
+				receivedAt: change.receivedAt,
+				error: error instanceof Error ? error.message : String(error)
+			},
+			context.now()
+		);
+	}
+}
+
+async function storeMessage(run: MailboxRun, folder: FolderRow, change: Upsert): Promise<void> {
+	const { context, mailbox, mailboxRoot, totals } = run;
+	const relative = `${mailboxRoot}/${messageFileName(change.receivedAt, change.subject, change.graphId)}`;
+	const stored = await streamMessageMime(context.client, mailbox.userId, change.graphId, (body) =>
+		writeMessageStream(resolveStoragePath(context.backupRoot, relative), body)
+	);
+	insertMessage(context.db, {
+		mailboxId: mailbox.id,
+		folderId: folder.id,
+		graphId: change.graphId,
+		internetMessageId: change.internetMessageId,
+		subject: change.subject,
+		sender: change.sender,
+		recipients: change.recipients.join(' '),
+		receivedAt: change.receivedAt === null ? null : new Date(change.receivedAt),
+		filePath: relative,
+		byteCount: stored.byteCount,
+		sha256: stored.sha256,
+		storedAt: new Date(context.now())
+	});
+	clearItemFailure(context.db, mailbox.id, change.graphId);
+	totals.added += 1;
+	totals.byteCount += stored.byteCount;
+	context.progress({ folder: folder.path, stored: totals.added, bytes: totals.byteCount });
+}
+
+/**
+ * A problem with one message, not the mailbox: Microsoft refused this item (4xx other than
+ * sign-in, permission and throttling), or its reply kept breaking. Anything else (refused
+ * access, Microsoft or the network down after every retry) concerns the whole mailbox.
+ */
+function isItemProblem(error: unknown): boolean {
+	if (!(error instanceof GraphError)) return false;
+	if (error.code === 'broken-reply' || error.code === 'empty-reply') return true;
+	return error.status >= 400 && error.status < 500 && ![401, 403, 429].includes(error.status);
+}
+
+/** Tries again the folder's failed messages whose next try is due. */
+async function retryFailedMessages(run: MailboxRun, folder: FolderRow): Promise<void> {
+	const { context, mailbox } = run;
+	const due = dueItemFailures(context.db, folder.id, context.now());
+	await forEachLimited(due, DOWNLOADS_AT_ONCE, async (failure) => {
+		if (context.stopping()) return;
+		if (storedMessage(context.db, mailbox.id, failure.graphId) !== undefined) {
+			clearItemFailure(context.db, mailbox.id, failure.graphId);
+			return;
+		}
+		let found: Awaited<ReturnType<typeof messageNow>>;
+		try {
+			found = await messageNow(context.client, mailbox.userId, failure.graphId);
+		} catch (error) {
+			if (!isItemProblem(error)) throw error;
+			recordItemFailure(
+				context.db,
+				{
+					mailboxId: mailbox.id,
+					folderId: folder.id,
+					graphId: failure.graphId,
+					subject: failure.subject,
+					receivedAt: failure.receivedAt?.getTime() ?? null,
+					error: error instanceof Error ? error.message : String(error)
+				},
+				context.now()
+			);
+			return;
+		}
+		if (found === null) {
+			// Gone from Microsoft 365 since it failed: nothing left to copy.
+			clearItemFailure(context.db, mailbox.id, failure.graphId);
+			return;
+		}
+		const current =
+			(found.folderGraphId === null ? undefined : run.foldersByGraphId.get(found.folderGraphId)) ??
+			folder;
+		await storeOrRecord(run, current, found.change);
+	});
+}
+
+/**
+ * After a delta restarted from the beginning: a stored message the fresh pass did not list was
+ * deleted meanwhile, or moved. Each is checked; only one Microsoft 365 no longer has is recorded
+ * as deleted (a moved one is listed by its new folder's delta).
+ */
+async function checkUnseen(run: MailboxRun, folder: FolderRow, seen: Set<string>): Promise<void> {
+	const { context, mailbox } = run;
+	const unseen = liveMessageIds(context.db, folder.id).filter((graphId) => !seen.has(graphId));
+	await forEachLimited(unseen, DOWNLOADS_AT_ONCE, async (graphId) => {
+		if (context.stopping()) return;
+		if ((await messageNow(context.client, mailbox.userId, graphId)) === null) {
+			run.pending.push({ folderId: folder.id, graphId });
+		}
 	});
 }

@@ -4,6 +4,7 @@
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import FullScreenWait from '#lib/ui/full-screen-wait.svelte';
 	import Modal from '#lib/ui/modal.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { toast } from '#lib/runes/toast.svelte.ts';
@@ -106,6 +107,20 @@
 	const loadedVersion = untrack(() => data.view.installedVersion);
 	const ACTIVE = new Set(['requested', 'checking', 'downloading', 'switching', 'starting']);
 
+	/** First seen running here: the countdown for an update this page did not ask for. */
+	const pageOpened = Date.now();
+
+	/** The update under way (asked for here, automatically, or in another tab), if any. */
+	const updating = $derived.by(() => {
+		if (waiting !== null) return waiting;
+		if (!ACTIVE.has(view.operation.phase)) return null;
+		const asked = view.operation.atIso === null ? Number.NaN : Date.parse(view.operation.atIso);
+		return {
+			since: Number.isNaN(asked) ? pageOpened : asked,
+			to: view.release?.version ?? null
+		};
+	});
+
 	// While any update runs (started here, automatically, or in another tab), ask every two
 	// seconds. The service restarts in the middle, so failed requests are expected; once it
 	// answers with a new version, the page reloads into it.
@@ -154,14 +169,15 @@
 	{/snippet}
 </PageHeader>
 
-{#if waiting !== null}
-	<Card title={`Lookstow is updating to ${waiting.to}. Please wait.`}>
-		<p>
-			{updateWaitLine(now - waiting.since)}. This page reloads by itself when the new version is
-			running.
-		</p>
-		{#if view.operation.message !== ''}<p class="muted small">{view.operation.message}</p>{/if}
-	</Card>
+{#if updating !== null}
+	<!-- The wait owns the screen: nothing else can be used until Lookstow is back. -->
+	<FullScreenWait
+		title={updating.to === null
+			? 'Lookstow is updating. Please wait.'
+			: `Lookstow is updating to ${updating.to}. Please wait.`}
+		detail={`${updateWaitLine(now - updating.since)}. This page reloads by itself when the new version is running.`}
+		note={view.operation.message}
+	/>
 {:else if notice !== undefined}
 	<Card title={notice.title} tone={notice.tone === 'warning' ? 'warn' : 'plain'}>
 		<p>{view.operation.message}</p>
@@ -217,9 +233,9 @@
 
 	<Modal bind:open={confirmOpen} title={`Update to ${view.release.version}?`} locked={requesting}>
 		<p>
-			Lookstow stops for about a minute while the new version is put in place. Backups pause and
-			pick up where they stopped. If the new version does not start, the updater puts this version
-			back by itself.
+			Lookstow stops for about three minutes while the new version is put in place. Backups pause
+			and pick up where they stopped. If the new version does not start, the updater puts this
+			version back by itself.
 		</p>
 		{#snippet footer()}
 			<Button variant="secondary" disabled={requesting} onclick={() => (confirmOpen = false)}

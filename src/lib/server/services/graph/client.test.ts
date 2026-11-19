@@ -120,9 +120,10 @@ describe('the Graph client', () => {
 		await expect(client(graph).getJson('/v1.0/me')).resolves.toEqual({ ok: true });
 		expect(calls).toBe(3);
 		const broken = new FakeGraph().withToken().on('/v1.0/me', cutOff);
-		await expect(client(broken).getBytes('/v1.0/me')).rejects.toMatchObject({
-			code: 'broken-reply'
-		});
+		// A download streamed to a consumer is asked for again, then given up the same way.
+		await expect(
+			client(broken).getStream('/v1.0/me', async (body) => new Response(body).arrayBuffer())
+		).rejects.toMatchObject({ code: 'broken-reply' });
 	});
 
 	it('asks again when signing in times out', async () => {

@@ -22,9 +22,6 @@ const HEADERS_TIMEOUT_MS = 30_000;
 const BODY_IDLE_MS = 60_000;
 /** Microsoft's per-mailbox "too many requests at once" codes. */
 const MAILBOX_CONCURRENCY_CODES = new Set(['MailboxConcurrency', 'ErrorTooManyObjectsOpened']);
-/** Graph asks for no more than 4 concurrent requests per mailbox; callers keep to that. */
-export const PER_MAILBOX_CONCURRENCY = 4;
-
 export class GraphError extends Error {
 	override name = 'GraphError';
 	readonly status: number;
@@ -161,11 +158,21 @@ export class GraphClient {
 		return this.#read(path, { accept: 'application/json' }, { method: 'GET' }, readJson);
 	}
 
-	/** A GET of raw bytes, e.g. a message's MIME (`/messages/{id}/$value`). */
-	async getBytes(path: string): Promise<Buffer> {
-		return this.#read(path, { accept: '*/*' }, { method: 'GET' }, async (response) =>
-			Buffer.from(await response.arrayBuffer())
-		);
+	/**
+	 * A GET whose body goes straight to `consume` as it arrives (a message's MIME onto disk), so
+	 * no reply has to fit in memory. If the body breaks on the way, the whole download is asked
+	 * for again and `consume` starts afresh.
+	 */
+	async getStream<T>(
+		path: string,
+		consume: (body: ReadableStream<Uint8Array>) => Promise<T>
+	): Promise<T> {
+		return this.#read(path, { accept: '*/*' }, { method: 'GET' }, async (response) => {
+			if (response.body === null) {
+				throw new GraphError(response.status, 'empty-reply', 'Microsoft Graph sent an empty reply');
+			}
+			return consume(response.body);
+		});
 	}
 
 	/**
