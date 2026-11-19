@@ -4,19 +4,9 @@ import { runs } from '../../database/schema.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { recordActivity } from '../activity/activity.ts';
 import { GraphClient } from '../graph/client.ts';
-import { discoverMailboxes, type DiscoveryProgress } from '../graph/discovery.ts';
+import type { DiscoveryProgress } from '../graph/discovery.ts';
 import { TokenSource } from '../graph/token.ts';
-import {
-	allMailboxes,
-	applyDiscovery,
-	closeInterruptedRuns,
-	recountStoredMessages,
-	finishRun,
-	markSyncFinished,
-	markSyncStarted,
-	startRun,
-	type MailboxRow
-} from '../mailboxes/repository.ts';
+import { allMailboxes, type MailboxRow } from '../mailboxes/repository.ts';
 import {
 	effectiveBackupRoot,
 	graphCredentials,
@@ -26,14 +16,15 @@ import {
 	savePause
 } from '../settings/settings.ts';
 import { diskStatus, measureDisk } from '../storage/disk.ts';
-import { refileArchiveItems, relayoutFiles, type RelayoutProgress } from '../storage/relayout.ts';
-import { indexArchiveItems } from '../fts/fts-index.ts';
+import type { RelayoutProgress } from '../storage/relayout.ts';
+import { runDiscovery } from './discovery-pass.ts';
 import { inScope } from './scope.ts';
 import { planSyncs } from './scheduler.ts';
+import { closeLastStop, moveToDateLayout, readOlderArchiveItems } from './startup-tasks.ts';
+import { syncOneMailbox } from './sync-pass.ts';
 import { AdaptiveSlots, Throughput } from './throughput.ts';
-import { syncMailbox } from './mailbox-sync.ts';
 import type { DiskStatus, EngineStatus } from '../../../domain/engine.ts';
-import { formatBytes, formatPercent, plural } from '../../../utils/format.ts';
+import { formatPercent } from '../../../utils/format.ts';
 
 /**
  * The backup engine: one per process. Every few seconds it measures the backup drive, starts
@@ -105,32 +96,19 @@ export class Engine {
 	}
 
 	start(): void {
-		const { db, now } = this.#deps;
-		const interrupted = closeInterruptedRuns(db, now());
-		if (interrupted > 0) {
-			recordActivity(db, {
-				level: 'warn',
-				kind: 'engine',
-				actor: 'system',
-				summary: `${interrupted} run${interrupted === 1 ? ' was' : 's were'} interrupted by the last stop`
-			});
-		}
-		const recounted = recountStoredMessages(db);
-		if (recounted > 0) {
-			recordActivity(db, {
-				level: 'info',
-				kind: 'engine',
-				actor: 'system',
-				summary: `Corrected the message count of ${plural(recounted, 'mailbox', 'mailboxes')} from the stored messages`
-			});
-		}
+		const { db, dataDir, now } = this.#deps;
+		closeLastStop(db, now());
 		this.#lastDiscoveryAt = lastFinished(db, 'discovery');
-		this.#relayout = this.#relayoutFiles().finally(() => {
+		const backupRoot = effectiveBackupRoot(db, dataDir);
+		const stopping = () => this.#stopping;
+		this.#relayout = moveToDateLayout(db, backupRoot, stopping, (progress) => {
+			this.#relayoutProgress = { ...progress };
+		}).finally(() => {
 			this.#relayout = null;
 			this.#relayoutProgress = null;
 			this.#tick();
 			// Reading older archive items for Search only reads files, so syncs go on meanwhile.
-			this.#indexing = this.#indexArchive().finally(() => {
+			this.#indexing = readOlderArchiveItems(db, backupRoot, stopping).finally(() => {
 				this.#indexing = null;
 			});
 		});
@@ -375,86 +353,6 @@ export class Engine {
 		}
 	}
 
-	/** Moves files stored before 0.4.0 into the date layout (once; a no-op after that). */
-	async #indexArchive(): Promise<void> {
-		const { db, dataDir } = this.#deps;
-		try {
-			const backupRoot = effectiveBackupRoot(db, dataDir);
-			const outcome = await indexArchiveItems(db, backupRoot, () => this.#stopping);
-			if (outcome.stopped) return;
-			if (outcome.total > 0) {
-				recordActivity(db, {
-					level: outcome.problems === 0 ? 'info' : 'warn',
-					kind: 'engine',
-					actor: 'system',
-					summary: `${String(outcome.indexed)} online archive items stored earlier can now be found in Search`,
-					detail:
-						outcome.problems === 0
-							? null
-							: `${String(outcome.problems)} could not be read; see the Log. Their files are kept as they are.`
-				});
-			}
-			// Then files each one under the month it was received, now that the index knows it.
-			const refiled = await refileArchiveItems(db, backupRoot, {
-				stopping: () => this.#stopping,
-				progress: () => undefined,
-				problem: (message) => {
-					serverLog('warn', 'storage', `Filing an archive item by its received date: ${message}`);
-				}
-			});
-			if (refiled.total > 0 && !refiled.stopped) {
-				recordActivity(db, {
-					level: refiled.problems === 0 ? 'info' : 'warn',
-					kind: 'engine',
-					actor: 'system',
-					summary: `${String(refiled.moved)} online archive items were filed under the month they were received`,
-					detail:
-						refiled.problems === 0
-							? null
-							: `${String(refiled.problems)} could not be moved; see the Log. They keep their place and still open from Search.`
-				});
-			}
-		} catch (error) {
-			serverLog('error', 'archive', `Reading archive items for Search failed: ${errorText(error)}`);
-		}
-	}
-
-	async #relayoutFiles(): Promise<void> {
-		const { db, dataDir } = this.#deps;
-		const backupRoot = effectiveBackupRoot(db, dataDir);
-		try {
-			const outcome = await relayoutFiles(db, backupRoot, {
-				stopping: () => this.#stopping,
-				progress: (progress) => {
-					this.#relayoutProgress = { ...progress };
-				},
-				problem: (message) => {
-					serverLog('warn', 'storage', `Moving to the date layout: ${message}`);
-				}
-			});
-			if (outcome.total === 0) return;
-			serverLog(
-				'info',
-				'storage',
-				`Moved ${outcome.moved} of ${outcome.total} message files to the date layout${outcome.stopped ? ' (stopped; carries on at the next start)' : ''}`
-			);
-			if (!outcome.stopped) {
-				recordActivity(db, {
-					level: outcome.problems === 0 ? 'info' : 'warn',
-					kind: 'engine',
-					actor: 'system',
-					summary: `${outcome.moved} message files stored before 0.4.0 were moved into the date layout (mailbox/year/month)`,
-					detail:
-						outcome.problems === 0
-							? null
-							: `${outcome.problems} could not be moved; see the Log. They keep their old paths and still open from Search.`
-				});
-			}
-		} catch (error) {
-			serverLog('error', 'storage', `Moving files to the date layout failed: ${errorText(error)}`);
-		}
-	}
-
 	#client(): GraphClient | null {
 		const found = graphCredentials(this.#deps.db, this.#deps.secretsKey);
 		if ('missing' in found) {
@@ -479,82 +377,26 @@ export class Engine {
 
 	async #discover(client: GraphClient): Promise<void> {
 		const { db, now } = this.#deps;
-		const runId = startRun(db, 'discovery', null, now());
 		try {
-			const scope = readScope(db);
-			this.#discoveryProgress = { usersTotal: null, usersChecked: 0, found: 0 };
-			const result = await discoverMailboxes(client, {
-				includeArchives: scope.includeArchives,
-				progress: (progress) => {
-					this.#discoveryProgress = progress;
-				}
+			const result = await runDiscovery(db, client, now, (progress) => {
+				this.#discoveryProgress = progress;
 			});
-			const changes = applyDiscovery(db, result.mailboxes, now());
-			finishRun(
-				db,
-				runId,
-				{
-					outcome: 'ok',
-					added: changes.added.length,
-					removed: changes.gone.length,
-					byteCount: 0,
-					error: null
-				},
-				now()
-			);
+			if (result.kind === 'failed') {
+				this.#problem = result.problem;
+				return;
+			}
 			this.#problem = null;
-			recordActivity(db, {
-				level: result.warnings.length > 0 ? 'warn' : 'info',
-				kind: 'discovery',
-				actor: 'system',
-				summary: `Discovery found ${result.mailboxes.length} mailboxes in ${result.usersChecked} users: ${changes.added.length} new, ${changes.gone.length} gone`,
-				detail: result.warnings.length > 0 ? result.warnings.slice(0, 20).join('; ') : null
-			});
-			for (const row of changes.added) {
-				recordActivity(db, {
-					level: 'info',
-					kind: 'mailbox-found',
-					actor: 'system',
-					summary: `New mailbox: ${row.address} (${row.kind})`,
-					mailboxId: row.id
-				});
-			}
-			for (const row of changes.gone) {
-				recordActivity(db, {
-					level: 'warn',
-					kind: 'mailbox-gone',
-					actor: 'system',
-					summary: `${row.address} (${row.kind}) is no longer in Microsoft 365. Its backup is kept.`,
-					mailboxId: row.id
-				});
-			}
 			// Mailboxes found or back again start their first copy straight away (if in scope).
-			for (const row of [...changes.added, ...changes.returned]) {
-				this.#requested.add(row.id);
+			for (const id of result.syncNext) {
+				this.#requested.add(id);
 			}
-		} catch (error) {
-			const message = errorText(error);
-			this.#problem = `Discovery failed: ${message}`;
-			finishRun(
-				db,
-				runId,
-				{ outcome: 'failed', added: 0, removed: 0, byteCount: 0, error: message },
-				now()
-			);
-			recordActivity(db, {
-				level: 'error',
-				kind: 'discovery',
-				actor: 'system',
-				summary: 'Discovery failed',
-				detail: message
-			});
 		} finally {
 			this.#lastDiscoveryAt = now();
 		}
 	}
 
 	#startSync(client: GraphClient, mailbox: MailboxRow, backupRoot: string): void {
-		const { now } = this.#deps;
+		const { db, now } = this.#deps;
 		const live: Live = {
 			address: mailbox.address,
 			folder: '',
@@ -565,7 +407,34 @@ export class Engine {
 			done: Promise.resolve()
 		};
 		this.#running.set(mailbox.id, live);
-		live.done = this.#syncOne(client, mailbox, backupRoot)
+		live.done = syncOneMailbox(
+			{
+				db,
+				client,
+				backupRoot,
+				now,
+				stopping: () =>
+					this.#stopping ||
+					this.#paused ||
+					this.#cancelled.has(mailbox.id) ||
+					this.#disk?.level === 'full',
+				progress: (update) => {
+					this.#meter.record(now(), {
+						bytes: update.bytes - live.bytes,
+						messages: update.stored - live.stored
+					});
+					Object.assign(live, update);
+				}
+			},
+			mailbox
+		)
+			.then((result) => {
+				// Stopped by Pause, the disk guard or a cancel, not finished: it carries on as soon as
+				// it may (Resume), instead of waiting a whole interval like a mailbox that was done.
+				if (result.stoppedEarly && !this.#stopping) {
+					this.#requested.add(mailbox.id);
+				}
+			})
 			.catch((error: unknown) => {
 				serverLog('error', 'engine', `Unexpected sync error: ${errorText(error)}`);
 			})
@@ -575,118 +444,6 @@ export class Engine {
 				// A slot is free: fill it now rather than on the next tick.
 				this.#tick();
 			});
-	}
-
-	async #syncOne(client: GraphClient, mailbox: MailboxRow, backupRoot: string): Promise<void> {
-		const { db, now } = this.#deps;
-		// An archive has its owner's address: say which one it is.
-		const name =
-			mailbox.kind === 'archive' ? `${mailbox.address} (online archive)` : mailbox.address;
-		const runId = startRun(db, 'sync', mailbox.id, now());
-		markSyncStarted(db, mailbox.id, now());
-		const started = now();
-		serverLog('info', 'sync', `${name}: ${mailbox.firstCopyDone ? 'sync' : 'first copy'} started`);
-		try {
-			const outcome = await syncMailbox(
-				{
-					db,
-					client,
-					backupRoot,
-					now,
-					stopping: () =>
-						this.#stopping ||
-						this.#paused ||
-						this.#cancelled.has(mailbox.id) ||
-						this.#disk?.level === 'full',
-					progress: (update) => {
-						const live = this.#running.get(mailbox.id);
-						if (live !== undefined) {
-							this.#meter.record(now(), {
-								bytes: update.bytes - live.bytes,
-								messages: update.stored - live.stored
-							});
-							Object.assign(live, update);
-						}
-					}
-				},
-				mailbox
-			);
-			markSyncFinished(db, mailbox.id, now(), {
-				error: null,
-				firstCopyDone: outcome.firstCopyDone || mailbox.firstCopyDone
-			});
-			// Stopped by Pause, the disk guard or a cancel, not finished: it carries on as soon as
-			// it may (Resume), instead of waiting a whole interval like a mailbox that was done.
-			if (outcome.stoppedEarly && !this.#stopping) {
-				this.#requested.add(mailbox.id);
-			}
-			finishRun(
-				db,
-				runId,
-				{
-					outcome: 'ok',
-					added: outcome.added,
-					removed: outcome.removed,
-					byteCount: outcome.byteCount,
-					error: null
-				},
-				now()
-			);
-			serverLog(
-				'info',
-				'sync',
-				`${name}: ${outcome.stoppedEarly ? 'stopped after a page' : 'done'} in ${Math.round((now() - started) / 1000)} s, ${plural(outcome.added, 'message')} stored (${formatBytes(outcome.byteCount)}), ${outcome.removed} deleted at the source`
-			);
-			if (!mailbox.firstCopyDone && outcome.firstCopyDone) {
-				recordActivity(db, {
-					level: 'info',
-					kind: 'first-copy',
-					actor: 'system',
-					summary: `First full copy of ${name} finished`,
-					mailboxId: mailbox.id
-				});
-			}
-			if (mailbox.lastSyncError !== null) {
-				recordActivity(db, {
-					level: 'info',
-					kind: 'sync',
-					actor: 'system',
-					summary: `${name} syncs again`,
-					mailboxId: mailbox.id
-				});
-			}
-		} catch (error) {
-			const message = errorText(error);
-			markSyncFinished(db, mailbox.id, now(), {
-				error: message,
-				firstCopyDone: mailbox.firstCopyDone
-			});
-			finishRun(
-				db,
-				runId,
-				{ outcome: 'failed', added: 0, removed: 0, byteCount: 0, error: message },
-				now()
-			);
-			// One entry when a mailbox starts failing, not one every sync.
-			if (mailbox.lastSyncError !== message) {
-				recordActivity(db, {
-					level: 'error',
-					kind: 'sync',
-					actor: 'system',
-					summary: `Sync of ${name} failed`,
-					detail: message,
-					mailboxId: mailbox.id
-				});
-			} else {
-				// Activity keeps one entry; the log still shows every attempt, so a start line
-				// is never left without its end.
-				serverLog(
-					'warn',
-					'sync',
-					`${name}: failed again in ${Math.round((now() - started) / 1000)} s (${message})`
-				);
-			}
-		}
 	}
 }
 
