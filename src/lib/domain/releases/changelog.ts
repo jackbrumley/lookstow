@@ -20,6 +20,30 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.10.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Press Update now: the whole screen shows only the update, counting down from about 3 minutes, and the console comes back by itself on the new version',
+				'Settings > Schedule: if Mailboxes at once still says 8 (your saved value from before), set it to 32; Lookstow now adds mailboxes by itself while Microsoft has room and stays below that',
+				'Settings has a Speed card with the pace Lookstow has learned; Forget what was learned… resets it (no need to use it now)',
+				'Press Sync all now and watch the dashboard for 10 minutes: Syncing goes above 3 mailboxes as Lookstow adds them, and the Speed card shows the pace',
+				'Open a mailbox with many messages: if any message could not be copied, an Items that could not be copied card lists it, with Try again now; the rest of the folder copies regardless',
+				'If a mailbox fails (for example a permission is missing), the dashboard shows a Failing line with the kind of failure, and that mailbox is tried again after 30 seconds, then less often up to every 15 minutes'
+			]
+		},
+		changes: [
+			'Updating now takes over the whole screen until the new version is running, so nothing is started that the restart would cut off, and the countdown starts at 3 minutes (what updates take)',
+			'Mailboxes at once is decided by the governor: Lookstow adds a mailbox every 10 seconds while every slot is busy, mailboxes are waiting and Microsoft has room, and adds none while Microsoft asks it to slow down. The most at once is now 32 by default',
+			'One message that cannot be copied no longer stops its folder: it is recorded, the folder goes on, and it is tried again after 15 minutes, an hour, 4 hours, then daily. The mailbox page lists such items with Try again now. Online archive items work the same way',
+			'Messages are written to disk as they download, so a large message no longer has to fit in memory; each mailbox copies three folders at once, fetching the next page while the current one downloads',
+			'After Microsoft restarts a folder’s change list, Lookstow checks which stored messages are no longer in the folder, so deletions are not missed',
+			'A mailbox whose sync fails is tried again after 30 seconds, doubling to at most 15 minutes, and the dashboard says how many mailboxes are failing and why (permission, network, disk, Microsoft, slowed down)',
+			'Settings has a Speed card: the pace Lookstow has learned from Microsoft, and Forget what was learned',
+			'The pace settles at 90% of the rate Microsoft refused (was 85%), and saves no burst of requests during a pause: tested against a simulated Microsoft, it now holds 91–94% of the limit with one refusal an hour, where before it could be cut five times in a row'
+		]
+	},
+	{
 		version: '0.9.0',
 		testing: {
 			kind: 'steps',

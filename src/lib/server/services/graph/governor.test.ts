@@ -37,6 +37,13 @@ async function settle(): Promise<void> {
 	for (let index = 0; index < 5; index++) await Promise.resolve();
 }
 
+/** A pace well above what a test uses, so only the rule under test holds requests back. */
+const FAST = {
+	startsPerSecond: PACE.rateCeiling,
+	inFlightCap: PACE.inFlightCeiling,
+	ceiling: null
+};
+
 function ok(permit: Permit, bytes = 1000): void {
 	permit.release({ kind: 'ok', bytes, pressure: false });
 }
@@ -54,7 +61,7 @@ describe('which mailbox a request is about', () => {
 describe('the governor', () => {
 	it('lets a mailbox have only its lane’s requests in flight', async () => {
 		const time = manualTime();
-		const governor = new Governor({ now: time.now, schedule: time.schedule });
+		const governor = new Governor({ now: time.now, schedule: time.schedule, learned: FAST });
 		const started: Permit[] = [];
 		for (let index = 0; index < 6; index++) {
 			void governor.acquire('mbx-a').then((permit) => started.push(permit));
@@ -100,13 +107,30 @@ describe('the governor', () => {
 			void governor.acquire('').then((permit) => started.push(permit));
 		}
 		await settle();
-		expect(started).toHaveLength(4);
+		// The bucket holds only a short burst (PACE.burstMin here), then one start per token.
+		expect(started).toHaveLength(PACE.burstMin);
 		time.advance(500);
 		await settle();
-		expect(started).toHaveLength(6);
-		time.advance(500);
+		expect(started).toHaveLength(PACE.burstMin + 2);
+		time.advance(1000);
 		await settle();
 		expect(started).toHaveLength(8);
+	});
+
+	it('saves up only a tenth of a second of starts, so a pause is never a burst', async () => {
+		const time = manualTime();
+		const governor = new Governor({
+			now: time.now,
+			schedule: time.schedule,
+			learned: { startsPerSecond: 100, inFlightCap: 1000, ceiling: null }
+		});
+		time.advance(60_000);
+		const started: Permit[] = [];
+		for (let index = 0; index < 50; index++) {
+			void governor.acquire('').then((permit) => started.push(permit));
+		}
+		await settle();
+		expect(started).toHaveLength(100 * PACE.burstSeconds);
 	});
 
 	it('lowers only the mailbox’s own lane when Microsoft says too many at once for it', async () => {
@@ -125,12 +149,12 @@ describe('the governor', () => {
 		expect(snapshot.pace.lastCut).toBeNull();
 	});
 
-	it('climbs while the pace holds work back, cuts once per burst to 85%, then holds', async () => {
+	it('climbs while the pace holds work back, cuts once per burst to 90%, then holds', async () => {
 		const time = manualTime();
 		const governor = new Governor({
 			now: time.now,
 			schedule: time.schedule,
-			learned: { startsPerSecond: 10, inFlightCap: PACE.inFlightFloor, ceiling: null }
+			learned: { startsPerSecond: 100, inFlightCap: PACE.inFlightFloor, ceiling: null }
 		});
 		// More work than the in-flight cap allows, one request per mailbox: the pace holds it.
 		const started: Permit[] = [];
@@ -144,7 +168,7 @@ describe('the governor', () => {
 		ok(started[0] ?? fail());
 		await settle();
 		const climbed = governor.snapshot().pace;
-		expect(climbed.startsPerSecond).toBeGreaterThan(10);
+		expect(climbed.startsPerSecond).toBeGreaterThan(100);
 		expect(climbed.inFlightCap).toBeGreaterThan(PACE.inFlightFloor);
 		expect(climbed.phase).toBe('climbing');
 		for (const permit of started.slice(1)) ok(permit);
@@ -180,7 +204,7 @@ describe('the governor', () => {
 
 	it('holds every request through Microsoft’s wait, then sends one alone before the rest', async () => {
 		const time = manualTime();
-		const governor = new Governor({ now: time.now, schedule: time.schedule });
+		const governor = new Governor({ now: time.now, schedule: time.schedule, learned: FAST });
 		const first = await governor.acquire('');
 		first.release({ kind: 'throttled', scope: 'app', retryAfterMs: 5000, code: 'TooManyRequests' });
 		const started: Permit[] = [];

@@ -13,9 +13,9 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 ## Now: throughput governor (docs/specs/SPEC-THROUGHPUT.md)
 
 - **Phase 1, done in 0.9.0:** the governor (mailbox lanes, adaptive app pace, shared throttle windows), time limits and a stalled-download watchdog, one sign-in at a time, Retry-After in every form, parallel archive exports in a memory budget, /api/throughput, the pace history and the dashboard Speed card.
-- **Phase 2:** the mailbox pipeline (next page fetched early, one queue across folders, large items limited to a share of a lane), streaming writes with hashing, one bad message never stops a folder (needs a migration), deletions checked after a delta restart.
-- **Phase 3:** mailboxes at once driven by the governor's headroom (replaces AdaptiveSlots), default maximum 32, Settings > Speed (Forget what was learned), back-off and kinds of failure for a failing mailbox.
-- **Phase 4:** a benchmark against a simulated Microsoft; tuning on the tenant from the pace history.
+- **Phase 2, done in 0.10.0:** three folders at once with the next page fetched early, streaming writes with hashing, one bad message never stops a folder (item_failures, migration 0006), deletions checked after a delta restart. Not built: large items limited to a share of a lane (a mail delta gives no size).
+- **Phase 3, done in 0.10.0:** mailboxes at once driven by the governor's headroom (MailboxSlots replaces AdaptiveSlots), default maximum 32, Settings > Speed (Forget what was learned), back-off and kinds of failure for a failing mailbox.
+- **Phase 4:** done in 0.10.0: the simulated Microsoft, the acceptance tests and scripts/throughput-bench.ts (they found and fixed a cut-after-cut cascade). Still to do: tuning on the tenant from the pace history.
 
 ## Then: 0.5, email alerts and the update popup
 

@@ -9,7 +9,7 @@ import type { Counters, GovernorSnapshot, PaceChange } from '../../../domain/thr
  *   (Microsoft allows 4 per mailbox) and a request rate under its 10,000-per-10-minutes budget.
  *   A mailbox's own throttling (MailboxConcurrency) lowers only its lane.
  * - **App pace:** request starts a second (a token bucket) and requests in flight in total, both
- *   climbing slowly while they are what holds work back, cut to 85% of the refused rate when
+ *   climbing slowly while they are what holds work back, cut to 90% of the refused rate when
  *   Microsoft throttles the app, held there 30 minutes, then probed upwards. One throttle burst
  *   is one cut, never a cascade.
  * - **Fairness:** waiting requests are served lane by lane in turn, so one huge mailbox never
@@ -68,7 +68,7 @@ export const PACE = {
 	probeEveryMs: 60_000,
 	probeStep: 0.02,
 	/** A refusal sets the pace to this fraction of the refused one. */
-	settle: 0.85,
+	settle: 0.9,
 	/** For this long after a refusal the pace holds flat. */
 	holdMs: 30 * 60_000,
 	/** A cut covers Microsoft's wait and this much grace. */
@@ -77,7 +77,10 @@ export const PACE = {
 	minSuccessesForCut: 20,
 	/** Microsoft's early warning eases the rate by this factor, at most once per interval. */
 	pressureEase: 0.8,
-	pressureEveryMs: 30_000
+	pressureEveryMs: 30_000,
+	/** The token bucket holds this many seconds of starts, and at least burstMin. */
+	burstSeconds: 0.1,
+	burstMin: 2
 } as const;
 
 /** Seconds of per-second counters kept for rates (15 minutes). */
@@ -182,7 +185,7 @@ export class Governor {
 			clamp(learned?.inFlightCap ?? PACE.startInFlight, PACE.inFlightFloor, PACE.inFlightCeiling)
 		);
 		this.#ceiling = learned?.ceiling ?? null;
-		this.#tokens = this.#rate;
+		this.#tokens = this.#burst();
 		this.#refilledAt = now;
 		this.#lastChangeAt = now;
 	}
@@ -301,10 +304,21 @@ export class Governor {
 		}
 	}
 
+	/**
+	 * Adds the tokens earned since the last refill. The bucket holds a tenth of a second's
+	 * starts (at least 2), so a pause never turns into a burst over Microsoft's rate, and earns
+	 * nothing while Microsoft's wait holds: when it ends, requests start at the pace, not all at
+	 * once (a burst there was cut after cut in the simulated Microsoft).
+	 */
 	#refill(now: number): void {
-		const elapsed = Math.max(0, now - this.#refilledAt) / 1000;
+		const from = Math.max(this.#refilledAt, Math.min(now, this.#blockedUntil));
+		const elapsed = Math.max(0, now - from) / 1000;
 		this.#refilledAt = now;
-		this.#tokens = Math.min(Math.max(1, this.#rate), this.#tokens + elapsed * this.#rate);
+		this.#tokens = Math.min(this.#burst(), this.#tokens + elapsed * this.#rate);
+	}
+
+	#burst(): number {
+		return Math.max(PACE.burstMin, this.#rate * PACE.burstSeconds);
 	}
 
 	/** Starts every waiting request that may start now, lane by lane in turn. */
@@ -549,7 +563,7 @@ export class Governor {
 				this.#lastCut = { at: now, code: outcome.code, retryAfterMs: outcome.retryAfterMs };
 				this.#rate = Math.max(PACE.rateFloor, refusedRate * PACE.settle);
 				this.#cap = Math.max(PACE.inFlightFloor, Math.floor(refusedCap * PACE.settle));
-				this.#tokens = Math.min(this.#tokens, this.#rate);
+				this.#tokens = Math.min(this.#tokens, this.#burst());
 			}
 		);
 	}
@@ -571,7 +585,7 @@ export class Governor {
 			now,
 			() => {
 				this.#rate = eased;
-				this.#tokens = Math.min(this.#tokens, eased);
+				this.#tokens = Math.min(this.#tokens, Math.max(PACE.burstMin, eased * PACE.burstSeconds));
 				this.#lastChangeAt = now;
 				this.#holdRate = eased;
 				this.#holdUntil = now + PACE.holdMs;

@@ -1,6 +1,6 @@
 # Spec: throughput governor (download as fast as Microsoft allows)
 
-Status: **plan, for approval**. Nothing here is built yet. Owner of the decision: Jack.
+Status: **built** (phase 1 in 0.9.0; phases 2 and 3 and the simulated Microsoft in 0.10.0). Tuning on the real tenant goes on from the Log’s pace changes. Owner of the decision: Jack.
 
 ## 1. Goal
 
@@ -37,10 +37,11 @@ One component, the **governor** (`services/graph/governor.ts`), between every Gr
 1. **Per-mailbox lane.** At most N requests in flight for one mailbox (start 4, the documented limit; floor 1; ceiling 6, probed only if Microsoft allows it) and a request rate under the 10-minute budget (token bucket at 15 a second). A `MailboxConcurrency` 429 lowers only that lane. The lane is found from the request URL (`/users/{id}/…`, `/admin/exchange/mailboxes/{id}/…`), so callers do nothing.
 2. **App-wide pace.** A token bucket for request starts per second across all mailboxes, and a cap on requests in flight in total, both adaptive, after SomeDrive's `AdaptiveDownloadLimit`:
    - before the first refusal: +5% starts a second and +1 in flight every 30 s while requests succeed;
-   - on a 429 or 503 that is not a mailbox's own: both drop to 85% of the refused rate, held for 30 minutes, then probe +2% a minute;
+   - on a 429 or 503 that is not a mailbox's own: both drop to 90% of the refused rate, held for 30 minutes, then probe +2% a minute (85% at first; in the simulated Microsoft 90% settles at 91–94% of the limit with one refusal a cycle, 85% at 87%);
+   - the bucket holds a tenth of a second of starts (at least 2) and earns nothing during Microsoft's wait, so a pause or the end of a wait is never a burst (with a full second's bucket the simulation cut the pace five times in a row);
    - one throttle burst is one cut: refusals of requests started before the cut ended (`Retry-After` + 10 s), or with fewer than 20 successes since, change nothing;
    - an early-warning header eases the rate 20%, at most every 30 s, before any refusal.
-3. **Mailboxes at once.** Replaces `AdaptiveSlots`. A new mailbox starts while the governor has headroom (app pace not at its cap, no cut in the last minute, in-flight below its cap) and there is work waiting; one stops being added when lanes sit idle because the app pace is the limit. The Settings maximum stays as a cap (default raised from 8 to 32), and first copies still never take every slot.
+3. **Mailboxes at once.** Replaces `AdaptiveSlots`. A new mailbox starts while the governor has headroom (app pace not at its cap, no cut in the last minute, in-flight below its cap) and there is work waiting; one stops being added when lanes sit idle because the app pace is the limit. The Settings maximum stays as a cap (default raised from 8 to 32), and first copies still never take every slot. Built as `MailboxSlots`: starts at 3, +1 every 10 s while every slot is busy, mailboxes wait and the governor has headroom; with no headroom it shrinks to those running.
 
 ### 4.2 Waiting, retries and fairness
 
@@ -50,9 +51,9 @@ One component, the **governor** (`services/graph/governor.ts`), between every Gr
 
 ### 4.3 Work inside a mailbox: a pipeline, not pages
 
-- **Mail:** the next delta page is fetched while the current one downloads; downloads from all folders feed one queue for the mailbox's lane, so the lane stays full across page and folder edges. Delta links are still saved only after every message on their page is stored (unchanged guarantee).
+- **Mail:** the next delta page is fetched while the current one downloads; downloads from all folders feed one queue for the mailbox's lane, so the lane stays full across page and folder edges. Delta links are still saved only after every message on their page is stored (unchanged guarantee). Built as three folders at once, each downloading 8 at a time with its next page prefetched; together they keep the lane of 4 full, and the governor holds the rest.
 - **Archives:** `exportItems` batches run in parallel up to the lane's limit; items moved to an auxiliary archive go to that mailbox's own lane.
-- **Large items:** messages over 8 MB use at most a quarter of a lane (SomeDrive's large-file lane), so a few big attachments do not stall thousands of small messages.
+- **Large items:** messages over 8 MB use at most a quarter of a lane (SomeDrive's large-file lane), so a few big attachments do not stall thousands of small messages. **Not built:** a mail delta does not give a message’s size, so it is known only once its download starts. Streaming keeps big messages cheap in memory, and three folders at once keep small ones moving beside them.
 
 ### 4.4 Memory, disk and network
 
@@ -109,10 +110,10 @@ Each phase is one release, gated like every release (full checks, changelog, tes
 
 | Phase | Version | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Touches `engine.ts`                               |
 | :---- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------ |
-| 1     | 0.7.x   | `GET /api/throughput`, the pace history and the dashboard Speed block (4.6) first (so the baseline is measured and visible before anything changes), then timeouts and stall detection (4.9.1), one token renewal at a time and a retry after a 401 (4.9.3), Retry-After in every form (4.9.7), then the governor with shared throttle windows released by a probe (4.9.2), (lanes, app pace, cuts, learning in memory), the Graph client asking it for every request, throttled waits releasing permits, the connection pool, and parallel archive export batches. Mail keeps today's structure. | No                                                |
-| 2     | next    | Mailbox pipeline: page prefetch, one queue per mailbox across folders, large-item share, streaming writes with hashing, export byte budget; one bad message never stops a folder (4.9.4, with its migration); deletions checked after a delta restart (4.9.5).                                                                                                                                                                                                                                                                                                                                    | No                                                |
-| 3     | next    | Mailboxes at once driven by the governor's headroom (replaces `AdaptiveSlots`), default maximum 32, learning saved between restarts, Settings > Speed, the dashboard Speed block; back-off and kinds of failure for a failing mailbox (4.9.6).                                                                                                                                                                                                                                                                                                                                                    | Yes: after lookstow-7e's split, in `sync-pass.ts` |
-| 4     | next    | Tuning on the real tenant from the Log's pace changes; bandwidth cap if wanted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | No                                                |
+| 1     | 0.9.0   | `GET /api/throughput`, the pace history and the dashboard Speed block (4.6) first (so the baseline is measured and visible before anything changes), then timeouts and stall detection (4.9.1), one token renewal at a time and a retry after a 401 (4.9.3), Retry-After in every form (4.9.7), then the governor with shared throttle windows released by a probe (4.9.2), (lanes, app pace, cuts, learning in memory), the Graph client asking it for every request, throttled waits releasing permits, the connection pool, and parallel archive export batches. Mail keeps today's structure. | No                                                |
+| 2     | 0.10.0  | Mailbox pipeline: page prefetch, one queue per mailbox across folders, large-item share, streaming writes with hashing, export byte budget; one bad message never stops a folder (4.9.4, with its migration); deletions checked after a delta restart (4.9.5).                                                                                                                                                                                                                                                                                                                                    | No                                                |
+| 3     | 0.10.0  | Mailboxes at once driven by the governor's headroom (replaces `AdaptiveSlots`), default maximum 32, learning saved between restarts, Settings > Speed, the dashboard Speed block; back-off and kinds of failure for a failing mailbox (4.9.6).                                                                                                                                                                                                                                                                                                                                                    | Yes: after lookstow-7e's split, in `sync-pass.ts` |
+| 4     | later   | Tuning on the real tenant from the Log's pace changes; bandwidth cap if wanted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | No                                                |
 
 Numbering is agreed with lookstow-7e (its 0.7.0 and 0.8.0 are the index snapshot and completeness check); this work takes the next free versions.
 
@@ -121,7 +122,7 @@ Numbering is agreed with lookstow-7e (its 0.7.0 and 0.8.0 are the index snapshot
 - **A simulated Microsoft** in `tests/support/`: the fake Graph gains Microsoft's limits (4 per mailbox, a 10-minute budget, an app-wide rate that answers 429 with `Retry-After` past a threshold, early-warning headers) and a fake clock, so the governor's behaviour is tested without the network or real time.
 - **Acceptance criteria** (each a named test):
   1. One mailbox never has more than its lane allows in flight, and a `MailboxConcurrency` 429 lowers only that lane.
-  2. Against a simulated app limit, the pace climbs, is cut once per burst to 85% of the refused rate, holds 30 minutes, then probes; it settles within 10% under the limit and never cascades.
+  2. Against a simulated app limit, the pace climbs, is cut once per burst to 90% of the refused rate, holds 30 minutes, then probes; it settles within 10% under the limit and never cascades.
   3. A throttled request's wait frees its permit for other mailboxes.
   4. With 20 simulated mailboxes, total throughput is at least 90% of the simulated limit after the climb, and no mailbox is starved.
   5. An archive with 200 items exports with the lane full (4 batches in flight).
@@ -131,6 +132,19 @@ Numbering is agreed with lookstow-7e (its 0.7.0 and 0.8.0 are the index snapshot
   9. `/api/throughput` and the pace history hold no email address, GUID or Graph id, and answer only on this computer.
   10. Every existing sync, archive and stop-and-resume test still passes unchanged.
 - **A benchmark script** (`scripts/throughput-bench.ts`) runs the engine against the simulated Microsoft and prints messages/s and MB/s, so each phase shows its gain.
+
+### 6.1 Results (0.10.0)
+
+The acceptance tests are in `services/graph/governor-simulated.test.ts` (2, 3, 4, 5, 7) and `governor.test.ts` (1, 8, 9). `node scripts/throughput-bench.ts 20 100 90 20` (20 mailboxes, app limit 100 a second, 90 minutes, first-run pace 20):
+
+| Minutes | Requests a second | Share of the limit |
+| :------ | :---------------- | :----------------- |
+| 0–5     | 25                | 25% (climbing)     |
+| 10–15   | 67                | 67% (climbing)     |
+| 15–45   | 89–90             | 90% (held)         |
+| 45–90   | 90–94             | 91–94% (probing)   |
+
+Three app refusals in 90 minutes, one cut each; the least-served mailbox got 99% of the mean. The first climb from 20 a second takes about 15 minutes, once: after that the learned pace starts near the limit.
 
 ## 7. Expected gains
 
