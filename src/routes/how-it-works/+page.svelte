@@ -65,10 +65,32 @@
 
 <Card title="Checking the backup is complete">
 	<p>
-		After each sync, Lookstow notes how many items Microsoft says each folder holds, and shows it
-		beside the number it has stored. A mailbox page marks any folder where they differ, and
-		Mailboxes can show only those mailboxes. Small differences are normal: mail that arrived during
-		the sync, and items in a mail folder that are not messages.
+		After each folder syncs, Lookstow asks Microsoft how many items the folder holds and shows it
+		beside the number it has stored. Two things explain a higher count from Microsoft: items waiting
+		to be copied again after a failure, and items in a mail folder that are not messages (Deleted
+		Items can hold contacts and calendar items).
+	</p>
+	<p>
+		A difference nothing explains is marked on the mailbox page, and Mailboxes can show only those
+		mailboxes. If it lasts half an hour, Lookstow reads the folder again from the start: it copies
+		what is missing, records what is gone and counts the items that are not messages. It does this
+		at most once a day per folder. If the difference still lasts a day after that, it says so in the
+		activity log, and the "A folder stays different from Microsoft" alert emails it.
+	</p>
+</Card>
+
+<Card title="The backup folder">
+	<p>
+		A small file, <code>.lookstow-backup</code>, marks the backup folder as this Lookstow's backup.
+		If the folder is missing or unmarked, for example because its drive is not attached, backups
+		stop until it is back, instead of starting again somewhere else.
+	</p>
+	<p>
+		To move the backup to another drive, an administrator prepares an empty folder on the server
+		with <code>lookstow backup-folder prepare</code>, then chooses Move in Settings, Backup folder.
+		Lookstow stops backups, copies every file, checks each copy against the index, and carries on in
+		the new folder. The old copy stays until someone removes it by typing REMOVE, and then only
+		files whose copy is identical are deleted.
 	</p>
 </Card>
 

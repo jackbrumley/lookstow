@@ -2,6 +2,7 @@
 //! updates the whole install as root. See
 //! `docs/specs/SPEC-INSTALL-AND-UPDATES.md`.
 
+mod backup_folder;
 mod bundle;
 mod config;
 mod data_privacy;
@@ -93,6 +94,24 @@ enum Command {
         #[command(flatten)]
         folders: Folders,
     },
+    /// Prepare a folder for the backup, before moving it there in the console
+    /// (needs root or Administrator)
+    BackupFolder {
+        #[command(subcommand)]
+        action: BackupFolderAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum BackupFolderAction {
+    /// Create the folder (or take an empty one) and let the service write it
+    Prepare {
+        /// The new backup folder, as a full path
+        #[arg(value_name = "DIR")]
+        dir: PathBuf,
+        #[command(flatten)]
+        folders: Folders,
+    },
 }
 
 fn main() -> ExitCode {
@@ -158,6 +177,12 @@ fn dispatch(command: Command) -> Result<ExitCode> {
         }
         Command::Status { folders } => {
             install::status(&layout::resolve(folders.prefix, folders.data_dir)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::BackupFolder {
+            action: BackupFolderAction::Prepare { dir, folders },
+        } => {
+            backup_folder::prepare(&dir, &layout::resolve(folders.prefix, folders.data_dir)?)?;
             Ok(ExitCode::SUCCESS)
         }
     }
@@ -323,6 +348,14 @@ mod tests {
         assert!(purge);
 
         assert!(matches!(parse(&["status"]), Ok(Command::Status { .. })));
+        let Ok(Command::BackupFolder {
+            action: BackupFolderAction::Prepare { dir, .. },
+        }) = parse(&["backup-folder", "prepare", "/srv/lookstow-backup"])
+        else {
+            panic!("backup-folder prepare did not parse");
+        };
+        assert_eq!(dir, PathBuf::from("/srv/lookstow-backup"));
+        assert!(parse(&["backup-folder", "prepare"]).is_err());
         let Ok(Command::Run { data_dir, .. }) = parse(&["run", "--data-dir", "/d"]) else {
             panic!("run did not parse");
         };

@@ -15,8 +15,14 @@ import { GraphClient } from '../graph/client.ts';
 import { unpacedGovernor } from '../graph/governor.ts';
 import { TokenSource } from '../graph/token.ts';
 import { mailboxItemFailures } from '../mailboxes/item-failures.ts';
-import { applyDiscovery, foldersOf, mailboxById } from '../mailboxes/repository.ts';
-import { messageEvents, messages } from '../../database/schema.ts';
+import {
+	applyDiscovery,
+	foldersOf,
+	mailboxById,
+	saveFolderProgress,
+	syncFolderList
+} from '../mailboxes/repository.ts';
+import { mailFolders, messageEvents, messages } from '../../database/schema.ts';
 import { eq } from 'drizzle-orm';
 import { syncMailbox } from './mailbox-sync.ts';
 import { withUniqueStoragePaths, type SyncContext } from './sync-common.ts';
@@ -386,5 +392,78 @@ describe('one bad message never stops a folder', () => {
 			.all()
 			.find((each) => each.graphId === 'm2');
 		expect(gone?.deletedAt).not.toBeNull();
+	});
+});
+
+describe('the completeness check during a sync', () => {
+	it("reads Microsoft's counts after the folders sync, not before", async () => {
+		let listings = 0;
+		const graph = mailbox({
+			'mailFolders/inbox/messages/delta': () =>
+				json({
+					value: [message('m1', 'First'), message('m2', 'Second')],
+					'@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-delta-1'
+				}),
+			'mailFolders/(sent|proj)/messages/delta': empty
+		}).on(new RegExp(`^${INBOX}\\?`), () => {
+			listings += 1;
+			// One message arrived while the sync ran: the count before it would say 1.
+			return json({
+				value: [
+					{ id: 'inbox', displayName: 'Inbox', childFolderCount: 1, totalItemCount: listings },
+					{ id: 'sent', displayName: 'Sent Items', childFolderCount: 0, totalItemCount: 0 }
+				]
+			});
+		});
+		const { db, row, context } = await setup(graph);
+		await syncMailbox(context, row);
+		const inbox = foldersOf(db, row.id).find((folder) => folder.graphId === 'inbox');
+		expect(listings).toBe(2);
+		expect(inbox).toMatchObject({ sourceCount: 2, differsSince: null });
+	});
+
+	it('reads a folder that keeps differing again from the start, and measures items that are not messages', async () => {
+		const graph = mailbox({
+			'mailFolders/inbox/messages/delta\\?': () =>
+				json({
+					value: [message('m1', 'First'), message('m2', 'Second')],
+					'@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-delta-1'
+				}),
+			// The saved delta link: nothing new, so a routine sync never finds m2.
+			'^/v1\\.0/inbox-delta-1$': () =>
+				json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-delta-1' }),
+			'mailFolders/(sent|proj)/messages/delta': empty
+		});
+		const { db, row, context } = await setup(graph);
+		const inbox = syncFolderList(
+			db,
+			row.id,
+			[{ graphId: 'inbox', path: 'Inbox', storagePath: 'Inbox' }],
+			1
+		)[0];
+		if (inbox === undefined) throw new Error('no folder');
+		// Inbox was copied before, but its messages never reached the index; it has differed for an hour.
+		saveFolderProgress(db, inbox.id, {
+			deltaLink: 'https://graph.microsoft.com/v1.0/inbox-delta-1',
+			firstCopyDone: true,
+			now: 1
+		});
+		db.update(mailFolders)
+			.set({ differsSince: new Date(1000 - 3_600_000) })
+			.where(eq(mailFolders.id, inbox.id))
+			.run();
+		await syncMailbox(context, row);
+		const after = foldersOf(db, row.id).find((folder) => folder.graphId === 'inbox');
+		expect(graph.requests.some((url) => url.includes('/mailFolders/inbox/messages/delta?'))).toBe(
+			true
+		);
+		// Microsoft counts 3; the full listing returned 2 messages, both now stored: one item is not
+		// a message, so nothing is left unexplained.
+		expect(after).toMatchObject({
+			recheckedAt: new Date(1000),
+			otherItemCount: 1,
+			differsSince: null
+		});
+		expect(db.select().from(messages).where(eq(messages.folderId, inbox.id)).all()).toHaveLength(2);
 	});
 });

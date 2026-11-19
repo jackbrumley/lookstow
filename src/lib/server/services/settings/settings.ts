@@ -21,6 +21,7 @@ import {
 	UPDATE_DEFAULTS,
 	type DiskSettings,
 	type BackupSettings,
+	type BackupMoveState,
 	type ConnectionView,
 	type ScheduleSettings,
 	type ScopeSettings,
@@ -94,6 +95,31 @@ const backupSchema = z.object({
 		.nullable()
 });
 
+const absolutePath = z.string().refine((path) => isAbsolute(path), 'Not a full path');
+
+/** The backup folder's own id, also written in its marker file (storage/backup-marker.ts). */
+const backupMarkerSchema = z.object({ id: z.uuid() }).nullable();
+
+const backupMoveSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('none') }),
+	z.object({
+		kind: z.literal('moving'),
+		from: absolutePath,
+		to: absolutePath,
+		startedAt: z.string(),
+		actor: z.string()
+	}),
+	z.object({
+		kind: z.literal('moved'),
+		from: absolutePath,
+		to: absolutePath,
+		finishedAt: z.string(),
+		files: z.number().int().nonnegative(),
+		bytes: z.number().int().nonnegative(),
+		problems: z.number().int().nonnegative()
+	})
+]);
+
 const updatesSchema = z.object({ automatic: z.boolean() });
 
 /** A Mailgun sending domain: letters, digits, dots and hyphens (mg.example.com). */
@@ -162,6 +188,8 @@ const KEYS = {
 	scope: { schema: scopeSchema, fallback: SCOPE_DEFAULTS },
 	schedule: { schema: scheduleSchema, fallback: SCHEDULE_DEFAULTS },
 	backup: { schema: backupSchema, fallback: { root: null } },
+	backupMarker: { schema: backupMarkerSchema, fallback: null },
+	backupMove: { schema: backupMoveSchema, fallback: { kind: 'none' } },
 	updates: { schema: updatesSchema, fallback: UPDATE_DEFAULTS },
 	disk: { schema: diskSchema, fallback: DISK_DEFAULTS },
 	email: { schema: emailSchema, fallback: emptyEmail() },
@@ -342,6 +370,22 @@ export function saveBackup(db: Queryable, backup: BackupSettings): void {
 		throw new SettingsError(parsed.error.issues[0]?.message ?? 'That folder is not valid');
 	}
 	write(db, 'backup', parsed.data);
+}
+
+export function readBackupMarker(db: Queryable): { id: string } | null {
+	return read(db, 'backupMarker', KEYS.backupMarker.schema, KEYS.backupMarker.fallback);
+}
+
+export function saveBackupMarker(db: Queryable, marker: { id: string }): void {
+	write(db, 'backupMarker', backupMarkerSchema.parse(marker));
+}
+
+export function readBackupMove(db: Queryable): BackupMoveState {
+	return read(db, 'backupMove', KEYS.backupMove.schema, KEYS.backupMove.fallback);
+}
+
+export function saveBackupMove(db: Queryable, state: BackupMoveState): void {
+	write(db, 'backupMove', backupMoveSchema.parse(state));
 }
 
 /** Where backups go: the setting, or `mailboxes` in the data folder. */

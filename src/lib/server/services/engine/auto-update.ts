@@ -1,7 +1,7 @@
 import type { Queryable } from '../../database/connection.ts';
 import { errorText, serverLog } from '../../log.ts';
 import type { ServerUpdates } from '../server-updates/service.ts';
-import { readUpdates } from '../settings/settings.ts';
+import { readBackupMove, readUpdates } from '../settings/settings.ts';
 
 /**
  * Automatic updates (Settings > Updates, on by default): when the daily check has found a newer
@@ -32,7 +32,8 @@ export function automaticUpdateDue(
 	db: Queryable,
 	updates: Pick<ServerUpdates, 'view'>
 ): string | null {
-	if (!readUpdates(db).automatic) {
+	// Not while the backup folder moves: the move is finished first.
+	if (!readUpdates(db).automatic || readBackupMove(db).kind === 'moving') {
 		return null;
 	}
 	const view = updates.view();

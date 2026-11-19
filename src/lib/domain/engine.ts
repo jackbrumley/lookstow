@@ -63,4 +63,36 @@ export type EngineStatus = {
 	relayout: { total: number; moved: number; problems: number } | null;
 	/** The daily copy of the index onto the backup drive. */
 	indexSnapshot: { running: boolean; lastAt: string | null };
+	/** Moving the backup to another folder, and the old copy after it (SPEC-BACKUP-FOLDER-MOVE). */
+	backupMove: BackupMoveStatus;
 };
+
+/**
+ * A move of the backup folder as the console shows it: none, moving (backups stopped until it
+ * ends), or moved with the old copy kept until someone removes it.
+ */
+export type BackupMoveStatus =
+	| { kind: 'none' }
+	| {
+			kind: 'moving';
+			from: string;
+			to: string;
+			/** Waiting for running syncs to stop, copying, or checking the copy against the index. */
+			phase: 'waiting' | 'copying' | 'checking';
+			files: number;
+			bytes: number;
+			/** What the index holds: the files and bytes to copy, near enough. */
+			totalFiles: number;
+			totalBytes: number;
+	  }
+	| {
+			kind: 'moved';
+			from: string;
+			to: string;
+			finishedAt: string;
+			files: number;
+			bytes: number;
+			problems: number;
+			/** While the old copy is being removed: how many files so far. */
+			removing: number | null;
+	  };

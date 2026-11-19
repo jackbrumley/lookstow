@@ -33,11 +33,13 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 
 - **Split engine.ts.** Done (refactor, no version).
 - **0.7: index snapshot.** Done in 0.7.0: a daily copy of the index on the backup drive (7 kept), a documented restore, a How it works page, and archive items that cannot be read are tried once per version.
-- **0.8: completeness check.** Done in 0.8.0: each folder's item count from Microsoft beside the index's, on the mailbox page, a Mailboxes filter and the dashboard. Next: alerts, once a week of real numbers shows which differences are normal.
+- **0.8: completeness check.** Done in 0.8.0: each folder's item count from Microsoft beside the index's, on the mailbox page, a Mailboxes filter and the dashboard.
+- **Completeness repair.** Done: counts read after the sync, differences explained, a lasting one read again from the start, and an alert (docs/specs/SPEC-COMPLETENESS-REPAIR.md).
+- **Backup folder on another drive.** Done: a marker that stops writes when the drive is missing, `lookstow backup-folder prepare`, Move in lockdown checked against the index, and removing the old copy (docs/specs/SPEC-BACKUP-FOLDER-MOVE.md).
+- **One live status.** Done: every page reads one snapshot, refreshed on one timer (docs/specs/SPEC-STATUS.md).
 
 ## Later
 
-- **Backup folder outside the data folder.** The Linux unit only lets the service write `/var/lib/lookstow`, and LocalService can only write folders it is granted: the installer grants a chosen folder (`--backup-dir`).
 - **Restore.** Download a mailbox or folder as a zip of .eml or one .mbox; later, put messages back with Graph.
 - **Retention.** Optionally delete files of messages deleted at the source more than N days ago (off by default).
 - **Remote console** with sign-in (Entra sign-in for admins), then allow other computers.

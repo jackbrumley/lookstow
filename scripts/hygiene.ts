@@ -49,6 +49,10 @@ const FILE_CHANGE_ALLOWED = new Map<string, string>([
 		'deleting a backup after the typed confirmation'
 	],
 	[
+		'src/lib/server/services/storage/backup-move.ts',
+		'moving the backup folder: copies checked against the index, renamed into place; the old copy removed only file by file where its copy is identical, after REMOVE is typed (docs/decisions.md)'
+	],
+	[
 		'src/lib/server/services/storage/index-snapshot.ts',
 		'the daily index copy: written through a .partial file, only the 7 newest lookstow-*.db kept in .lookstow-index'
 	],

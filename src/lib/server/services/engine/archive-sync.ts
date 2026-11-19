@@ -16,11 +16,11 @@ import {
 	dueItemFailures,
 	recordItemFailure
 } from '../mailboxes/item-failures.ts';
+import { recheckDue, recordFolderCounts, startRecheck } from '../mailboxes/completeness.ts';
 import {
 	insertMessage,
 	moveMessage,
 	saveFolderProgress,
-	setFolderSourceCounts,
 	storedMessage,
 	syncFolderList,
 	type FolderRow,
@@ -34,6 +34,7 @@ import {
 } from '../storage/eml-store.ts';
 import {
 	applyRemovals,
+	countsFor,
 	withUniqueStoragePaths,
 	type PendingRemoval,
 	type SyncContext,
@@ -61,6 +62,8 @@ type ArchiveRun = {
 	mailboxRoot: string;
 	totals: SyncOutcome;
 	pending: PendingRemoval[];
+	/** Folders listed from the start in this sync: how many items the listing returned. */
+	fullListings: Map<string, number>;
 };
 
 export async function syncArchive(context: SyncContext, mailbox: MailboxRow): Promise<SyncOutcome> {
@@ -86,28 +89,38 @@ export async function syncArchive(context: SyncContext, mailbox: MailboxRow): Pr
 		mailbox,
 		mailboxRoot: mailboxFolderName(mailbox.address, mailbox.kind),
 		totals: { added: 0, removed: 0, byteCount: 0, firstCopyDone: true, stoppedEarly: false },
-		pending: []
+		pending: [],
+		fullListings: new Map()
 	};
-	const microsoftCounts = new Map(
-		graphFolders.map((folder) => [folder.graphId, folder.totalItemCount])
-	);
-	const upToDate: { folderId: string; count: number }[] = [];
+	const upToDate: FolderRow[] = [];
 	await forEachLimited(folders, FOLDERS_AT_ONCE, async (folder) => {
 		if (context.stopping()) {
 			run.totals.stoppedEarly = true;
 			run.totals.firstCopyDone = false;
 			return;
 		}
-		const done = await syncArchiveFolder(run, folder, where.get(folder.graphId) ?? mailboxUrl);
-		const count = microsoftCounts.get(folder.graphId) ?? null;
-		if (!done) {
+		if (await syncArchiveFolder(run, folder, where.get(folder.graphId) ?? mailboxUrl)) {
+			upToDate.push(folder);
+		} else {
 			run.totals.firstCopyDone = false;
-		} else if (count !== null) {
-			upToDate.push({ folderId: folder.id, count });
 		}
 	});
 	run.totals.removed += applyRemovals(context, mailbox.id, run.pending);
-	setFolderSourceCounts(context.db, upToDate, context.now());
+	if (upToDate.length > 0) {
+		// Microsoft's counts read after the folders synced (as mail sync does).
+		let after: ArchiveFolder[];
+		try {
+			after = await listArchiveFolders(context.client, mailboxUrl);
+		} catch (error) {
+			throw explain(error);
+		}
+		recordFolderCounts(
+			context.db,
+			mailbox.id,
+			countsFor(upToDate, after, run.fullListings),
+			context.now()
+		);
+	}
 	return run.totals;
 }
 
@@ -124,6 +137,14 @@ async function syncArchiveFolder(
 	}
 	let resumeLink = folder.deltaLink;
 	let firstCopyDone = folder.firstCopyDone;
+	// Set while the folder is listed from the start: every item the listing returns.
+	let seen: Set<string> | null = null;
+	if (firstCopyDone && recheckDue(folder, context.now())) {
+		// It has differed from Microsoft's count with nothing to explain it: list it all again.
+		startRecheck(context.db, folder, run.mailbox.address, context.now());
+		resumeLink = null;
+		seen = new Set();
+	}
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
 			for await (const page of archiveItemChanges(
@@ -131,6 +152,9 @@ async function syncArchiveFolder(
 				{ graphId: folder.graphId, mailboxUrl: folderMailbox },
 				resumeLink
 			)) {
+				for (const change of page.changes) {
+					if (change.kind === 'upsert') seen?.add(change.graphId);
+				}
 				await applyArchiveChanges(run, folder, folderMailbox, page.changes);
 				resumeLink = page.deltaLink ?? page.nextLink ?? resumeLink;
 				if (page.deltaLink !== null) {
@@ -146,12 +170,14 @@ async function syncArchiveFolder(
 					return false;
 				}
 			}
+			if (seen !== null) run.fullListings.set(folder.id, seen.size);
 			return firstCopyDone;
 		} catch (error) {
 			// An expired sync state (410, or Microsoft's code for it), as mail sync handles it.
 			if (attempt === 0 && isExpiredSyncState(error)) {
 				resumeLink = null;
 				firstCopyDone = false;
+				seen = new Set();
 				continue;
 			}
 			throw explain(error);

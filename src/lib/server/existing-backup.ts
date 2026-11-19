@@ -11,6 +11,10 @@ import { effectiveBackupRoot } from './services/settings/settings.ts';
  * in plain words, or null when done.
  */
 export async function resolveExistingBackup(id: string, data: FormData): Promise<string | null> {
+	if (field(data, 'existing') === 'delete') {
+		const lockdown = backupEngine().lockdown();
+		if (lockdown !== null) return lockdown;
+	}
 	const mailbox = mailboxById(database, id);
 	const engine = backupEngine();
 	engine.cancel(id);

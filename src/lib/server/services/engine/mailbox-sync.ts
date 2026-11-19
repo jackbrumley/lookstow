@@ -1,6 +1,7 @@
 import { syncArchive } from './archive-sync.ts';
 import {
 	applyRemovals,
+	countsFor,
 	withUniqueStoragePaths,
 	type PendingRemoval,
 	type SyncContext,
@@ -21,12 +22,12 @@ import {
 	dueItemFailures,
 	recordItemFailure
 } from '../mailboxes/item-failures.ts';
+import { recheckDue, recordFolderCounts, startRecheck } from '../mailboxes/completeness.ts';
 import {
 	insertMessage,
 	liveMessageIds,
 	moveMessage,
 	saveFolderProgress,
-	setFolderSourceCounts,
 	storedMessage,
 	syncFolderList,
 	type FolderRow,
@@ -64,6 +65,8 @@ type MailboxRun = {
 	foldersByGraphId: Map<string, FolderRow>;
 	totals: SyncOutcome;
 	pending: PendingRemoval[];
+	/** Folders listed from the start in this sync: how many messages the listing returned. */
+	fullListings: Map<string, number>;
 };
 
 export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Promise<SyncOutcome> {
@@ -83,28 +86,34 @@ export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Pr
 		mailboxRoot: mailboxFolderName(mailbox.address, mailbox.kind),
 		foldersByGraphId: new Map(folders.map((folder) => [folder.graphId, folder])),
 		totals: { added: 0, removed: 0, byteCount: 0, firstCopyDone: true, stoppedEarly: false },
-		pending: []
+		pending: [],
+		fullListings: new Map()
 	};
-	const microsoftCounts = new Map(
-		graphFolders.map((folder) => [folder.graphId, folder.totalItemCount])
-	);
-	const upToDate: { folderId: string; count: number }[] = [];
+	const upToDate: FolderRow[] = [];
 	await forEachLimited(folders, FOLDERS_AT_ONCE, async (folder) => {
 		if (context.stopping()) {
 			run.totals.stoppedEarly = true;
 			run.totals.firstCopyDone = false;
 			return;
 		}
-		const done = await syncFolder(run, folder);
-		const count = microsoftCounts.get(folder.graphId) ?? null;
-		if (!done) {
+		if (await syncFolder(run, folder)) {
+			upToDate.push(folder);
+		} else {
 			run.totals.firstCopyDone = false;
-		} else if (count !== null) {
-			upToDate.push({ folderId: folder.id, count });
 		}
 	});
 	run.totals.removed += applyRemovals(context, mailbox.id, run.pending);
-	setFolderSourceCounts(context.db, upToDate, context.now());
+	if (upToDate.length > 0) {
+		// Microsoft's counts read after the folders synced, so mail that arrived or went during
+		// the sync does not show as a difference.
+		const after = await listFolders(context.client, mailbox.userId);
+		recordFolderCounts(
+			context.db,
+			mailbox.id,
+			countsFor(upToDate, after, run.fullListings),
+			context.now()
+		);
+	}
 	return run.totals;
 }
 
@@ -116,6 +125,12 @@ async function syncFolder(run: MailboxRun, folder: FolderRow): Promise<boolean> 
 	let firstCopyDone = folder.firstCopyDone;
 	// Set while a delta restarted from the beginning: every message the fresh pass lists.
 	const restart: { seen: Set<string> | null } = { seen: null };
+	if (firstCopyDone && recheckDue(folder, context.now())) {
+		// It has differed from Microsoft's count with nothing to explain it: list it all again.
+		startRecheck(context.db, folder, mailbox.address, context.now());
+		resumeLink = null;
+		restart.seen = new Set();
+	}
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
 			for await (const page of prefetched(
@@ -143,6 +158,7 @@ async function syncFolder(run: MailboxRun, folder: FolderRow): Promise<boolean> 
 			}
 			if (restart.seen !== null) {
 				await checkUnseen(run, folder, restart.seen);
+				run.fullListings.set(folder.id, restart.seen.size);
 			}
 			return firstCopyDone;
 		} catch (error) {

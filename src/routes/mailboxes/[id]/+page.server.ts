@@ -16,15 +16,18 @@ import {
 } from '#lib/server/services/mailboxes/item-failures.ts';
 import { mailboxDetail } from '#lib/server/services/mailboxes/views.ts';
 import { effectiveBackupRoot, readScope } from '#lib/server/services/settings/settings.ts';
+import { LIVE_STATUS } from '#lib/domain/live-status.ts';
 
 /** One mailbox: its folders, recent syncs and activity, and the actions an admin can take. */
-export const load = (({ params }) => {
-	const engine = backupEngine();
+export const load = (async ({ params, parent, depends }) => {
+	depends(LIVE_STATUS);
+	const { live } = await parent();
+	const syncing = new Set(live.engine.syncing.map((sync) => sync.mailboxId));
 	const detail = mailboxDetail(
 		database,
 		params.id,
 		effectiveBackupRoot(database, dataDir()),
-		(id) => engine.isSyncing(id)
+		(id) => syncing.has(id)
 	);
 	if (detail === null) {
 		error(404, 'No such mailbox');

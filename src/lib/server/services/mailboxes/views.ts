@@ -6,12 +6,12 @@ import {
 	folderItemCounts,
 	foldersOf,
 	mailboxById,
-	mailboxesDifferingFromSource,
 	recentRuns,
 	unreadableItemCount,
 	type MailboxRow
 } from './repository.ts';
 import { mailboxFolderName, resolveStoragePath } from '../storage/eml-store.ts';
+import { explainGap, folderFailures, mailboxesDifferingFromSource } from './completeness.ts';
 import type { MailboxDetail, MailboxState, MailboxSummary } from '../../../domain/mailboxes.ts';
 import type { ScopeSettings } from '../../../domain/settings.ts';
 
@@ -82,6 +82,7 @@ export function mailboxDetail(
 		return null;
 	}
 	const counts = folderItemCounts(db, id);
+	const failures = folderFailures(db, id);
 	return {
 		...summary(
 			row,
@@ -100,7 +101,15 @@ export function mailboxDetail(
 				itemCount: counts.get(folder.id) ?? 0,
 				sourceCount: folder.sourceCount,
 				firstCopyDone: folder.firstCopyDone,
-				lastSyncedAt: folder.lastSyncedAt?.toISOString() ?? null
+				lastSyncedAt: folder.lastSyncedAt?.toISOString() ?? null,
+				gap: explainGap(
+					counts.get(folder.id) ?? 0,
+					folder.sourceCount,
+					failures.get(folder.id) ?? { waiting: 0, givenUp: 0 },
+					folder.otherItemCount
+				),
+				differsSince: folder.differsSince?.toISOString() ?? null,
+				recheckedAt: folder.recheckedAt?.toISOString() ?? null
 			})),
 		recentRuns: recentRuns(db, { limit: 20, mailboxId: id })
 	};

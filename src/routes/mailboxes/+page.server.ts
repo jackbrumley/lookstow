@@ -6,13 +6,17 @@ import { recordActivity } from '#lib/server/services/activity/activity.ts';
 import { allMailboxes } from '#lib/server/services/mailboxes/repository.ts';
 import { mailboxSummaries } from '#lib/server/services/mailboxes/views.ts';
 import { readScope, setPicked } from '#lib/server/services/settings/settings.ts';
+import { LIVE_STATUS } from '#lib/domain/live-status.ts';
 
 /** Every mailbox discovery has found, with its state. Filtering happens on the page. */
-export const load = (() => {
-	const engine = backupEngine();
+export const load = (async ({ parent, depends }) => {
+	depends(LIVE_STATUS);
+	// Syncing comes from the frame's live status, so a badge never disagrees with the side bar.
+	const { live } = await parent();
+	const syncing = new Set(live.engine.syncing.map((sync) => sync.mailboxId));
 	const scope = readScope(database);
 	return {
-		mailboxes: mailboxSummaries(database, (id) => engine.isSyncing(id)),
+		mailboxes: mailboxSummaries(database, (id) => syncing.has(id)),
 		picking: scope.mode === 'selected',
 		picked: scope.selectedAddresses
 	};

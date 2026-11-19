@@ -165,23 +165,6 @@ export function recountStoredMessages(db: Queryable): number {
 		.run().changes;
 }
 
-/**
- * Microsoft's item count for each folder whose sync just reached its delta link: what the
- * completeness check compares with the stored messages.
- */
-export function setFolderSourceCounts(
-	db: Queryable,
-	counts: readonly { folderId: string; count: number }[],
-	now: number
-): void {
-	for (const { folderId, count } of counts) {
-		db.update(mailFolders)
-			.set({ sourceCount: count, sourceCountAt: new Date(now) })
-			.where(eq(mailFolders.id, folderId))
-			.run();
-	}
-}
-
 export function foldersOf(db: Queryable, mailboxId: string): FolderRow[] {
 	return db
 		.select()
@@ -377,26 +360,6 @@ export function markMessageDeleted(
 	return true;
 }
 
-/**
- * Mailboxes with a folder whose stored messages (not deleted at the source) differ from the
- * count Microsoft gave after its last up-to-date sync: the completeness check.
- */
-export function mailboxesDifferingFromSource(db: Queryable): Set<string> {
-	const stored = sql`(select count(*) from ${messages} where ${messages.folderId} = ${mailFolders.id} and ${messages.deletedAt} is null)`;
-	const rows = db
-		.selectDistinct({ mailboxId: mailFolders.mailboxId })
-		.from(mailFolders)
-		.where(
-			and(
-				isNotNull(mailFolders.sourceCount),
-				isNull(mailFolders.goneAt),
-				sql`${mailFolders.sourceCount} <> ${stored}`
-			)
-		)
-		.all();
-	return new Set(rows.map((row) => row.mailboxId));
-}
-
 export function folderItemCounts(db: Queryable, mailboxId: string): Map<string, number> {
 	const rows = db
 		.select({ folderId: messages.folderId, count: sql<number>`count(*)` })
@@ -544,4 +507,39 @@ export function liveMessageIds(db: Queryable, folderId: string): string[] {
 		.where(and(eq(messages.folderId, folderId), isNull(messages.deletedAt)))
 		.all()
 		.map((row) => row.graphId);
+}
+
+// ---- The backup folder as a whole ----
+
+/** One stored file's path (the newest), to show a folder without a marker holds this backup. */
+export function newestStoredPath(db: Queryable): string | null {
+	return (
+		db
+			.select({ filePath: messages.filePath })
+			.from(messages)
+			.orderBy(desc(messages.storedAt))
+			.limit(1)
+			.get()?.filePath ?? null
+	);
+}
+
+/** Every stored file the index knows, with its SHA-256, for checking a moved copy. */
+export function storedFileHashes(db: Queryable): Map<string, string> {
+	const rows = db
+		.select({ filePath: messages.filePath, sha256: messages.sha256 })
+		.from(messages)
+		.all();
+	return new Map(rows.map((row) => [row.filePath, row.sha256]));
+}
+
+/** How many files the index holds, and their bytes. */
+export function storedTotals(db: Queryable): { files: number; bytes: number } {
+	const row = db
+		.select({
+			files: sql<number>`count(*)`,
+			bytes: sql<number>`coalesce(sum(${messages.byteCount}), 0)`
+		})
+		.from(messages)
+		.get();
+	return { files: row?.files ?? 0, bytes: row?.bytes ?? 0 };
 }

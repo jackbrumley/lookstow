@@ -5,17 +5,17 @@ import { listActivity, recordActivity } from '#lib/server/services/activity/acti
 import { recentRuns } from '#lib/server/services/mailboxes/repository.ts';
 import { mailboxSummaries, mailboxTotals } from '#lib/server/services/mailboxes/views.ts';
 import { readConnection } from '#lib/server/services/settings/settings.ts';
-import { throughputView } from '#lib/server/services/throughput/view.ts';
+import { LIVE_STATUS } from '#lib/domain/live-status.ts';
 
 /** The dashboard: is everything backed up, what is running, and what needs someone. */
-export const load = (() => {
-	const engine = backupEngine();
-	const summaries = mailboxSummaries(database, (id) => engine.isSyncing(id));
+export const load = (async ({ parent, depends }) => {
+	depends(LIVE_STATUS);
+	// Syncing comes from the frame's live status, so the tiles and Now never disagree.
+	const { live } = await parent();
+	const syncing = new Set(live.engine.syncing.map((sync) => sync.mailboxId));
+	const summaries = mailboxSummaries(database, (id) => syncing.has(id));
 	const connection = readConnection(database);
-	const status = engine.status();
 	return {
-		engine: status,
-		speed: throughputView(status),
 		totals: mailboxTotals(summaries),
 		needsAttention: summaries.filter((mailbox) => mailbox.state === 'failed').slice(0, 20),
 		setup: {

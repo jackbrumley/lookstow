@@ -48,6 +48,17 @@ Lookstow is a backup service for Microsoft 365 mail that you run on your own ser
 - Signs in with a certificate it makes itself; the private key never leaves the server
 - Updates itself from signed releases, and rolls back a release that does not start
 - Copies its index to the backup drive once a day, keeping the newest 7
+- Checks each folder against Microsoft's count, reads a folder again when a gap lasts, and says so if it still lasts
+
+## Moving the backup to another drive
+
+The backup starts in the data folder. To move it, for example to its own drive:
+
+1. On the server, as an administrator, prepare an empty folder: `lookstow backup-folder prepare "D:\Lookstow backup"` on Windows, or `sudo lookstow backup-folder prepare /srv/lookstow-backup` on Linux.
+2. In the console, open Settings, Backup folder, Move, and enter that folder.
+3. Lookstow stops backups, copies every file and checks each copy against the index, then carries on in the new folder. The old copy is kept until you remove it in the same place by typing REMOVE.
+
+A small file, `.lookstow-backup`, marks the backup folder. If it is missing, for example because the drive is not attached, backups stop until the folder is back, instead of starting again somewhere else.
 
 ## If the index is lost
 

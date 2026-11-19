@@ -59,5 +59,5 @@ Ported from BMuster (see the spec). One archive per platform: the Rust launcher,
 
 1. **Online archives.** Graph v1.0 cannot read archive mailboxes, so archives use a beta API, which Microsoft can change. Items are FTS, not MIME: Lookstow reads them itself and makes `.eml` copies on request, and the `.fts` file stays the record. An item the reader cannot read is still stored and says why in the log. EWS is being retired in Exchange Online, so it is not an option.
 2. **First copy of large mailboxes.** Throttling limits each mailbox to about 4 concurrent requests. A 50 GB mailbox can take a day or more. Measure on a real large mailbox.
-3. **Proving completeness.** The dashboard shows each mailbox's state; a periodic check comparing Graph's folder item counts with the index would catch silent gaps.
+3. **Proving completeness.** After each folder syncs, its item count from Graph is compared with the index. Items waiting to be copied again and items that are not messages explain a higher count; a gap nothing explains is read again from the start and reported if it lasts (`docs/specs/SPEC-COMPLETENESS-REPAIR.md`).
 4. **The beta discovery call** (`settings/exchange`, property `inPlaceArchiveMailboxId`) works on Midfield's tenant (verified 18 November 2026).

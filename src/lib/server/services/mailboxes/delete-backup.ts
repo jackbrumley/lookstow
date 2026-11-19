@@ -1,6 +1,7 @@
 import { rm } from 'node:fs/promises';
 import type { Queryable } from '../../database/connection.ts';
 import { recordActivity } from '../activity/activity.ts';
+import { readBackupMove } from '../settings/settings.ts';
 import { mailboxFolderName, resolveStoragePath } from '../storage/eml-store.ts';
 import { clearMailboxBackup, type MailboxRow } from './repository.ts';
 
@@ -18,6 +19,10 @@ export async function deleteMailboxBackup(
 	backupRoot: string,
 	actor: string
 ): Promise<void> {
+	if (readBackupMove(db).kind === 'moving') {
+		// Lockdown: the copy would bring the files back, or lose track of them.
+		throw new Error('The backup is moving to another folder. Delete it once the move has ended.');
+	}
 	const folder = resolveStoragePath(backupRoot, mailboxFolderName(mailbox.address, mailbox.kind));
 	await rm(folder, { recursive: true, force: true });
 	clearMailboxBackup(db, mailbox.id);

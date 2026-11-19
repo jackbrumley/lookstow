@@ -1,0 +1,1 @@
+ALTER TABLE `mail_folders` ADD `other_item_count` integer;

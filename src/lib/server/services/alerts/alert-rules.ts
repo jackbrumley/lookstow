@@ -58,6 +58,18 @@ export function alertFor(entry: AlertableActivity): EmailSource | null {
 				),
 				page: 'Dashboard'
 			};
+		case 'completeness':
+			// The re-read from the start is routine; only a difference that outlasts it is news.
+			if (entry.level !== 'error') return null;
+			return {
+				alert: 'completeness',
+				title: entry.summary,
+				body: body(
+					entry,
+					'Lookstow keeps syncing the mailbox and emails again only if another folder starts to differ for a day.'
+				),
+				page: 'Mailboxes'
+			};
 		case 'index-snapshot':
 			return {
 				alert: 'index-snapshot',
