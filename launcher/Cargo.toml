@@ -4,7 +4,7 @@ members = ["crates/service", "crates/lookstow"]
 
 # The version follows package.json: one number for the app and its launcher.
 [workspace.package]
-version = "0.12.2"
+version = "0.12.3"
 edition = "2021"
 license = "AGPL-3.0-only"
 publish = false

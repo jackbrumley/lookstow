@@ -20,6 +20,22 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.12.3',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'While Sarah Croft’s online archive is copying, open the dashboard. Expected: the Speed card’s first tile, Receiving, shows the data arriving from Microsoft (about 1–2 MB/s) even before any email of the current batch is stored; messages stored are shown under it',
+				'Open Sarah Croft’s online archive in Mailboxes. Expected: First full copy says how many folders are copied, in progress and still to start',
+				'Over the next hour, watch the same page. Expected: the folders still to start go down; a very large item that Microsoft will not send is listed under Items that could not be copied instead of holding up the rest'
+			]
+		},
+		changes: [
+			'The Speed card shows what is arriving from Microsoft as it arrives. An online archive export reply can take minutes, and before, the card read 0 until the whole reply was in, so a busy archive copy looked stuck',
+			'Very large online archive items (25 MB or more) are exported on their own, after the rest of their folder, and asked for once per sync. If Microsoft cuts one off, it is listed under Items that could not be copied and tried again later, instead of holding up the folder for several long attempts',
+			'A mailbox whose first copy is not finished says how far it has got: folders copied, in progress and still to start'
+		]
+	},
+	{
 		version: '0.12.2',
 		testing: {
 			kind: 'steps',
