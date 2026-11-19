@@ -16,7 +16,9 @@
 	import ToastHost from '#lib/ui/toast-host.svelte';
 	import IconPlayerPause from '@tabler/icons-svelte-runes/icons/player-pause';
 	import IconPlayerPlay from '@tabler/icons-svelte-runes/icons/player-play';
-	import { refreshAll } from '$app/navigation';
+	import { invalidate, refreshAll } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import { LIVE_STATUS, isBusy, phaseText, refreshAfterMs } from '#lib/domain/live-status.ts';
 	import { toast } from '#lib/runes/toast.svelte.ts';
 	import { formatPercent } from '#lib/utils/format.ts';
 
@@ -38,15 +40,24 @@
 		return path === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(path);
 	}
 
-	const phaseText = $derived(
-		data.pause.paused
-			? 'Paused'
-			: data.discovering
-				? 'Finding mailboxes'
-				: data.syncingCount > 0
-					? `Backing up ${data.syncingCount} mailbox${data.syncingCount === 1 ? '' : 'es'}`
-					: 'Idle'
-	);
+	const live = $derived(data.live);
+	const pause = $derived(live.engine.pause);
+	const disk = $derived(live.engine.disk);
+
+	// Every page follows the engine through the one live status: every few seconds while work
+	// runs, every 30 s otherwise (docs/specs/SPEC-STATUS.md).
+	onMount(() => {
+		let timer: ReturnType<typeof setTimeout>;
+		const refresh = () => {
+			timer = setTimeout(() => {
+				void invalidate(LIVE_STATUS).finally(refresh);
+			}, refreshAfterMs(live));
+		};
+		refresh();
+		return () => {
+			clearTimeout(timer);
+		};
+	});
 
 	let switching = $state(false);
 
@@ -57,7 +68,7 @@
 			const response = await fetch('/control', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ action: data.pause.paused ? 'resume' : 'pause' })
+				body: JSON.stringify({ action: pause.paused ? 'resume' : 'pause' })
 			});
 			const reply: unknown = await response.json().catch(() => null);
 			const message =
@@ -101,14 +112,14 @@
 		<button
 			type="button"
 			class="control"
-			class:resume={data.pause.paused}
+			class:resume={pause.paused}
 			disabled={switching}
 			onclick={() => void togglePause()}
 		>
-			{#if data.pause.paused}<IconPlayerPlay size={18} /> Resume{:else}<IconPlayerPause size={18} /> Pause{/if}
+			{#if pause.paused}<IconPlayerPlay size={18} /> Resume{:else}<IconPlayerPause size={18} /> Pause{/if}
 		</button>
 		<div class="footer">
-			<div class="phase" class:busy={data.busy || data.pause.paused}>{phaseText}</div>
+			<div class="phase" class:busy={isBusy(live) || pause.paused}>{phaseText(live)}</div>
 			<div class="version">Version {data.version}</div>
 		</div>
 	</nav>
@@ -126,24 +137,24 @@
 				to use the new version.
 			</div>
 		{/if}
-		{#if data.pause.paused}
-			<div class="banner" class:bad={data.pause.reason === 'disk'} role="status">
-				{#if data.pause.reason === 'disk'}
-					Backups are paused: the backup drive is {formatPercent(data.disk.usedPercent)} full (the limit
-					is {data.disk.pausePercent}%). Free some space, then press Resume.
+		{#if pause.paused}
+			<div class="banner" class:bad={pause.reason === 'disk'} role="status">
+				{#if pause.reason === 'disk'}
+					Backups are paused: the backup drive is {formatPercent(disk.usedPercent)} full (the limit is
+					{disk.pausePercent}%). Free some space, then press Resume.
 				{:else}
 					Backups are paused. Nothing syncs until you press Resume.
 				{/if}
 			</div>
-		{:else if data.disk.level === 'warn'}
+		{:else if disk.level === 'warn'}
 			<div class="banner" role="status">
-				The backup drive is {formatPercent(data.disk.usedPercent)} full. Backups pause at
-				{data.disk.pausePercent}%.
+				The backup drive is {formatPercent(disk.usedPercent)} full. Backups pause at
+				{disk.pausePercent}%.
 			</div>
 		{/if}
-		{#if data.engineProblem !== null}
+		{#if live.engine.problem !== null}
 			<div class="banner" role="status">
-				{data.engineProblem}
+				{live.engine.problem}
 				<a href={resolve('/settings')}>Settings</a>
 			</div>
 		{/if}

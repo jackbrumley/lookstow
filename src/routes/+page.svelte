@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { refreshAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
@@ -22,30 +20,16 @@
 
 	let { data, form }: PageProps = $props();
 
+	// The frame refreshes the live status on a timer; this page's load depends on it too.
+	const engine = $derived(data.live.engine);
+
 	const failingTotal = $derived(
-		Object.values(data.engine.failing).reduce((sum, count) => sum + count, 0)
+		Object.values(engine.failing).reduce((sum, count) => sum + count, 0)
 	);
-	const failingText = $derived(failureSummary(data.engine.failing));
+	const failingText = $derived(failureSummary(engine.failing));
 
 	$effect(() => {
 		toastFormResult(form);
-	});
-
-	// The dashboard follows the engine: every few seconds while it works, every 30 s otherwise.
-	onMount(() => {
-		let timer: ReturnType<typeof setTimeout>;
-		const refresh = () => {
-			timer = setTimeout(
-				() => {
-					void refreshAll().finally(refresh);
-				},
-				data.engine.syncing.length === 0 && !data.engine.discovery.running ? 30_000 : 4_000
-			);
-		};
-		refresh();
-		return () => {
-			clearTimeout(timer);
-		};
 	});
 
 	const setupDone = $derived(data.setup.ids && data.setup.credential && data.setup.discovered);
@@ -99,16 +83,16 @@
 </div>
 
 <Card title="Now">
-	{#if data.engine.pause.paused}
+	{#if engine.pause.paused}
 		<p><Badge tone="warn">Paused</Badge> Nothing syncs until you press Resume.</p>
 	{/if}
-	{#if data.engine.syncing.length > 0}
+	{#if engine.syncing.length > 0}
 		<table>
 			<thead>
 				<tr><th>Mailbox</th><th>Folder</th><th>Stored this run</th><th>Started</th></tr>
 			</thead>
 			<tbody>
-				{#each data.engine.syncing as live (live.mailboxId)}
+				{#each engine.syncing as live (live.mailboxId)}
 					<tr>
 						<td>
 							<a href={resolve('/mailboxes/[id]', { id: live.mailboxId })}>{live.address}</a>
@@ -121,22 +105,22 @@
 				{/each}
 			</tbody>
 		</table>
-	{:else if !data.engine.pause.paused}
+	{:else if !engine.pause.paused}
 		<p>No mailbox is syncing right now.</p>
 	{/if}
 	<dl class="facts">
 		<dt>Download rate</dt>
 		<dd>
-			{formatBytes(data.engine.rates.lastMinute.bytesPerSecond)}/s,
-			{data.engine.rates.lastMinute.messagesPerSecond.toFixed(1)} messages/s over the last minute
+			{formatBytes(engine.rates.lastMinute.bytesPerSecond)}/s,
+			{engine.rates.lastMinute.messagesPerSecond.toFixed(1)} messages/s over the last minute
 			<span class="muted small"
-				>({formatBytes(data.engine.rates.last15Minutes.bytesPerSecond)}/s over 15 minutes)</span
+				>({formatBytes(engine.rates.last15Minutes.bytesPerSecond)}/s over 15 minutes)</span
 			>
 		</dd>
 		<dt>Syncing</dt>
 		<dd>
-			{plural(data.engine.syncing.length, 'mailbox', 'mailboxes')} now. Lookstow runs up to {data
-				.engine.slots.current} at a time (at most {data.engine.slots.maximum}).
+			{plural(engine.syncing.length, 'mailbox', 'mailboxes')} now. Lookstow runs up to {engine.slots
+				.current} at a time (at most {engine.slots.maximum}).
 		</dd>
 		{#if failingText !== ''}
 			<dt>Failing</dt>
@@ -148,35 +132,35 @@
 		{/if}
 		<dt>Microsoft throttling</dt>
 		<dd>
-			{#if data.engine.throttled.lastMinute > 0}
-				<Badge tone="warn">{data.engine.throttled.lastMinute} in the last minute</Badge> Lookstow slows
-				down by itself.
+			{#if engine.throttled.lastMinute > 0}
+				<Badge tone="warn">{engine.throttled.lastMinute} in the last minute</Badge> Lookstow slows down
+				by itself.
 			{:else}
-				None in the last minute{data.engine.throttled.last15Minutes > 0
-					? ` (${data.engine.throttled.last15Minutes} in 15 minutes)`
+				None in the last minute{engine.throttled.last15Minutes > 0
+					? ` (${engine.throttled.last15Minutes} in 15 minutes)`
 					: ''}
 			{/if}
 		</dd>
 		<dt>Waiting</dt>
 		<dd>
-			{#if data.engine.waiting.requested + data.engine.waiting.due + data.engine.waiting.firstCopy === 0}
+			{#if engine.waiting.requested + engine.waiting.due + engine.waiting.firstCopy === 0}
 				Nothing is waiting for a free slot.
 			{:else}
-				{plural(data.engine.waiting.requested, 'mailbox', 'mailboxes')} asked for,
-				{plural(data.engine.waiting.firstCopy, 'first copy', 'first copies')} and
-				{plural(data.engine.waiting.due, 'routine sync')} waiting for a free slot.
+				{plural(engine.waiting.requested, 'mailbox', 'mailboxes')} asked for,
+				{plural(engine.waiting.firstCopy, 'first copy', 'first copies')} and
+				{plural(engine.waiting.due, 'routine sync')} waiting for a free slot.
 			{/if}
-			{#if data.engine.waiting.later > 0}
-				{plural(data.engine.waiting.later, 'mailbox', 'mailboxes')} up to date{data.engine.waiting
+			{#if engine.waiting.later > 0}
+				{plural(engine.waiting.later, 'mailbox', 'mailboxes')} up to date{engine.waiting
 					.nextDueAt === null
 					? ''
-					: `; the next sync is due ${formatRelative(data.engine.waiting.nextDueAt)}`}.
+					: `; the next sync is due ${formatRelative(engine.waiting.nextDueAt)}`}.
 			{/if}
 		</dd>
 		<dt>Discovery</dt>
 		<dd>
-			{#if data.engine.discovery.running}
-				{@const progress = data.engine.discovery.progress}
+			{#if engine.discovery.running}
+				{@const progress = engine.discovery.progress}
 				{#if progress !== null && progress.usersTotal !== null}
 					Checked {formatCount(progress.usersChecked)} of {formatCount(progress.usersTotal)} users, found
 					{plural(progress.found, 'mailbox', 'mailboxes')}
@@ -184,31 +168,30 @@
 					Listing users
 				{/if}
 			{:else}
-				Last {formatDateTime(data.engine.discovery.lastAt)}{data.lastDiscovery !== null &&
+				Last {formatDateTime(engine.discovery.lastAt)}{data.lastDiscovery !== null &&
 				data.lastDiscovery.outcome === 'failed'
 					? ' (failed)'
-					: ''}{data.engine.discovery.nextAt === null
+					: ''}{engine.discovery.nextAt === null
 					? ''
-					: `, next ${formatRelative(data.engine.discovery.nextAt)}`}
+					: `, next ${formatRelative(engine.discovery.nextAt)}`}
 			{/if}
 		</dd>
-		{#if data.engine.relayout !== null}
+		{#if engine.relayout !== null}
 			<dt>Moving files</dt>
 			<dd>
 				<Badge tone="info">Running</Badge>
-				Moving files stored before 0.4.0 into the date layout: {formatCount(
-					data.engine.relayout.moved
-				)} of {formatCount(data.engine.relayout.total)}. Syncs start when it is done.
+				Moving files stored before 0.4.0 into the date layout: {formatCount(engine.relayout.moved)} of
+				{formatCount(engine.relayout.total)}. Syncs start when it is done.
 			</dd>
 		{/if}
 		<dt>Index copy</dt>
 		<dd>
-			{#if data.engine.indexSnapshot.running}
+			{#if engine.indexSnapshot.running}
 				<Badge tone="info">Copying</Badge>
-			{:else if data.engine.indexSnapshot.lastAt === null}
+			{:else if engine.indexSnapshot.lastAt === null}
 				<Badge tone="warn">None yet</Badge>
 			{:else}
-				Last {formatDateTime(data.engine.indexSnapshot.lastAt)}
+				Last {formatDateTime(engine.indexSnapshot.lastAt)}
 			{/if}
 		</dd>
 		<dt>Completeness</dt>
@@ -225,24 +208,20 @@
 		</dd>
 		<dt>Backup drive</dt>
 		<dd>
-			{#if data.engine.disk.usedPercent === null}
+			{#if engine.disk.usedPercent === null}
 				Unknown
 			{:else}
 				<Badge
-					tone={data.engine.disk.level === 'full'
-						? 'bad'
-						: data.engine.disk.level === 'warn'
-							? 'warn'
-							: 'ok'}>{formatPercent(data.engine.disk.usedPercent)} used</Badge
+					tone={engine.disk.level === 'full' ? 'bad' : engine.disk.level === 'warn' ? 'warn' : 'ok'}
+					>{formatPercent(engine.disk.usedPercent)} used</Badge
 				>
-				{formatBytes(data.engine.disk.freeBytes ?? 0)} free · pauses at {data.engine.disk
-					.pausePercent}%
+				{formatBytes(engine.disk.freeBytes ?? 0)} free · pauses at {engine.disk.pausePercent}%
 			{/if}
 		</dd>
 	</dl>
 </Card>
 
-<SpeedCard speed={data.speed} />
+<SpeedCard speed={data.live.speed} />
 
 {#if data.needsAttention.length > 0}
 	<Card title="Needs attention" tone="bad">
