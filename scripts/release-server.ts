@@ -113,6 +113,8 @@ function installDependencies(): void {
 	// better-sqlite3 ships prebuilt binaries, so no install script needs to run.
 	run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: APP });
 	rmSync(join(APP, 'node_modules', '.bin'), { recursive: true, force: true });
+	// C headers for compiling better-sqlite3; the prebuilt binary does not load them.
+	rmSync(join(APP, 'node_modules', 'node-addon-api'), { recursive: true, force: true });
 	const sqlite = join(APP, 'node_modules', 'better-sqlite3');
 	rmSync(join(sqlite, 'deps'), { recursive: true, force: true });
 	rmSync(join(sqlite, 'src'), { recursive: true, force: true });

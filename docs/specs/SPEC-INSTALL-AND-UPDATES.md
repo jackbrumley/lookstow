@@ -48,9 +48,9 @@ VERSION             the app version (package.json "version"), one line
 LICENSE
 node/               Node 26: bin/node (Linux) or node.exe (Windows), its licence
 app/                a plain Node app
-  server.js         server.ts bundled (node_modules stay external)
+  server.js         server.ts bundled, every library inlined except better-sqlite3
   build/            adapter-node output
-  node_modules/     production dependencies for this platform (no symlinks: drop node_modules/.bin)
+  node_modules/     better-sqlite3 only, for this platform (no symlinks: drop node_modules/.bin)
   package.json      "version" must equal VERSION and the manifest
   src/lib/server/database/migrations/   applied at start-up, relative to app/
 ```

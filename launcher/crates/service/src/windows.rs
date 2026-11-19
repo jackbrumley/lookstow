@@ -294,6 +294,128 @@ pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
     Ok(())
 }
 
+/// [`restrict_dir`], but only when `dir`'s own rules differ from
+/// [`restricted_dir_sddl`]. Resetting a tree rewrites the rules of every
+/// file in it, which for a backup of tens of thousands of messages takes
+/// minutes; every upgrade calls this, so an unchanged folder is left alone.
+/// Returns whether it reset the tree.
+pub fn restrict_dir_if_changed(dir: &Path, extra: &[Grant]) -> Result<bool> {
+    let wanted = canonical_dacl(&restricted_dir_sddl(extra))?;
+    match dir_dacl(dir) {
+        Ok(current) if same_rules(&current, &wanted) => Ok(false),
+        _ => restrict_dir(dir, extra).map(|()| true),
+    }
+}
+
+/// Whether two DACLs in SDDL are protected alike and hold the same rules.
+/// Windows adds `AI` (auto-inherited) to a folder it has reset, so only the
+/// protection flag and the rules themselves are compared.
+pub fn same_rules(current: &str, wanted: &str) -> bool {
+    fn split(sddl: &str) -> (bool, &str) {
+        let body = sddl.strip_prefix("D:").unwrap_or(sddl);
+        match body.find('(') {
+            Some(at) => (body[..at].contains('P'), &body[at..]),
+            None => (body.contains('P'), ""),
+        }
+    }
+    split(current) == split(wanted)
+}
+
+/// `sddl` as Windows itself writes it back, so two DACLs compare alike.
+fn canonical_dacl(sddl: &str) -> Result<String> {
+    use ::windows::core::PCWSTR;
+    use ::windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use ::windows::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use ::windows::Win32::Security::PSECURITY_DESCRIPTOR;
+
+    let wide: Vec<u16> = sddl.encode_utf16().chain(Some(0)).collect();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: the string is NUL-terminated; Windows allocates the descriptor,
+    // which is freed after it has been written back as text.
+    unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            PCWSTR(wide.as_ptr()),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            None,
+        )
+        .context("could not build the folder's rules")?;
+        let text = descriptor_dacl_text(descriptor);
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        text
+    }
+}
+
+/// `dir`'s own DACL, in SDDL.
+fn dir_dacl(dir: &Path) -> Result<String> {
+    use ::windows::core::PCWSTR;
+    use ::windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
+    use ::windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use ::windows::Win32::Security::{DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
+    use std::os::windows::ffi::OsStrExt as _;
+
+    let path: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: the path is NUL-terminated; Windows allocates the descriptor,
+    // which is freed after it has been written back as text.
+    unsafe {
+        let error = GetNamedSecurityInfoW(
+            PCWSTR(path.as_ptr()),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            None,
+            None,
+            &mut descriptor,
+        );
+        if error != ERROR_SUCCESS {
+            bail!(
+                "could not read the rules of {}: {}",
+                dir.display(),
+                std::io::Error::from_raw_os_error(error.0 as i32)
+            );
+        }
+        let text = descriptor_dacl_text(descriptor);
+        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        text
+    }
+}
+
+/// The DACL part of a security descriptor, as SDDL text.
+///
+/// # Safety
+/// `descriptor` must be a valid security descriptor.
+unsafe fn descriptor_dacl_text(
+    descriptor: ::windows::Win32::Security::PSECURITY_DESCRIPTOR,
+) -> Result<String> {
+    use ::windows::core::PWSTR;
+    use ::windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use ::windows::Win32::Security::Authorization::{
+        ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use ::windows::Win32::Security::DACL_SECURITY_INFORMATION;
+
+    let mut text = PWSTR::null();
+    // SAFETY: the caller vouches for the descriptor; Windows allocates the
+    // string, which is copied and then freed.
+    unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            DACL_SECURITY_INFORMATION,
+            &mut text,
+            None,
+        )
+        .context("could not write the folder's rules as text")?;
+        let result = text.to_string().context("the folder's rules are not text");
+        let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+        result
+    }
+}
+
 /// What a running service reports: stop and shutdown are accepted while it
 /// runs; a non-zero exit code is service-specific.
 pub fn status(state: ServiceState, exit_code: u32) -> ServiceStatus {
@@ -319,6 +441,30 @@ pub fn status(state: ServiceState, exit_code: u32) -> ServiceStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unchanged_data_folder_is_recognised_and_a_changed_one_is_not() {
+        let grants = [Grant {
+            sid: LOCAL_SERVICE_SID,
+            rights: Rights::Modify,
+        }];
+        let wanted = canonical_dacl(&restricted_dir_sddl(&grants)).unwrap();
+        assert!(wanted.starts_with("D:P("), "{wanted}");
+        // Windows marks a reset folder auto-inherited (AI): still the same rules.
+        let reset = wanted.replacen("D:P", "D:PAI", 1);
+        assert!(same_rules(&reset, &wanted));
+        // Inheriting again from the parent (no P), or one rule fewer, is a change.
+        assert!(!same_rules(&wanted.replacen("D:P", "D:AI", 1), &wanted));
+        let fewer = canonical_dacl(&restricted_dir_sddl(&[])).unwrap();
+        assert!(!same_rules(&fewer, &wanted));
+        // A folder Lookstow never locked reads back with other rules.
+        let plain = std::env::temp_dir().join(format!("lookstow-dacl-{}", std::process::id()));
+        std::fs::create_dir_all(&plain).unwrap();
+        let current = dir_dacl(&plain).unwrap();
+        std::fs::remove_dir_all(&plain).unwrap();
+        assert!(current.starts_with("D:"), "{current}");
+        assert!(!same_rules(&current, &wanted), "{current}");
+    }
 
     fn spec(account: Account) -> ServiceSpec {
         ServiceSpec {

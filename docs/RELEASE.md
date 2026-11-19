@@ -17,7 +17,7 @@ One GitHub release, tagged `vX.Y.Z`, with these files:
 
 Asset names carry no version, so the installers fetch `https://github.com/jackbrumley/lookstow/releases/latest/download/<name>` without calling the GitHub API.
 
-Each bundle holds, at the top level: `lookstow` (`lookstow.exe`), the launcher; `node/`, the Node runtime pinned in `.node-version`; `app/` (`server.js`, `build/`, `node_modules/` for that platform, `package.json`, `src/lib/server/database/migrations/`); `VERSION`; `LICENSE`. The launcher's updater refuses any other top-level name.
+Each bundle holds, at the top level: `lookstow` (`lookstow.exe`), the launcher; `node/`, the Node runtime pinned in `.node-version`; `app/` (`server.js`, `build/`, `node_modules/` with only `better-sqlite3` for that platform (every other library is bundled into `server.js` and `build/`), `package.json`, `src/lib/server/database/migrations/`); `VERSION`; `LICENSE`. The launcher's updater refuses any other top-level name.
 
 ### The signed manifest
 

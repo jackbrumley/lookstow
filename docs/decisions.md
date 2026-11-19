@@ -65,3 +65,7 @@ Only the beta Mailbox Import/Export API reads online archives (Graph v1.0 cannot
 ## Old files moved into the date layout (2026-11-19)
 
 0.4.0 left files stored earlier under their mail-folder paths, so a backup had two layouts and the old folders still looked like mailbox folders. 0.4.3 moves them once at startup: rename (same drive, so fast, and the bytes and SHA-256 are unchanged), then record the new path, then remove the emptied folders. Syncs wait until it is done. It is safe to stop and restart: a file already at its new path only gets its row updated, and a rename never replaces a file.
+
+## A small update archive, and no permission reset on every update (2026-11-19)
+
+The 0.4.3 update took three minutes on Windows. Two causes. The archive held about 4,000 files, mostly two libraries' source in `node_modules`, and Windows unpacks and scans each one. And every update reset the data folder's permissions across every file inside it, including the whole backup. Now only native modules (`better-sqlite3`) ship in `node_modules`; the build bundles every other library into the app's files (380 files, unpacked in about 3 s instead of 16 s). And an update reads the data folder's own permissions and resets the tree only when they are not Lookstow's; an install still always resets it.

@@ -20,6 +20,24 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.4.4',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.4.4, then open Updates > Last update: "downloaded and unpacked" and "started the new release" each take seconds, not a minute',
+				'On a mailbox page, press Search this mailbox: Search opens with that mailbox filled in, with no error',
+				'In Search, type an address two mailboxes share: the list shows it once, and the search covers the mailbox still in Microsoft 365',
+				'If the update did not start within seconds, Log shows "Could not start the updater task at once" with the reason on the same line'
+			]
+		},
+		changes: [
+			'Updates: the update archive holds a few hundred files instead of about 4,000, so unpacking takes seconds',
+			'Updates on Windows: the data folder’s permissions are checked, and reset across every backed-up file only when they changed, instead of on every update',
+			'Search: Search this mailbox no longer fails with an error when two mailboxes share an address',
+			'The log gives the full reason when the updater cannot be started at once'
+		]
+	},
+	{
 		version: '0.4.3',
 		testing: {
 			kind: 'steps',

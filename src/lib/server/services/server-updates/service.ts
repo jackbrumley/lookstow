@@ -307,14 +307,16 @@ function startWindowsUpdater(): void {
 		'schtasks.exe',
 		['/Run', '/TN', WINDOWS_UPDATE_TASK],
 		{ windowsHide: true, timeout: 15_000 },
-		(error) => {
+		(error, stdout, stderr) => {
 			if (error === null) {
 				serverLog('info', 'update', 'Started the updater task');
 			} else {
+				// schtasks puts its reason on stderr; one line keeps it findable in server.log.
+				const reason = `${stderr} ${stdout}`.split(/\s+/).join(' ').trim();
 				serverLog(
-					'info',
+					'warn',
 					'update',
-					`Could not start the updater task at once (${errorText(error)}); it starts within a minute`
+					`Could not start the updater task at once (exit ${String(error.code ?? 'unknown')}: ${reason === '' ? errorText(error) : reason}); it starts within a minute`
 				);
 			}
 		}

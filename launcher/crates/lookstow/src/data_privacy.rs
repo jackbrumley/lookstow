@@ -9,7 +9,9 @@
 //! - Windows: a protected DACL (nothing inherited from `C:\ProgramData`):
 //!   SYSTEM and Administrators full control, LocalService (the service
 //!   account) modify, and everything already inside reset to inherit just
-//!   that. Install and every upgrade apply it (Administrator or SYSTEM);
+//!   that. Install applies it (Administrator); every upgrade (SYSTEM)
+//!   checks the folder's own rules and resets the tree only when they
+//!   changed, because the backup inside can hold tens of thousands of files;
 //!   the service itself runs as LocalService, which may not change rules,
 //!   so a start cannot.
 
@@ -30,6 +32,23 @@ pub fn lock(data: &Path) -> Result<()> {
     {
         let _ = data;
         Ok(())
+    }
+}
+
+/// Upgrade: the same lockdown, but on Windows the whole tree is reset only
+/// when the data folder's own rules are not the ones Lookstow sets.
+pub fn lock_if_changed(data: &Path) -> Result<()> {
+    #[cfg(windows)]
+    {
+        lookstow_service::windows::restrict_dir_if_changed(
+            data,
+            &crate::service_windows::data_grants(),
+        )
+        .map(|_| ())
+    }
+    #[cfg(not(windows))]
+    {
+        lock(data)
     }
 }
 

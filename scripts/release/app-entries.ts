@@ -1,6 +1,7 @@
 /**
  * The Node entry point in a release bundle's app/ folder: server.ts bundled into app/server.js
- * as one ES module, with node_modules left external. The launcher runs it as the service
+ * as one ES module, with every library inlined except better-sqlite3 (native code, the only
+ * package the bundle ships in node_modules). The launcher runs it as the service
  * (launcher/crates/lookstow/src/launcher.rs); app/build/ beside it is the adapter-node output
  * it imports.
  */
@@ -16,6 +17,7 @@ export async function bundleAppEntries(outDir: string): Promise<void> {
 		logLevel: 'warn',
 		// The same constant the SvelteKit build defines (src/lib/utils/app-version.ts).
 		define: { __LOOKSTOW_VERSION__: JSON.stringify(packageVersion()) },
+		ssr: { noExternal: true, external: ['better-sqlite3'] },
 		build: {
 			ssr: true,
 			outDir,

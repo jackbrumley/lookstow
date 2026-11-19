@@ -147,8 +147,8 @@ pub fn refresh_units(target: &Layout, no_service: bool) -> Result<()> {
     platform::require_admin()?;
     platform::refresh_units(target)?;
     // Every upgrade runs this as root or SYSTEM: the data lockdown is
-    // repaired whatever happened to it since the install (I16).
-    data_privacy::lock(&target.data)
+    // repaired if it changed since the install (I16).
+    data_privacy::lock_if_changed(&target.data)
 }
 
 pub fn uninstall(target: &Layout, purge: bool) -> Result<()> {
