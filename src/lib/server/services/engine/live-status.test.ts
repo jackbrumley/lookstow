@@ -27,7 +27,8 @@ function idle(): EngineStatus {
 			pausePercent: 90
 		},
 		relayout: null,
-		indexSnapshot: { running: false, lastAt: null }
+		indexSnapshot: { running: false, lastAt: null },
+		backupMove: { kind: 'none' }
 	};
 }
 

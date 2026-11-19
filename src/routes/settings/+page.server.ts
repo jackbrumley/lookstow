@@ -25,6 +25,7 @@ import {
 	settingsView
 } from '#lib/server/services/settings/settings.ts';
 import { snapshotSummary } from '#lib/server/services/storage/index-snapshot.ts';
+import { storedTotals } from '#lib/server/services/mailboxes/repository.ts';
 import { forgetLearnedPace, learnedPace } from '#lib/server/services/throughput/monitor.ts';
 import { newAiToken, setAiEnabled } from '#lib/server/services/ai/access.ts';
 import { hostname } from 'node:os';
@@ -35,6 +36,7 @@ export const load = (() => ({
 	backupsOutsideScope: backupsOutsideScope(database),
 	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir()),
 	learnedPace: learnedPace(),
+	storedFiles: storedTotals(database).files,
 	ai: aiView()
 })) satisfies PageServerLoad;
 
@@ -123,6 +125,8 @@ export const actions = {
 	},
 	scope: async ({ request }) => {
 		const data = await request.formData();
+		const lockdown = backupEngine().lockdown();
+		if (lockdown !== null) return refused(lockdown);
 		const mode = field(data, 'mode') === 'selected' ? 'selected' : 'all';
 		const selectedAddresses = addresses(field(data, 'selected'));
 		const change = await changeScope(
@@ -229,11 +233,42 @@ export const actions = {
 		const data = await request.formData();
 		const root = field(data, 'root');
 		return attempt(() => {
+			// Once mail is stored, only Move may change the folder: it copies and checks every file.
+			if (storedTotals(database).files > 0 || backupEngine().status().backupMove.kind !== 'none') {
+				throw new Error(
+					'Mail is already stored in the backup folder: use Move to take it to another folder.'
+				);
+			}
 			saveBackup(database, { root: root === '' ? null : root });
 			return saved(
 				`The backup folder was changed to ${root === '' ? 'the default' : root}`,
-				'Saved. Move everything from the old folder into the new one: Lookstow finds stored messages by their place under the backup folder.'
+				'Saved. New mail is stored in the new folder.'
 			);
+		});
+	},
+	move: async ({ request }) => {
+		const data = await request.formData();
+		const to = field(data, 'to').trim();
+		try {
+			await backupEngine().startMove(to, 'console');
+		} catch (error) {
+			return refused(error instanceof Error ? error.message : String(error));
+		}
+		return done('The move has started. Backups stop until every file is copied and checked.');
+	},
+	cancelMove: () =>
+		attempt(() => {
+			backupEngine().cancelMove('console');
+			return done('The move was stopped. The backup stays where it was.');
+		}),
+	removeOld: async ({ request }) => {
+		const data = await request.formData();
+		if (field(data, 'confirm').trim() !== 'REMOVE') {
+			return refused('Type REMOVE to confirm removing the old copy.');
+		}
+		return attempt(() => {
+			backupEngine().removeOldCopy('console');
+			return done('Removing the old copy. Files whose copy is not identical are kept.');
 		});
 	}
 } satisfies Actions;

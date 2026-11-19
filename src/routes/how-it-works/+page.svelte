@@ -79,6 +79,21 @@
 	</p>
 </Card>
 
+<Card title="The backup folder">
+	<p>
+		A small file, <code>.lookstow-backup</code>, marks the backup folder as this Lookstow's backup.
+		If the folder is missing or unmarked, for example because its drive is not attached, backups
+		stop until it is back, instead of starting again somewhere else.
+	</p>
+	<p>
+		To move the backup to another drive, an administrator prepares an empty folder on the server
+		with <code>lookstow backup-folder prepare</code>, then chooses Move in Settings, Backup folder.
+		Lookstow stops backups, copies every file, checks each copy against the index, and carries on in
+		the new folder. The old copy stays until someone removes it by typing REMOVE, and then only
+		files whose copy is identical are deleted.
+	</p>
+</Card>
+
 <Card title="When mail is moved or deleted in Microsoft 365">
 	<ul class="plain">
 		<li>A moved message is recorded as a move. Its file stays.</li>

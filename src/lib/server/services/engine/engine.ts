@@ -1,6 +1,4 @@
-import { and, desc, eq, gte } from 'drizzle-orm';
-import type { AppDatabase, Queryable } from '../../database/connection.ts';
-import { runs } from '../../database/schema.ts';
+import type { AppDatabase } from '../../database/connection.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { recordActivity } from '../activity/activity.ts';
 import { GraphClient } from '../graph/client.ts';
@@ -19,6 +17,8 @@ import {
 import { diskStatus, measureDisk } from '../storage/disk.ts';
 import { snapshotDue } from '../storage/index-snapshot.ts';
 import type { RelayoutProgress } from '../storage/relayout.ts';
+import { backupFolderProblem } from './backup-folder-check.ts';
+import { BackupMover } from './backup-move-task.ts';
 import { runDiscovery } from './discovery-pass.ts';
 import { inScope } from './scope.ts';
 import { planSyncs } from './scheduler.ts';
@@ -28,6 +28,7 @@ import { syncOneMailbox } from './sync-pass.ts';
 import { MailboxSlots, Throughput } from './throughput.ts';
 import type { DiskStatus, EngineStatus } from '../../../domain/engine.ts';
 import { failureKind, type FailureKind } from '../../../domain/failure-kind.ts';
+import { failingMailboxes, lastFinished } from './run-history.ts';
 import { formatPercent } from '../../../utils/format.ts';
 
 /**
@@ -101,11 +102,62 @@ export class Engine {
 	#snapshot: Promise<void> | null = null;
 	#snapshotAt: number | null = null;
 	#snapshotRetryAt: number | null = null;
+	/** Why the backup folder may not be written now (a drive not attached), or null. */
+	#backupProblem: string | null = null;
+	/** Set while the backup folder moves: nothing that writes files starts. */
+	#locked = false;
+	readonly #mover: BackupMover;
 
 	constructor(deps: EngineDeps) {
 		this.#deps = { now: Date.now, ...deps };
 		// Start with a few mailboxes and add more while the governor has room for them.
 		this.#slots = new MailboxSlots(this.#deps.now());
+		this.#mover = new BackupMover({
+			db: this.#deps.db,
+			dataDir: this.#deps.dataDir,
+			now: this.#deps.now,
+			whenIdle: () => this.#whenIdle(),
+			stopping: () => this.#stopping,
+			changed: () => {
+				this.#tick();
+			}
+		});
+	}
+
+	/** Resolves once no sync, discovery, index copy or start-up move runs. */
+	async #whenIdle(): Promise<void> {
+		while (
+			this.#running.size > 0 ||
+			this.#discovery !== null ||
+			this.#snapshot !== null ||
+			this.#relayout !== null
+		) {
+			await Promise.all([
+				...[...this.#running.values()].map((live) => live.done),
+				this.#discovery,
+				this.#snapshot,
+				this.#relayout
+			]);
+		}
+	}
+
+	/** Moves the backup to `to` (a prepared, empty folder); throws with the reason it cannot. */
+	async startMove(to: string, actor: string): Promise<void> {
+		await this.#mover.start(to, actor);
+		this.#tick();
+	}
+
+	cancelMove(actor: string): void {
+		this.#mover.cancel(actor);
+	}
+
+	removeOldCopy(actor: string): void {
+		this.#mover.removeOld(actor);
+	}
+
+	/** Why changes that touch the backup are refused now (it is moving), or null. */
+	lockdown(): string | null {
+		return this.#mover.lockdown();
 	}
 
 	start(): void {
@@ -131,6 +183,7 @@ export class Engine {
 			this.#tick();
 		}, TICK_MS);
 		this.#timer.unref();
+		this.#mover.resume();
 		this.#tick();
 	}
 
@@ -145,7 +198,8 @@ export class Engine {
 			this.#discovery,
 			this.#relayout,
 			this.#indexing,
-			this.#snapshot
+			this.#snapshot,
+			this.#mover.stopped()
 		]);
 	}
 
@@ -232,7 +286,7 @@ export class Engine {
 			pause: schedule.paused
 				? { paused: true, reason: schedule.pausedReason ?? 'manual', since: schedule.pausedAt }
 				: { paused: false },
-			problem: this.#setupProblem ?? this.#problem,
+			problem: this.#backupProblem ?? this.#setupProblem ?? this.#problem,
 			discovery: {
 				running: this.#discovery !== null,
 				progress: this.#discovery === null ? null : this.#discoveryProgress,
@@ -267,7 +321,8 @@ export class Engine {
 			},
 			disk: this.#disk ?? this.#measureDisk(),
 			relayout: this.#relayout === null ? null : this.#relayoutProgress,
-			indexSnapshot: { running: this.#snapshot !== null, lastAt: iso(this.#snapshotAt) }
+			indexSnapshot: { running: this.#snapshot !== null, lastAt: iso(this.#snapshotAt) },
+			backupMove: this.#mover.status()
 		};
 	}
 
@@ -315,6 +370,16 @@ export class Engine {
 				'system',
 				`${disk.path} is ${formatPercent(disk.usedPercent)} full; the limit is ${disk.pausePercent}%.`
 			);
+		}
+		// Lockdown: the backup folder is moving, so nothing that writes there starts.
+		this.#locked = this.#mover.lockdown() !== null;
+		if (this.#locked) {
+			return;
+		}
+		// The backup folder must be the one the index knows before anything is written to it.
+		this.#backupProblem = backupFolderProblem(db, effectiveBackupRoot(db, dataDir));
+		if (this.#backupProblem !== null) {
+			return;
 		}
 		this.#snapshotWhenDue(disk);
 		if (this.#paused) {
@@ -472,6 +537,8 @@ export class Engine {
 				stopping: () =>
 					this.#stopping ||
 					this.#paused ||
+					this.#locked ||
+					this.#backupProblem !== null ||
 					this.#cancelled.has(mailbox.id) ||
 					this.#disk?.level === 'full',
 				progress: (update) => {
@@ -509,48 +576,6 @@ export class Engine {
 				this.#tick();
 			});
 	}
-}
-
-function lastFinished(db: Queryable, kind: 'discovery' | 'sync'): number | null {
-	const row = db
-		.select({ finishedAt: runs.finishedAt })
-		.from(runs)
-		.where(eq(runs.kind, kind))
-		.orderBy(desc(runs.finishedAt))
-		.limit(1)
-		.get();
-	return row?.finishedAt?.getTime() ?? null;
-}
-
-/**
- * Mailboxes whose latest syncs failed, from the last day of runs: how many failed in a row and
- * the latest failure's kind, so a restart keeps each one's back-off.
- */
-function failingMailboxes(
-	db: Queryable,
-	now: number
-): Map<string, { count: number; kind: FailureKind }> {
-	const rows = db
-		.select({ mailboxId: runs.mailboxId, outcome: runs.outcome, error: runs.error })
-		.from(runs)
-		.where(and(eq(runs.kind, 'sync'), gte(runs.startedAt, new Date(now - 24 * 3_600_000))))
-		.orderBy(desc(runs.startedAt))
-		.all();
-	const failing = new Map<string, { count: number; kind: FailureKind }>();
-	const settled = new Set<string>();
-	for (const row of rows) {
-		if (row.mailboxId === null || settled.has(row.mailboxId) || row.outcome === 'running') continue;
-		if (row.outcome !== 'failed') {
-			settled.add(row.mailboxId);
-			continue;
-		}
-		const seen = failing.get(row.mailboxId);
-		failing.set(row.mailboxId, {
-			count: (seen?.count ?? 0) + 1,
-			kind: seen?.kind ?? failureKind(row.error ?? '')
-		});
-	}
-	return failing;
 }
 
 function iso(time: number | null): string | null {

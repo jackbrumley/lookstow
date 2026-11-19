@@ -8,6 +8,7 @@
 	import Card from '#lib/ui/card.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
+	import BackupFolderCard from './backup-folder-card.svelte';
 	import { SCHEDULE_LIMITS } from '#lib/domain/settings.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 	import { formatBytes, formatDateTime, plural } from '#lib/utils/format.ts';
@@ -21,14 +22,12 @@
 	const settings = $derived(data.settings);
 	const connection = $derived(settings.connection);
 	const outside = $derived(data.backupsOutsideScope);
-	const snapshots = $derived(data.indexSnapshots);
 
 	let idsOpen = $state(false);
 	let secretOpen = $state(false);
 	let certificateOpen = $state(false);
 	let scopeOpen = $state(false);
 	let scheduleOpen = $state(false);
-	let backupOpen = $state(false);
 	let updatesOpen = $state(false);
 	let diskOpen = $state(false);
 	let forgetOpen = $state(false);
@@ -294,49 +293,13 @@
 	</p>
 </FormModal>
 
-<Card title="Backup folder">
-	{#snippet actions()}
-		<Button variant="secondary" onclick={() => (backupOpen = true)}>Change…</Button>
-	{/snippet}
-	<p>
-		<code>{settings.backup.effectiveRoot}</code>{settings.backup.root === null
-			? ' (the default)'
-			: ''}
-	</p>
-	<p class="muted small">
-		One folder per mailbox, then one folder per year and month, then one file per message: .eml for
-		mailboxes (any mail program opens them), .fts for online archives. The Lookstow service account
-		must be able to write here.
-	</p>
-	<h3>Index snapshots</h3>
-	{#if snapshots.kind === 'unreadable'}
-		<p>
-			<Badge tone="bad">Unreadable</Badge> Lookstow cannot read <code>{snapshots.folder}</code>: {snapshots.reason}
-		</p>
-	{:else}
-		<p>
-			{#if snapshots.newest === null}
-				<Badge tone="warn">None yet</Badge> The first copy is made once the start-up work is done.
-			{:else}
-				Last copy {formatDateTime(snapshots.newest.takenAt)} ({formatBytes(
-					snapshots.newest.bytes
-				)}).
-				{plural(snapshots.kept, 'copy', 'copies')} kept, the newest 7, in
-				<code>{snapshots.folder}</code>.
-			{/if}
-		</p>
-		{#if snapshots.drive === 'same'}
-			<p class="muted small">
-				The copies are on the same drive as the index. They survive a damaged index, not the loss of
-				that drive. A backup folder on another drive protects against both.
-			</p>
-		{/if}
-	{/if}
-	<p class="muted small">
-		The index is Lookstow's record of every message's folder and history. It is copied here once a
-		day. If it is ever lost, How it works says how to put a copy back.
-	</p>
-</Card>
+<BackupFolderCard
+	root={settings.backup.root}
+	effectiveRoot={settings.backup.effectiveRoot}
+	storedFiles={data.storedFiles}
+	move={data.live.engine.backupMove}
+	snapshots={data.indexSnapshots}
+/>
 
 <Card title="Updates">
 	{#snippet actions()}
@@ -531,22 +494,6 @@
 			required
 		/>
 	</label>
-</FormModal>
-
-<FormModal bind:open={backupOpen} title="Backup folder" action="?/backup">
-	<label>
-		Full path (leave empty for the default)
-		<input
-			name="root"
-			value={settings.backup.root ?? ''}
-			placeholder={settings.backup.effectiveRoot}
-			autocomplete="off"
-		/>
-	</label>
-	<p class="muted small">
-		Messages already stored are found by their place under this folder: if you change it, move the
-		existing folders across.
-	</p>
 </FormModal>
 
 <style>

@@ -508,3 +508,38 @@ export function liveMessageIds(db: Queryable, folderId: string): string[] {
 		.all()
 		.map((row) => row.graphId);
 }
+
+// ---- The backup folder as a whole ----
+
+/** One stored file's path (the newest), to show a folder without a marker holds this backup. */
+export function newestStoredPath(db: Queryable): string | null {
+	return (
+		db
+			.select({ filePath: messages.filePath })
+			.from(messages)
+			.orderBy(desc(messages.storedAt))
+			.limit(1)
+			.get()?.filePath ?? null
+	);
+}
+
+/** Every stored file the index knows, with its SHA-256, for checking a moved copy. */
+export function storedFileHashes(db: Queryable): Map<string, string> {
+	const rows = db
+		.select({ filePath: messages.filePath, sha256: messages.sha256 })
+		.from(messages)
+		.all();
+	return new Map(rows.map((row) => [row.filePath, row.sha256]));
+}
+
+/** How many files the index holds, and their bytes. */
+export function storedTotals(db: Queryable): { files: number; bytes: number } {
+	const row = db
+		.select({
+			files: sql<number>`count(*)`,
+			bytes: sql<number>`coalesce(sum(${messages.byteCount}), 0)`
+		})
+		.from(messages)
+		.get();
+	return { files: row?.files ?? 0, bytes: row?.bytes ?? 0 };
+}

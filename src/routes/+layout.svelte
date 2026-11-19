@@ -116,6 +116,12 @@
 			disabled={switching}
 			onclick={() => void togglePause()}
 		>
+			{#if live.engine.backupMove.kind === 'moving'}
+				<div class="banner" role="status">
+					The backup is moving to {live.engine.backupMove.to}. Backups and changes wait until every
+					file is copied and checked. Settings, Backup folder shows how far it is.
+				</div>
+			{/if}
 			{#if pause.paused}<IconPlayerPlay size={18} /> Resume{:else}<IconPlayerPause size={18} /> Pause{/if}
 		</button>
 		<div class="footer">

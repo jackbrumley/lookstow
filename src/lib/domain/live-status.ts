@@ -16,6 +16,7 @@ export type LiveStatus = {
 /** The side bar's one-line summary of the work in hand. */
 export function phaseText(live: LiveStatus): string {
 	const { engine } = live;
+	if (engine.backupMove.kind === 'moving') return 'Moving the backup';
 	if (engine.pause.paused) return 'Paused';
 	if (engine.discovery.running) return 'Finding mailboxes';
 	if (engine.syncing.length > 0) {
@@ -26,7 +27,13 @@ export function phaseText(live: LiveStatus): string {
 
 /** Whether anything is running, so pages follow the work closely and rest when there is none. */
 export function isBusy(live: LiveStatus): boolean {
-	return live.engine.syncing.length > 0 || live.engine.discovery.running;
+	const move = live.engine.backupMove;
+	return (
+		live.engine.syncing.length > 0 ||
+		live.engine.discovery.running ||
+		move.kind === 'moving' ||
+		(move.kind === 'moved' && move.removing !== null)
+	);
 }
 
 /**
@@ -58,6 +65,13 @@ export function statusContradictions(live: LiveStatus): string[] {
 	}
 	if (engine.discovery.running && engine.discovery.nextAt !== null) {
 		found.push('Discovery is running and also shows its next time');
+	}
+	if (
+		engine.backupMove.kind === 'moving' &&
+		engine.backupMove.phase !== 'waiting' &&
+		engine.syncing.length > 0
+	) {
+		found.push('A sync runs while the backup folder is being copied');
 	}
 	if (speed.pace.phase === 'idle' && speed.pace.inFlight > 0) {
 		found.push('The pace says idle while requests are in flight');

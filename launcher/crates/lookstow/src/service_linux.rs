@@ -9,6 +9,7 @@ use anyhow::{bail, Context as _, Result};
 use lookstow_service::systemd::{require_root, require_systemd, systemctl, Unit};
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const SERVER: Unit = Unit {
@@ -225,6 +226,41 @@ pub fn install_service(layout: &Layout) -> Result<()> {
     Ok(())
 }
 
+/// The drop-in that adds prepared backup folders to the unit's `ReadWritePaths`.
+fn backup_drop_in() -> PathBuf {
+    PathBuf::from(format!("{}.d", SERVER.path().display())).join("backup-folder.conf")
+}
+
+/// Hands a prepared backup folder to the service user (`0700`), lets the
+/// unit write it, and restarts the service when it runs so the change applies.
+pub fn allow_backup_folder(dir: &Path) -> Result<()> {
+    require_systemd()?;
+    run(
+        "chown",
+        &[&format!("{USER}:{USER}"), &dir.to_string_lossy()],
+    )?;
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    let file = backup_drop_in();
+    if let Some(folder) = file.parent() {
+        fs::create_dir_all(folder)
+            .with_context(|| format!("could not create {}", folder.display()))?;
+    }
+    let existing = fs::read_to_string(&file).unwrap_or_default();
+    fs::write(&file, crate::backup_folder::drop_in(&existing, dir))
+        .with_context(|| format!("could not write {}", file.display()))?;
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644))?;
+    systemctl(&["daemon-reload"])?;
+    if SERVER.state() == "active" {
+        systemctl(&["restart", SERVER.name])?;
+        println!(
+            "Restarted {} so it may write {}.",
+            SERVER.name,
+            dir.display()
+        );
+    }
+    Ok(())
+}
+
 /// Stops the service before its release is switched or replaced.
 pub fn stop_service() -> Result<bool> {
     SERVER.stop_if_active()
@@ -245,6 +281,15 @@ pub fn remove_service() -> Result<()> {
         if unit.remove()? {
             println!("Removed {}.", unit.name);
         }
+    }
+    let drop_in = backup_drop_in();
+    if drop_in.exists() {
+        fs::remove_file(&drop_in)
+            .with_context(|| format!("could not remove {}", drop_in.display()))?;
+        if let Some(folder) = drop_in.parent() {
+            let _ = fs::remove_dir(folder);
+        }
+        println!("Removed {}.", drop_in.display());
     }
     // Started only by the path unit, so it has nothing to disable.
     if UPDATER.exists() {

@@ -61,6 +61,24 @@ export type BackupSettings = {
 	root: string | null;
 };
 
+/**
+ * Moving the backup to another folder (docs/specs/SPEC-BACKUP-FOLDER-MOVE.md): nothing under way,
+ * copying in lockdown, or moved with the old copy kept until someone removes it.
+ */
+export type BackupMoveState =
+	| { kind: 'none' }
+	| { kind: 'moving'; from: string; to: string; startedAt: string; actor: string }
+	| {
+			kind: 'moved';
+			from: string;
+			to: string;
+			finishedAt: string;
+			files: number;
+			bytes: number;
+			/** Files whose copy could not be checked against the index: named in the activity log. */
+			problems: number;
+	  };
+
 export type UpdateSettings = {
 	/** Install a new signed release by itself, soon after the daily check finds one. */
 	automatic: boolean;

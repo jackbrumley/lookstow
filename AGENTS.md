@@ -19,9 +19,9 @@ These rules are not suggestions. "Must" and "never" mean exactly that. If a rule
 
 # 🚨 CRITICAL: NEVER LOSE MAIL
 
-> - The backup is the product. A backup file is written once and is never overwritten, moved, renamed or deleted, except by the three flows in Section 11.
+> - The backup is the product. A backup file is written once and is never overwritten, moved, renamed or deleted, except by the four flows in Section 11.
 > - A deletion at the source never deletes a backup file. Deleted messages and gone mailboxes are marked in the index; their files stay.
-> - Deleting a backup happens only through `deleteMailboxBackup`: for one mailbox after its address is typed to confirm, or for every mailbox that is not backed up after DELETE is typed in What is backed up. There is no other delete path, and you never add one without the maintainer's approval.
+> - Deleting a backup happens only through `deleteMailboxBackup`: for one mailbox after its address is typed to confirm, or for every mailbox that is not backed up after DELETE is typed in What is backed up. The only other delete path is removing the old copy after a move of the backup folder (Section 11, exception 4). There is no other, and you never add one without the maintainer's approval.
 
 # 🚨 CRITICAL: NEVER WIPE A DATABASE OR A BACKUP FOLDER
 
@@ -177,10 +177,10 @@ src/
       crypto/          DER, the Entra certificate, sealed secrets
       services/
         graph/         token, client (paging, throttling, retries), discovery, mail, archive, connection test
-        engine/        engine (timer, queue), sync-pass, discovery-pass, startup-tasks, snapshot-task, scheduler, mailbox-sync, archive-sync, scope-change
-        mailboxes/     repository (all mailbox SQL), views, delete-backup
+        engine/        engine (timer, queue), sync-pass, discovery-pass, startup-tasks, snapshot-task, scheduler, mailbox-sync, archive-sync, scope-change, live-status, backup-move-task, backup-folder-check, run-history
+        mailboxes/     repository (all mailbox SQL), views, completeness, delete-backup, item-failures
         messages/      search
-        storage/       eml-store (safe names, atomic writes), relayout, disk guard, index-snapshot
+        storage/       eml-store (safe names, atomic writes), relayout, disk guard, index-snapshot, backup-marker, backup-move
         settings/      the one owner of the settings table
         activity/      recordActivity() and the activity log
         server-updates/ release checks, Update now, the updater's status (BMuster's)
@@ -213,6 +213,8 @@ tests/support/         the fake Microsoft Graph tests use
 - **Sync** (`engine/mailbox-sync.ts`, every 15 minutes or Sync now): folder list, then each folder's delta query from its saved link. New messages are downloaded as MIME and written atomically as `.eml` under `<address>/<yyyy>/<mm>/`; progress is saved after every page; an expired delta link restarts the folder without downloading stored messages again. A message removed from a folder is marked deleted only if it is still filed there; moves, deletes and restores are recorded as the message's history.
 - **Archives** (`engine/archive-sync.ts`, `graph/archive.ts`): the beta Mailbox Import/Export API, a delta per folder, `exportItems` in batches of 20, stored as `.fts` exactly as exported, under `<address> (archive)/<yyyy>/<mm>/` by the received date read from the item. `fts/` reads items (MS-OXCFXICS FastTransfer stream) strictly: a value past the end, an unknown type or an unbalanced marker is an error, never a guess. An item it cannot read is still stored. `.eml` copies are made on request and never stored.
 - **Engine** (`engine/engine.ts`): a tick every 5 seconds. Discovery runs beside syncs. Each mailbox syncs on its own timer (`engine/scheduler.ts`); first copies never take every slot. The number of mailboxes synced at once grows while Graph allows it and halves when it throttles (`AdaptiveSlots`), up to `parallelMailboxes`. Pause, the disk guard and a cancel stop a sync after its current page. At start-up the engine finishes the move into the date layout (`storage/relayout.ts`) before any sync starts.
+- **Live status** (`engine/live-status.ts`, `docs/specs/SPEC-STATUS.md`): the root layout's load builds one snapshot of the engine and the governor; every page that shows what is running reads it (`await parent()`), and the layout refreshes it on one timer. Never ask the engine whether something runs from a page load.
+- **Backup folder** (`docs/specs/SPEC-BACKUP-FOLDER-MOVE.md`): marked with `.lookstow-backup`; moved only by Move in Settings, after `lookstow backup-folder prepare <dir>` as an administrator.
 - **Console access:** answers only on 127.0.0.1 and ::1, except `/healthz` and `/readyz`. Writes must carry a matching Origin. Remote access with sign-in is not built.
 - **Alerts** (`alerts/`): every activity entry passes through `alert-rules.ts`; one worth an email goes into the outbox (the `emails` table) for each person who ticked that alert, and a pass every 30 seconds sends what is due through Mailgun, retrying after 1, 5, 15 and 30 minutes, then hourly, eight tries in all. Without a Mailgun setup, emails are recorded as not sent. A new alert is a new case in `alert-rules.ts` and a new key in `src/lib/domain/alerts.ts` (keys are stored; never rename one).
 - **Updates:** the app only writes `update-requested`; the root updater in `launcher/` verifies, switches and rolls back. With automatic updates on, `engine/auto-update.ts` asks for a release the daily check found.
@@ -291,10 +293,12 @@ The backup is evidence that mail existed. Treat every file and index row as irre
 
 - **Writing:** backup files are written only by `storage/eml-store.ts` (`writeMessageFile`): a temporary file beside the target, then a rename, so a crash never leaves half a file under the real name. Its SHA-256 and size go into the index. Never write a backup file any other way.
 - **Paths:** every path under the backup folder is built with `resolveStoragePath()` and the safe-name helpers in `eml-store.ts`, which refuse `..` and `.` and Windows reserved names. Never `join()` user, Graph or database values into a path yourself. Names stay inside Windows' path limits.
-- **Written once.** After a file is stored it is never rewritten, moved, renamed or deleted, with exactly three exceptions:
+- **Written once.** After a file is stored it is never rewritten, moved, renamed or deleted, with exactly four exceptions:
   1. `writeMessageFile` replacing a file of the same name, which carries the same immutable message id, so the same message;
   2. the one-time moves into the date layout (`storage/relayout.ts`): files stored before 0.4.0 (`docs/decisions.md` "Old files moved into the date layout"), and online archive items copied before 0.6.0, moved to the month they were received once the index knows it ("Archive items filed by their received date"). Both go through `moveStoredFiles`, which renames on the same drive, never replaces an existing file and records the new path;
-  3. `deleteMailboxBackup` (`services/mailboxes/delete-backup.ts`), reached only through `existing-backup.ts` when the admin chose Delete and typed the mailbox's address (`confirmsDeletion`), or through `engine/scope-change.ts` when the admin chose Delete in What is backed up and typed DELETE: that deletes the backup of every mailbox the saved scope does not back up.
+  3. `deleteMailboxBackup` (`services/mailboxes/delete-backup.ts`), reached only through `existing-backup.ts` when the admin chose Delete and typed the mailbox's address (`confirmsDeletion`), or through `engine/scope-change.ts` when the admin chose Delete in What is backed up and typed DELETE: that deletes the backup of every mailbox the saved scope does not back up;
+  4. moving the backup folder (`storage/backup-move.ts`, `engine/backup-move-task.ts`, `docs/specs/SPEC-BACKUP-FOLDER-MOVE.md`): files are copied, never moved, each copy checked against the index's SHA-256 before it takes its name, and the folder setting switches only after the whole copy is checked. The old copy is removed only after REMOVE is typed, and then only file by file where the new copy has the same SHA-256. While a move runs the backup is in lockdown: nothing that writes or deletes backup files starts.
+- **The backup folder's marker** (`storage/backup-marker.ts`, `.lookstow-backup`) ties the folder to the index. A folder without it that does not hold the stored mail (a drive not attached) stops every write; never weaken that check or write a marker anywhere else.
 - **The index snapshots** (`storage/index-snapshot.ts`) are not mail: a daily copy of `lookstow.db` in `<backup root>/.lookstow-index/`, of which only the 7 newest are kept. Pruning touches only `lookstow-*.db` files in that folder.
 - **A new exception needs the maintainer's approval**, a `docs/decisions.md` entry, a test that proves no file is lost when it stops half way, and an activity record for every file it touches.
 - **Source deletions never delete files.** A deleted message, a removed folder, a gone mailbox or an excluded mailbox changes the index, never the disk, unless the admin chose Delete with the typed confirmation.
