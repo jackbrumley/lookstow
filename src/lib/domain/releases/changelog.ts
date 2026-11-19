@@ -20,6 +20,22 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.6.2',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, Activity soon says how many online archive items were filed under the month they were received (Log names any that could not be moved)',
+				'In C:\\ProgramData\\Lookstow\\mailboxes, Jason’s archive folder now holds years like his mailbox’s (2018, 2019 …), and an item’s file date matches its received date in Search',
+				'Open an archive item from Search and download it again: both the .eml and the original .fts still work',
+				'In Settings > What is backed up > Change, and in a mailbox’s Exclude or Delete backup: each radio button sits level with its text'
+			]
+		},
+		changes: [
+			'Online archive items copied before 0.6.0 are moved, once, to the month they were received, so an archive’s folders match its mailbox’s. The files are renamed on the same drive and are otherwise unchanged',
+			'Radio buttons and checkboxes everywhere line up with the first line of their text'
+		]
+	},
+	{
 		version: '0.6.1',
 		testing: {
 			kind: 'steps',

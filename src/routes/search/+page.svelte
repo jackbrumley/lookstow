@@ -183,7 +183,7 @@
 
 	.search .check {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--space-2);
 		grid-column: 1 / -1;
 	}

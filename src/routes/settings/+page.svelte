@@ -496,7 +496,7 @@
 
 	label.check {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--space-2);
 	}
 

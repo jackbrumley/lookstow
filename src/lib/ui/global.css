@@ -81,10 +81,18 @@ textarea {
 	min-height: 2.5rem;
 }
 
-input[type='checkbox'] {
+/*
+ * Checkboxes and radio buttons: their own small box, not a text field's padding and height.
+ * In a label laid out as a flex row with align-items: flex-start, the margin centres the box on
+ * the first line of the label's text, so a label that wraps still lines up.
+ */
+input[type='checkbox'],
+input[type='radio'] {
 	width: 1.125rem;
 	height: 1.125rem;
 	min-height: 0;
+	padding: 0;
+	margin: calc((1lh - 1.125rem) / 2) 0 0;
 	/* Beside long text in a flex row, keep its size */
 	flex: none;
 	accent-color: var(--colour-brand);

@@ -218,7 +218,7 @@ describe('filing archive items by the date they were received', () => {
 			right: `${box}/2019/01/2019-01-02_000000_IPM.Note_bbbb.fts`,
 			unknown: `${box}/2020/09/2020-09-01_000000_IPM.Note_cccc.fts`
 		});
-		expect(await readFile(resolveStoragePath(root, paths.old ?? ''), 'utf8')).toBe('fts old');
+		expect(await readFile(resolveStoragePath(root, paths['old'] ?? ''), 'utf8')).toBe('fts old');
 		// 2020/08 is empty now and removed; the rest stay.
 		expect((await readdir(join(root, box))).sort()).toEqual(['2018', '2019', '2020']);
 		expect(await readdir(join(root, box, '2020'))).toEqual(['09']);
