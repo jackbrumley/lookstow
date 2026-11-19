@@ -28,6 +28,29 @@
 	let excludeOpen = $state(false);
 	let deleteOpen = $state(false);
 	const mailbox = $derived(data.mailbox);
+
+	type Folder = (typeof data.mailbox.folders)[number];
+
+	/** Why a folder's count and Microsoft's differ, in a few words beside Microsoft's count. */
+	function gapText(folder: Folder): string {
+		const gap = folder.gap;
+		if (gap.kind === 'explained') {
+			const parts = [
+				gap.waiting > 0 ? `${formatCount(gap.waiting)} waiting to be copied again` : '',
+				gap.givenUp > 0 ? `${formatCount(gap.givenUp)} failed 5 tries` : '',
+				gap.otherItems > 0 ? `${formatCount(gap.otherItems)} not messages` : ''
+			].filter((part) => part !== '');
+			return parts.length === 0 ? '' : `(${parts.join(', ')})`;
+		}
+		if (gap.kind !== 'unexplained') return '';
+		const since =
+			folder.differsSince === null ? '' : `, since ${formatRelative(folder.differsSince)}`;
+		const reread =
+			folder.recheckedAt === null
+				? '; read again from the start if it lasts'
+				: `; read again ${formatRelative(folder.recheckedAt)}`;
+		return `(differs${since}${reread})`;
+	}
 </script>
 
 <p class="small"><a href={resolve('/mailboxes')}>Mailboxes</a></p>
@@ -124,10 +147,14 @@
 						<td>
 							{#if folder.sourceCount === null}
 								<span class="muted">Not yet</span>
-							{:else if folder.sourceCount === folder.itemCount}
-								{formatCount(folder.sourceCount)}
-							{:else}
+							{:else if folder.gap.kind === 'unexplained'}
 								<Badge tone="warn">{formatCount(folder.sourceCount)}</Badge>
+								<span class="muted small">{gapText(folder)}</span>
+							{:else}
+								{formatCount(folder.sourceCount)}
+								{#if folder.gap.kind === 'explained'}
+									<span class="muted small">{gapText(folder)}</span>
+								{/if}
 							{/if}
 						</td>
 						<td>{folder.firstCopyDone ? 'Done' : 'In progress'}</td>
@@ -136,14 +163,13 @@
 				{/each}
 			</tbody>
 		</table>
-		{#if mailbox.differsFromMicrosoft}
-			<p class="muted small">
-				Where Microsoft's count differs from the stored messages, it is marked. Small differences
-				are normal: mail that arrived during the last sync, and items in a mail folder that are not
-				messages (Deleted Items can hold contacts and calendar items). The numbers are shown as they
-				are, and checked again at every sync.
-			</p>
-		{/if}
+		<p class="muted small">
+			Microsoft's count is read after each folder syncs. Items waiting to be copied again, and items
+			that are not messages (Deleted Items can hold contacts and calendar items), explain a higher
+			count. A difference nothing explains is marked; if it lasts half an hour, Lookstow reads the
+			folder again from the start, at most once a day, and if it lasts a day after that, it says so
+			in the activity log and the Completeness alert.
+		</p>
 	{/if}
 </Card>
 

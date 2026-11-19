@@ -117,6 +117,8 @@ describe('which activity is an alert', () => {
 		expect(alertFor({ ...entry, kind: 'update-requested' })?.alert).toBe('updates');
 		expect(alertFor({ ...entry, kind: 'update-requested', actor: 'console' })).toBeNull();
 		expect(alertFor({ ...entry, kind: 'settings' })).toBeNull();
+		expect(alertFor({ ...entry, kind: 'completeness' })?.alert).toBe('completeness');
+		expect(alertFor({ ...entry, kind: 'completeness', level: 'info' })).toBeNull();
 	});
 });
 

@@ -200,7 +200,8 @@
 				Every checked folder matches Microsoft's count
 			{:else}
 				<Badge tone="warn"
-					>{plural(data.totals.differingFromMicrosoft, 'mailbox', 'mailboxes')} differ</Badge
+					>{plural(data.totals.differingFromMicrosoft, 'mailbox', 'mailboxes')}
+					{data.totals.differingFromMicrosoft === 1 ? 'differs' : 'differ'}</Badge
 				>
 				from Microsoft's count: see <a href={resolve('/mailboxes')}>Mailboxes</a>, Differs from
 				Microsoft.

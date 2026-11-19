@@ -8,6 +8,7 @@ export const ALERT_TYPES = [
 	'discovery-problems',
 	'disk',
 	'index-snapshot',
+	'completeness',
 	'mailboxes-changed',
 	'first-copy',
 	'backups-deleted',
@@ -34,6 +35,11 @@ export const ALERT_LABELS: Record<AlertType, { label: string; description: strin
 		label: 'The index cannot be copied',
 		description:
 			'The daily copy of the index onto the backup drive failed, so losing the index now would lose every mailbox’s folder history'
+	},
+	completeness: {
+		label: 'A folder stays different from Microsoft',
+		description:
+			'A folder’s stored messages have differed from Microsoft’s count for a day, and reading the folder again from the start did not close the gap'
 	},
 	'mailboxes-changed': {
 		label: 'Mailboxes found or gone',

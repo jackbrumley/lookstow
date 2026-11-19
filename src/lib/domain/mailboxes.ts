@@ -24,9 +24,20 @@ export type MailboxSummary = {
 	firstCopyDone: boolean;
 	paused: boolean;
 	goneAt: string | null;
-	/** A folder's stored messages differ from Microsoft's count (the completeness check). */
+	/** A folder's stored messages differ from Microsoft's count and nothing explains it. */
 	differsFromMicrosoft: boolean;
 };
+
+/**
+ * Why a folder's stored count and Microsoft's differ (docs/specs/SPEC-COMPLETENESS-REPAIR.md):
+ * not checked yet, matching, explained (items waiting to be copied again or given up on, and
+ * items that are not messages), or a difference nothing explains.
+ */
+export type FolderGap =
+	| { kind: 'unchecked' }
+	| { kind: 'match' }
+	| { kind: 'explained'; waiting: number; givenUp: number; otherItems: number }
+	| { kind: 'unexplained'; stored: number; source: number };
 
 export type MailboxDetail = MailboxSummary & {
 	userId: string;
@@ -42,6 +53,11 @@ export type MailboxDetail = MailboxSummary & {
 		sourceCount: number | null;
 		firstCopyDone: boolean;
 		lastSyncedAt: string | null;
+		gap: FolderGap;
+		/** Since when nothing explains its difference, or null. */
+		differsSince: string | null;
+		/** When it was last read again from the start because it differed, or null. */
+		recheckedAt: string | null;
 	}[];
 	recentRuns: RunSummary[];
 };

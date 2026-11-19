@@ -66,3 +66,22 @@ export function withUniqueStoragePaths(
 		return { ...folder, storagePath };
 	});
 }
+
+/**
+ * Microsoft's count for each folder that synced to its delta link, from the folder list read
+ * after the sync, with how many messages a full listing returned where the sync listed the
+ * folder from the start. A folder Microsoft did not count, or no longer lists, has none.
+ */
+export function countsFor(
+	synced: readonly { id: string; graphId: string }[],
+	after: readonly { graphId: string; totalItemCount: number | null }[],
+	fullListings: ReadonlyMap<string, number>
+): { folderId: string; count: number; listed: number | null }[] {
+	const byGraphId = new Map(after.map((folder) => [folder.graphId, folder.totalItemCount]));
+	return synced.flatMap((folder) => {
+		const count = byGraphId.get(folder.graphId) ?? null;
+		return count === null
+			? []
+			: [{ folderId: folder.id, count, listed: fullListings.get(folder.id) ?? null }];
+	});
+}

@@ -165,23 +165,6 @@ export function recountStoredMessages(db: Queryable): number {
 		.run().changes;
 }
 
-/**
- * Microsoft's item count for each folder whose sync just reached its delta link: what the
- * completeness check compares with the stored messages.
- */
-export function setFolderSourceCounts(
-	db: Queryable,
-	counts: readonly { folderId: string; count: number }[],
-	now: number
-): void {
-	for (const { folderId, count } of counts) {
-		db.update(mailFolders)
-			.set({ sourceCount: count, sourceCountAt: new Date(now) })
-			.where(eq(mailFolders.id, folderId))
-			.run();
-	}
-}
-
 export function foldersOf(db: Queryable, mailboxId: string): FolderRow[] {
 	return db
 		.select()
@@ -375,26 +358,6 @@ export function markMessageDeleted(
 		toFolderPath: null
 	});
 	return true;
-}
-
-/**
- * Mailboxes with a folder whose stored messages (not deleted at the source) differ from the
- * count Microsoft gave after its last up-to-date sync: the completeness check.
- */
-export function mailboxesDifferingFromSource(db: Queryable): Set<string> {
-	const stored = sql`(select count(*) from ${messages} where ${messages.folderId} = ${mailFolders.id} and ${messages.deletedAt} is null)`;
-	const rows = db
-		.selectDistinct({ mailboxId: mailFolders.mailboxId })
-		.from(mailFolders)
-		.where(
-			and(
-				isNotNull(mailFolders.sourceCount),
-				isNull(mailFolders.goneAt),
-				sql`${mailFolders.sourceCount} <> ${stored}`
-			)
-		)
-		.all();
-	return new Set(rows.map((row) => row.mailboxId));
 }
 
 export function folderItemCounts(db: Queryable, mailboxId: string): Map<string, number> {

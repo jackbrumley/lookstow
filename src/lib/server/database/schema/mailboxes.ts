@@ -63,7 +63,21 @@ export const mailFolders = sqliteTable(
 		goneAt: integer({ mode: 'timestamp_ms' }),
 		/** How many items Microsoft said the folder held, after its last up-to-date sync. */
 		sourceCount: integer(),
-		sourceCountAt: integer({ mode: 'timestamp_ms' })
+		sourceCountAt: integer({ mode: 'timestamp_ms' }),
+		/**
+		 * Since when the folder has differed from Microsoft's count with nothing to explain it
+		 * (docs/specs/SPEC-COMPLETENESS-REPAIR.md); null while it matches or the gap is explained.
+		 */
+		differsSince: integer({ mode: 'timestamp_ms' }),
+		/** When the folder was last read again from the start because it differed. */
+		recheckedAt: integer({ mode: 'timestamp_ms' }),
+		/** When an alert said the difference lasted; cleared once the folder matches again. */
+		differenceAlertedAt: integer({ mode: 'timestamp_ms' }),
+		/**
+		 * Items Microsoft counts in the folder that its message listing does not return (contacts
+		 * or calendar items in Deleted Items), measured by the last full listing of the folder.
+		 */
+		otherItemCount: integer()
 	},
 	(table) => [uniqueIndex('mail_folders_mailbox_graph').on(table.mailboxId, table.graphId)]
 );

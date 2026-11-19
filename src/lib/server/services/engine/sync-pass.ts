@@ -7,6 +7,7 @@ import {
 	startRun,
 	type MailboxRow
 } from '../mailboxes/repository.ts';
+import { reportLastingDifferences } from '../mailboxes/completeness.ts';
 import { syncMailbox } from './mailbox-sync.ts';
 import type { SyncContext } from './sync-common.ts';
 import { formatBytes, plural } from '../../../utils/format.ts';
@@ -67,6 +68,8 @@ export async function syncOneMailbox(
 				mailboxId: mailbox.id
 			});
 		}
+		// A folder that still differs from Microsoft a day on, after a re-read: say so, once.
+		reportLastingDifferences(db, mailbox.id, now());
 		if (mailbox.lastSyncError !== null) {
 			recordActivity(db, {
 				level: 'info',
