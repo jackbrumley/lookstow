@@ -8,6 +8,7 @@
 	import IconMailbox from '@tabler/icons-svelte-runes/icons/mailbox';
 	import IconListDetails from '@tabler/icons-svelte-runes/icons/list-details';
 	import IconSearch from '@tabler/icons-svelte-runes/icons/search';
+	import IconBell from '@tabler/icons-svelte-runes/icons/bell';
 	import IconSettings from '@tabler/icons-svelte-runes/icons/settings';
 	import IconTerminal2 from '@tabler/icons-svelte-runes/icons/terminal-2';
 	import IconCloudDownload from '@tabler/icons-svelte-runes/icons/cloud-download';
@@ -26,6 +27,7 @@
 		{ path: '/search', href: resolve('/search'), label: 'Search', icon: IconSearch },
 		{ path: '/activity', href: resolve('/activity'), label: 'Activity', icon: IconListDetails },
 		{ path: '/log', href: resolve('/log'), label: 'Log', icon: IconTerminal2 },
+		{ path: '/alerts', href: resolve('/alerts'), label: 'Alerts', icon: IconBell },
 		{ path: '/settings', href: resolve('/settings'), label: 'Settings', icon: IconSettings },
 		{ path: '/updates', href: resolve('/updates'), label: 'Updates', icon: IconCloudDownload }
 	];

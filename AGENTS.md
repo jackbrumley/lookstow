@@ -160,6 +160,7 @@ src/
     +page              dashboard          mailboxes/        list and one mailbox
     search/            search the index   messages/[id]/    one message, history, download
     activity/          the activity log   log/              the server log
+    alerts/            alert email: Mailgun setup, who gets which alert, sent emails
     settings/          connection, scope, schedule, folder, updates
     updates/           releases and Update now            control/  pause and resume
     api/               JSON for pages     healthz/ readyz/  probes for the launcher
@@ -181,6 +182,7 @@ src/
         settings/      the one owner of the settings table
         activity/      recordActivity() and the activity log
         server-updates/ release checks, Update now, the updater's status (BMuster's)
+        alerts/        alert rules (activity to email), the outbox, Mailgun
     domain/            browser-safe types and pure rules (releases/changelog.ts lives here)
     schemas/           zod contracts shared by server and browser
     ui/                tokens.css, global.css, shared components
@@ -208,6 +210,7 @@ tests/support/         the fake Microsoft Graph tests use
 - **Archives** (`engine/archive-sync.ts`, `graph/archive.ts`): the beta Mailbox Import/Export API, a delta per folder, `exportItems` in batches of 20, stored as `.fts` under `<address> (archive)/<yyyy>/<mm>/`.
 - **Engine** (`engine/engine.ts`): a tick every 5 seconds. Discovery runs beside syncs. Each mailbox syncs on its own timer (`engine/scheduler.ts`); first copies never take every slot. The number of mailboxes synced at once grows while Graph allows it and halves when it throttles (`AdaptiveSlots`), up to `parallelMailboxes`. Pause, the disk guard and a cancel stop a sync after its current page. At start-up the engine finishes the move into the date layout (`storage/relayout.ts`) before any sync starts.
 - **Console access:** answers only on 127.0.0.1 and ::1, except `/healthz` and `/readyz`. Writes must carry a matching Origin. Remote access with sign-in is not built.
+- **Alerts** (`alerts/`): every activity entry passes through `alert-rules.ts`; one worth an email goes into the outbox (the `emails` table) for each person who ticked that alert, and a pass every 30 seconds sends what is due through Mailgun, retrying after 1, 5, 15 and 30 minutes, then hourly, eight tries in all. Without a Mailgun setup, emails are recorded as not sent. A new alert is a new case in `alert-rules.ts` and a new key in `src/lib/domain/alerts.ts` (keys are stored; never rename one).
 - **Updates:** the app only writes `update-requested`; the root updater in `launcher/` verifies, switches and rolls back. With automatic updates on, `engine/auto-update.ts` asks for a release the daily check found.
 
 ---
@@ -318,7 +321,7 @@ The backup is evidence that mail existed. Treat every file and index row as irre
 - **Path traversal:** any path built from outside data (Graph, the database, a URL, a form) goes through `resolveStoragePath()` or an equivalent check that the result stays inside its root. The launcher never follows a link in the data folder (`O_NOFOLLOW`, `FILE_FLAG_OPEN_REPARSE_POINT`).
 - **Data folder privacy:** the data folder and the backup folder are for the service account and administrators only (Linux 0700 and `server.env` 0600; Windows a protected DACL for SYSTEM, Administrators and LocalService). Never loosen those permissions, and never write mail, secrets or the database anywhere else.
 - **Least privilege on the machine:** the service runs unprivileged (`lookstow`, LocalService); only the updater runs as root or SYSTEM, and the app can only ask it for an update by writing the empty flag. Never give the app a way to choose what is installed, run a command as root or SYSTEM, or skip a signature check.
-- **No telemetry.** Lookstow talks only to Microsoft (Graph and sign-in) and GitHub (releases). Never add another outbound destination without approval.
+- **No telemetry.** Lookstow talks only to Microsoft (Graph and sign-in), GitHub (releases) and Mailgun's API host for the configured region (alert email, only when set up). The Mailgun key goes only to that host, which is fixed in code, never a setting. Never add another outbound destination without approval.
 - **Never weaken a check** (signature, hash, size, version, origin, host, path, permission, typed confirmation) to make something work. If a check blocks you, stop and ask.
 
 ---

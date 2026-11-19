@@ -10,9 +10,9 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 - **0.4.1–0.4.4** (19 November 2026): retries for broken replies, the archive permission check, an updater that starts at once on Windows with step times, old files moved into the date layout, a type-to-filter mailbox field in Search, a 380-file update archive, and no permission reset across the backup on each update.
 - **0.4, archives and find mail** (18 November 2026): online archives copied (FTS through the beta export API), date-based file layout with folder history, Search with a message page and download, To/Cc recorded. Left out: message bodies in search, a readable view of archive items.
 
-## Now: 0.5, email alerts, the update popup and faster updates
+## Now: 0.5, email alerts and the update popup
 
-- **Email settings, as in i12-pt6-control.** SMTP host, port, TLS, user and password (sealed), sender address, and Send a test email. Recipients each choose their alerts: a mailbox failing for N hours, discovery failing, disk at 85% / 90%, a first copy finished, a mailbox gone from Microsoft 365, an update installed or failed, and a daily summary. Sent through an outbox with retries.
+- **Email alerts.** Done in 0.5.0, as in i12-pt6-control: Mailgun, people who each choose their alerts, an outbox with retries, test emails, the Alerts page. Next: a disk warning at 85% (only the 90% pause alerts now), the result of an update (installed, rolled back, failed), and a daily summary.
 - **Update popup.** A dismissable dialog in the middle of the screen when a newer release waits: Update now or Later. Comes back after 24 hours (per browser). With automatic updates on, it says when the update will install.
 
 - **Faster updates.** Done in 0.4.2: the update task starts at once on Windows, and the Updates page shows how long each step took. Next: from those times, shrink the slow steps (a smaller bundle, a faster database backup).

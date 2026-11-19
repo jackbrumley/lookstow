@@ -69,3 +69,7 @@ Only the beta Mailbox Import/Export API reads online archives (Graph v1.0 cannot
 ## A small update archive, and no permission reset on every update (2026-11-19)
 
 The 0.4.3 update took three minutes on Windows. Two causes. The archive held about 4,000 files, mostly two libraries' source in `node_modules`, and Windows unpacks and scans each one. And every update reset the data folder's permissions across every file inside it, including the whole backup. Now only native modules (`better-sqlite3`) ship in `node_modules`; the build bundles every other library into the app's files (380 files, unpacked in about 3 s instead of 16 s). And an update reads the data folder's own permissions and resets the tree only when they are not Lookstow's; an install still always resets it.
+
+## Alert email through Mailgun, from the activity log (2026-11-19)
+
+Alerts were planned over SMTP; i12-pt6-control already sends through Mailgun's HTTP API with a sending domain Midfield has, so Lookstow does the same: no mail server to configure, one key, and a clear refusal message when something is wrong. The key is sealed like the Graph secret and goes only to Mailgun's API host for the chosen region, fixed in code. Alerts follow the activity log (a listener on `recordActivity`) instead of each part of Lookstow sending email, so every alert is also an activity entry, and adding an alert is one rule in `alert-rules.ts`. The outbox and its retry schedule are i12-pt6-control's.

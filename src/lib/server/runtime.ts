@@ -1,6 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { database } from './database/app-database.ts';
 import { env } from './env.ts';
+import { Alerts } from './services/alerts/alerts.ts';
 import { Engine } from './services/engine/engine.ts';
 
 /**
@@ -19,6 +20,13 @@ let engine: Engine | null = null;
 export function backupEngine(): Engine {
 	engine ??= new Engine({ db: database, dataDir: dataDir(), secretsKey: env.secretsKey });
 	return engine;
+}
+
+let alerts: Alerts | null = null;
+
+export function alertService(): Alerts {
+	alerts ??= new Alerts({ db: database, secretsKey: env.secretsKey });
+	return alerts;
 }
 
 export { database };

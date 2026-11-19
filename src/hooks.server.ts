@@ -1,6 +1,6 @@
 import { building } from '$app/env';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
-import { backupEngine, database } from '#lib/server/runtime.ts';
+import { alertService, backupEngine, database } from '#lib/server/runtime.ts';
 import { startAutomaticUpdates } from '#lib/server/services/engine/auto-update.ts';
 import { pruneActivity } from '#lib/server/services/activity/activity.ts';
 import { errorText, serverLog } from '#lib/server/log.ts';
@@ -8,7 +8,8 @@ import { serverUpdates, startUpdateChecks } from '#lib/server/services/server-up
 
 /**
  * Start-up and every request. At start-up the database is already open and migrated (runtime
- * imports it), the backup engine starts its timer, the daily release check starts, and so do
+ * imports it), email alerts start listening (before anything can record activity), the backup
+ * engine starts its timer, the daily release check starts, and so do
  * automatic updates (when they are on in Settings).
  *
  * Access: the console answers only on this computer. Anyone who can open a browser on the
@@ -19,6 +20,7 @@ export const init: ServerInit = () => {
 	if (building) {
 		return;
 	}
+	alertService().start();
 	backupEngine().start();
 	startUpdateChecks();
 	startAutomaticUpdates(database, serverUpdates);

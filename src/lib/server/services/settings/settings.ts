@@ -7,6 +7,13 @@ import { certificateFacts } from '../../crypto/app-certificate.ts';
 import { openSecret, sealSecret } from '../../crypto/secret-box.ts';
 import type { GraphCredentials } from '../graph/token.ts';
 import {
+	ALERT_TYPES,
+	MAILGUN_REGIONS,
+	type AlertRecipient,
+	type MailgunRegion,
+	type MailgunView
+} from '../../../domain/alerts.ts';
+import {
 	SCHEDULE_DEFAULTS,
 	SCHEDULE_LIMITS,
 	DISK_DEFAULTS,
@@ -89,13 +96,45 @@ const backupSchema = z.object({
 
 const updatesSchema = z.object({ automatic: z.boolean() });
 
+/** A Mailgun sending domain: letters, digits, dots and hyphens (mg.example.com). */
+const DOMAIN =
+	/^(?=.{3,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+
+const recipientSchema = z.object({
+	id: z.string().min(1),
+	name: z.string().trim().min(1, 'Give the person a name').max(100),
+	email: z.string().trim().toLowerCase().pipe(z.email('That is not an email address')),
+	enabled: z.boolean(),
+	alerts: z.array(z.enum(ALERT_TYPES))
+});
+
+const emailSchema = z.object({
+	mailgun: z
+		.object({
+			domain: z.string().regex(DOMAIN),
+			from: z.string().min(1).max(200),
+			region: z.enum(MAILGUN_REGIONS),
+			sealedKey: z.string(),
+			keyHint: z.string(),
+			setAt: z.string()
+		})
+		.nullable(),
+	recipients: z.array(recipientSchema).max(100)
+});
+type StoredEmail = z.infer<typeof emailSchema>;
+
+function emptyEmail(): StoredEmail {
+	return { mailgun: null, recipients: [] };
+}
+
 const KEYS = {
 	connection: { schema: connectionSchema, fallback: emptyConnection() },
 	scope: { schema: scopeSchema, fallback: SCOPE_DEFAULTS },
 	schedule: { schema: scheduleSchema, fallback: SCHEDULE_DEFAULTS },
 	backup: { schema: backupSchema, fallback: { root: null } },
 	updates: { schema: updatesSchema, fallback: UPDATE_DEFAULTS },
-	disk: { schema: diskSchema, fallback: DISK_DEFAULTS }
+	disk: { schema: diskSchema, fallback: DISK_DEFAULTS },
+	email: { schema: emailSchema, fallback: emptyEmail() }
 } as const;
 type Key = keyof typeof KEYS;
 
@@ -337,4 +376,114 @@ function connectionView(connection: StoredConnection): ConnectionView {
 			};
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Email alerts: the Mailgun setup and the people on the list
+// ---------------------------------------------------------------------------
+
+function readEmail(db: Queryable): StoredEmail {
+	return read(db, 'email', KEYS.email.schema, KEYS.email.fallback);
+}
+
+/** What Lookstow needs to send through Mailgun, with the key opened, or null when not set up. */
+export type MailgunSetup = { domain: string; from: string; region: MailgunRegion; apiKey: string };
+
+export function mailgunSetup(db: Queryable, key: Buffer): MailgunSetup | null {
+	const mailgun = readEmail(db).mailgun;
+	if (mailgun === null) {
+		return null;
+	}
+	return {
+		domain: mailgun.domain,
+		from: mailgun.from,
+		region: mailgun.region,
+		apiKey: openSecret(mailgun.sealedKey, key).toString()
+	};
+}
+
+export function mailgunView(db: Queryable): MailgunView {
+	const mailgun = readEmail(db).mailgun;
+	return mailgun === null
+		? { kind: 'none' }
+		: {
+				kind: 'set',
+				domain: mailgun.domain,
+				from: mailgun.from,
+				region: mailgun.region,
+				keyHint: mailgun.keyHint,
+				setAt: mailgun.setAt
+			};
+}
+
+/**
+ * Saves the Mailgun setup. A blank key keeps the one stored (the page never shows it), so an
+ * admin can change the domain or sender without pasting the key again.
+ */
+export function saveMailgun(
+	db: Queryable,
+	input: { domain: string; from: string; region: string; apiKey: string },
+	key: Buffer,
+	now = Date.now()
+): void {
+	const current = readEmail(db);
+	const domain = input.domain.trim().toLowerCase();
+	if (!DOMAIN.test(domain)) {
+		throw new SettingsError('The sending domain is a domain name, such as mg.example.com.');
+	}
+	const region = MAILGUN_REGIONS.find((known) => known === input.region);
+	if (region === undefined) {
+		throw new SettingsError('Choose the US or EU region, as your Mailgun account shows it.');
+	}
+	const apiKey = input.apiKey.trim();
+	let sealed: { sealedKey: string; keyHint: string; setAt: string };
+	if (apiKey === '') {
+		if (current.mailgun === null) {
+			throw new SettingsError('Paste the Mailgun sending key.');
+		}
+		sealed = {
+			sealedKey: current.mailgun.sealedKey,
+			keyHint: current.mailgun.keyHint,
+			setAt: current.mailgun.setAt
+		};
+	} else {
+		if (apiKey.length < 20 || /\s/.test(apiKey)) {
+			throw new SettingsError('That is not a Mailgun sending key: paste the whole key.');
+		}
+		sealed = {
+			sealedKey: sealSecret(Buffer.from(apiKey), key),
+			keyHint: `…${apiKey.slice(-4)}`,
+			setAt: new Date(now).toISOString()
+		};
+	}
+	const from = input.from.trim() === '' ? `Lookstow <lookstow@${domain}>` : input.from.trim();
+	if (from.length > 200 || /[\r\n]/.test(from)) {
+		throw new SettingsError('The sender is one line, such as Lookstow <lookstow@mg.example.com>.');
+	}
+	write(db, 'email', { ...current, mailgun: { domain, from, region, ...sealed } }, now);
+}
+
+export function clearMailgun(db: Queryable, now = Date.now()): void {
+	write(db, 'email', { ...readEmail(db), mailgun: null }, now);
+}
+
+export function readRecipients(db: Queryable): AlertRecipient[] {
+	return readEmail(db).recipients;
+}
+
+/** Saves the whole list after checking each person; an invalid entry refuses the save. */
+export function saveRecipients(
+	db: Queryable,
+	recipients: readonly AlertRecipient[],
+	now = Date.now()
+): void {
+	const parsed = z.array(recipientSchema).max(100).safeParse(recipients);
+	if (!parsed.success) {
+		throw new SettingsError(parsed.error.issues[0]?.message ?? 'That list is not valid.');
+	}
+	const addresses = parsed.data.map((recipient) => recipient.email);
+	if (new Set(addresses).size !== addresses.length) {
+		throw new SettingsError('Each email address can be on the list once.');
+	}
+	write(db, 'email', { ...readEmail(db), recipients: parsed.data }, now);
 }

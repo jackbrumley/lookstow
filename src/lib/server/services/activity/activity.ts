@@ -15,6 +15,19 @@ export type NewActivity = {
 	mailboxId?: string | null;
 };
 
+/** Told about every entry once it is recorded (email alerts listen here). */
+export type ActivityListener = (db: Queryable, entry: NewActivity, now: number) => void;
+
+const listeners = new Set<ActivityListener>();
+
+/** Adds a listener; returns the function that removes it. */
+export function onActivity(listener: ActivityListener): () => void {
+	listeners.add(listener);
+	return () => {
+		listeners.delete(listener);
+	};
+}
+
 export function recordActivity(db: Queryable, entry: NewActivity, now = Date.now()): void {
 	db.insert(activity)
 		.values({
@@ -30,6 +43,18 @@ export function recordActivity(db: Queryable, entry: NewActivity, now = Date.now
 		.run();
 	const detail = entry.detail === undefined || entry.detail === null ? '' : ` (${entry.detail})`;
 	serverLog(entry.level, entry.kind, `${entry.summary}${detail}`);
+	for (const listener of listeners) {
+		// A listener's failure never stops what recorded the entry.
+		try {
+			listener(db, entry, now);
+		} catch (error) {
+			serverLog(
+				'error',
+				'activity',
+				`A listener failed on "${entry.summary}": ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
+	}
 }
 
 export function listActivity(

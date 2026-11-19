@@ -31,6 +31,7 @@ Lookstow's goal: **every active mailbox is backed up without anyone choosing it*
 - **Permissions:** `User.Read.All`, `Mail.Read`, `MailboxSettings.Read` as application permissions read every mailbox. Online archives also need `MailboxFolder.Read.All`, `MailboxItem.Read.All` and `MailboxItem.Export.All`. To scope Lookstow to some mailboxes, use Exchange Online's RBAC for Applications.
 - **Console:** answers on this computer only. Writes must come from its own pages (Origin check).
 - **Service account:** unprivileged (Linux user `lookstow`, Windows LocalService). Only the updater runs as root/SYSTEM, and the web app can only ask it for an update by creating a flag file. Releases are signed with an Ed25519 key kept offline.
+- **Alert email:** sent through Mailgun's HTTP API, as i12-pt6-control does. The sending key is sealed like the Graph secret and goes only to Mailgun's own API host for the chosen region (US or EU); the host is never a setting. Emails carry no links: they name the console page to open on the server.
 - **At rest:** the data folder is locked to the service account and administrators. The backup folder holds every mailbox: keep it on an encrypted disk and limit who can open it.
 
 ## 5. Install and updates
@@ -49,6 +50,7 @@ Ported from BMuster (see the spec). One archive per platform: the Rust launcher,
 | Installers, release workflow, signing                      | See the release agent's notes in `RELEASE.md`                                          |
 | Online archive copy                                        | Built (FTS export), tested against a fake Graph; real tenant untested                  |
 | Search, message page, download                             | Built, tested on the index; rendered from a production build                           |
+| Email alerts (Mailgun, outbox with retries, Alerts page)   | Built, tested against a fake Mailgun; real sending untested                            |
 | Restore                                                    | **Not built**: the .eml files open in any mail program                                 |
 | Remote console with sign-in                                | **Not built**                                                                          |
 

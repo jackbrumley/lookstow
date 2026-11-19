@@ -20,6 +20,24 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.5.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Open Alerts > Sending email > Set up: enter the Mailgun sending domain (as i12-pt6-control uses), the region and a sending key, then Save',
+				'Add yourself under Who gets alerts, tick every alert, and press Send a test: the toast says Sent, and the email arrives',
+				'Change the key to a wrong one and Send a test: the toast says Mailgun refused it and what to check; put the right key back',
+				'Pause a mailbox you picked, then Resume it and press Sync now on its archive while the archive permissions are missing (or wait for a real failure): an alert email names the mailbox and Microsoft’s reason',
+				'Check the Emails list on the Alerts page: every email shows Sent, Waiting to retry, Failed or Not sent, with the reason'
+			]
+		},
+		changes: [
+			'Email alerts, as in I12 and PT6 Control: sent through Mailgun to the people you choose, each with the alerts they want: a mailbox failing or syncing again, discovery failing, the backup drive full, mailboxes found or gone, a first copy finished, backups deleted or the mailboxes backed up changed, and automatic updates',
+			'A new Alerts page: the Mailgun setup (the key is stored sealed and never shown), who gets which alerts, a test email for each person, and every email with its result',
+			'A failed send is tried again after 1, 5, 15 and 30 minutes, then hourly, so a Mailgun outage delays an alert instead of losing it'
+		]
+	},
+	{
 		version: '0.4.4',
 		testing: {
 			kind: 'steps',
