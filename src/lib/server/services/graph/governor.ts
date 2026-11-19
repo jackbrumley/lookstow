@@ -80,8 +80,13 @@ export const PACE = {
 	pressureEveryMs: 30_000,
 	/** The token bucket holds this many seconds of starts, and at least burstMin. */
 	burstSeconds: 0.1,
+	/** A learned limit older than this (and not being held) is forgotten. */
+	ceilingForgetMs: 6 * 60 * 60_000,
 	burstMin: 2
 } as const;
+
+/** With nothing in flight or waiting, the pace shows as idle once nothing has started for this long. */
+const IDLE_AFTER_MS = 10_000;
 
 /** Seconds of per-second counters kept for rates (15 minutes). */
 const HISTORY_SECONDS = 15 * 60;
@@ -163,6 +168,7 @@ export class Governor {
 	/** The app pace held work back since its last change (so raising it can help). */
 	#paceBound = false;
 	#waitingForPace = 0;
+	#lastStartAt = Number.NEGATIVE_INFINITY;
 	readonly #lanes = new Map<string, Lane>();
 	#nextLaneNumber = 1;
 	readonly #waiters: Waiter[] = [];
@@ -175,7 +181,19 @@ export class Governor {
 		this.#now = options.now;
 		this.#schedule = options.schedule ?? realSchedule;
 		const now = options.now();
-		const learned = options.learned ?? null;
+		const saved = options.learned ?? null;
+		// A limit learned long ago is not kept, and a pace it cut below the first-run pace starts
+		// from the first-run pace again.
+		const stale =
+			saved !== null && saved.ceiling !== null && now - saved.ceiling.at >= PACE.ceilingForgetMs;
+		const learned =
+			saved === null || !stale
+				? saved
+				: {
+						...saved,
+						startsPerSecond: Math.max(saved.startsPerSecond, PACE.startRate),
+						ceiling: null
+					};
 		this.#rate = clamp(
 			learned?.startsPerSecond ?? PACE.startRate,
 			PACE.rateFloor,
@@ -281,7 +299,15 @@ export class Governor {
 		};
 	}
 
-	#phase(now: number): 'climbing' | 'holding' | 'probing' {
+	#phase(now: number): 'idle' | 'climbing' | 'holding' | 'probing' {
+		// Nothing in flight, nothing waiting, nothing started lately: the pace is not in use.
+		if (
+			this.#inFlight === 0 &&
+			this.#waiters.length === 0 &&
+			now - this.#lastStartAt >= IDLE_AFTER_MS
+		) {
+			return 'idle';
+		}
 		if (this.#holdUntil !== null && now < this.#holdUntil) return 'holding';
 		return this.#ceiling === null ? 'climbing' : 'probing';
 	}
@@ -406,6 +432,7 @@ export class Governor {
 		this.#turn += 1;
 		this.#tokens -= 1;
 		this.#inFlight += 1;
+		this.#lastStartAt = now;
 		if (lane !== null) {
 			lane.tokens -= 1;
 			lane.inFlight += 1;
@@ -459,7 +486,9 @@ export class Governor {
 
 	#onSuccess(lane: Lane | null, now: number, pressure: boolean): void {
 		if (this.#successesSinceCut !== null) this.#successesSinceCut += 1;
-		if (pressure) this.#onPressure(now);
+		// Microsoft's early warning on a mailbox's request is about that mailbox's own limit,
+		// which its lane already holds; only a warning on an app-wide request eases the app pace.
+		if (pressure && lane === null) this.#onPressure(now);
 		if (lane !== null) this.#maybeRaiseLane(lane, now);
 		this.#maybeRaisePace(now);
 	}
@@ -500,6 +529,7 @@ export class Governor {
 	}
 
 	#maybeRaisePace(now: number): void {
+		this.#forgetOldCeiling(now);
 		const interval = this.#ceiling === null ? PACE.raiseEveryMs : PACE.probeEveryMs;
 		if (!this.#paceBound || now - this.#lastChangeAt < interval) return;
 		let rateCap: number = PACE.rateCeiling;
@@ -532,6 +562,28 @@ export class Governor {
 				this.#cap = nextCap;
 				this.#lastChangeAt = now;
 				this.#paceBound = false;
+			}
+		);
+	}
+
+	/**
+	 * A refusal says what Microsoft allowed then, not for ever: after PACE.ceilingForgetMs with no
+	 * new one, the limit is forgotten and the pace climbs at the first-run step again.
+	 */
+	#forgetOldCeiling(now: number): void {
+		const ceiling = this.#ceiling;
+		if (ceiling === null || now - ceiling.at < PACE.ceilingForgetMs) return;
+		if (this.#holdUntil !== null && now < this.#holdUntil) return;
+		this.#record(
+			'pace',
+			null,
+			this.#paceText(),
+			'forgot a limit learned over 6 hours ago',
+			now,
+			() => {
+				this.#ceiling = null;
+				this.#holdUntil = null;
+				this.#holdRate = null;
 			}
 		);
 	}

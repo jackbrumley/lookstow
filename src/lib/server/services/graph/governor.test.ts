@@ -240,8 +240,10 @@ describe('the governor', () => {
 		expect(governor.snapshot().pace).toMatchObject({
 			startsPerSecond: 55,
 			inFlightCap: 70,
-			phase: 'probing'
+			// Nothing is being copied yet; the learned limit is kept for when it is.
+			phase: 'idle'
 		});
+		expect(governor.learned().ceiling?.startsPerSecond).toBe(64);
 		governor.forget();
 		expect(governor.learned()).toEqual({
 			startsPerSecond: PACE.startRate,
@@ -293,3 +295,50 @@ describe('the governor', () => {
 function fail(): never {
 	throw new Error('missing permit');
 }
+
+describe('the governor between bursts of work', () => {
+	it('shows as idle once nothing is in flight, waiting or started for 10 seconds', async () => {
+		const time = manualTime();
+		const governor = new Governor({ now: time.now, schedule: time.schedule, learned: FAST });
+		expect(governor.snapshot().pace.phase).toBe('idle');
+		const permit = await governor.acquire('mbx-a');
+		expect(governor.snapshot().pace.phase).not.toBe('idle');
+		ok(permit);
+		time.advance(9_000);
+		expect(governor.snapshot().pace.phase).not.toBe('idle');
+		time.advance(1_000);
+		expect(governor.snapshot().pace.phase).toBe('idle');
+	});
+
+	it('is not idle while a request is in flight, however long it takes', async () => {
+		const time = manualTime();
+		const governor = new Governor({ now: time.now, schedule: time.schedule, learned: FAST });
+		await governor.acquire('mbx-a');
+		time.advance(60_000);
+		expect(governor.snapshot().pace.phase).not.toBe('idle');
+	});
+
+	it('eases the app pace for an app-wide early warning, not for one mailbox’s', async () => {
+		const time = manualTime();
+		const governor = new Governor({ now: time.now, schedule: time.schedule });
+		(await governor.acquire('mbx-a')).release({ kind: 'ok', bytes: 1, pressure: true });
+		expect(governor.snapshot().pace.startsPerSecond).toBe(PACE.startRate);
+		(await governor.acquire('')).release({ kind: 'ok', bytes: 1, pressure: true });
+		expect(governor.snapshot().pace.startsPerSecond).toBeLessThan(PACE.startRate);
+	});
+
+	it('forgets a limit learned more than 6 hours ago, and starts no slower than the first run', () => {
+		const time = manualTime();
+		const learned = (hoursAgo: number) => ({
+			startsPerSecond: 2.84,
+			inFlightCap: 32,
+			ceiling: { startsPerSecond: 3.2, inFlightCap: 32, at: time.now() - hoursAgo * 3_600_000 }
+		});
+		const fresh = new Governor({ now: time.now, schedule: time.schedule, learned: learned(2) });
+		expect(fresh.snapshot().pace.startsPerSecond).toBe(2.84);
+		expect(fresh.learned().ceiling).not.toBeNull();
+		const stale = new Governor({ now: time.now, schedule: time.schedule, learned: learned(7) });
+		expect(stale.snapshot().pace.startsPerSecond).toBe(PACE.startRate);
+		expect(stale.learned().ceiling).toBeNull();
+	});
+});

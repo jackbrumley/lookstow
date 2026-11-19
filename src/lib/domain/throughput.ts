@@ -18,7 +18,7 @@ export type GovernorSnapshot = {
 		startsPerSecond: number;
 		inFlight: number;
 		inFlightCap: number;
-		phase: 'climbing' | 'holding' | 'probing';
+		phase: 'idle' | 'climbing' | 'holding' | 'probing';
 		holdUntil: string | null;
 		/** Microsoft asked every request to wait until then. */
 		pausedUntil: string | null;

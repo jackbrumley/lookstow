@@ -20,8 +20,19 @@ const THROTTLE_STATUSES = new Set([429, 503]);
 const HEADERS_TIMEOUT_MS = 30_000;
 /** A download with no data for this long has stalled (SomeDrive's read timeout). */
 const BODY_IDLE_MS = 60_000;
-/** Microsoft's per-mailbox "too many requests at once" codes. */
-const MAILBOX_CONCURRENCY_CODES = new Set(['MailboxConcurrency', 'ErrorTooManyObjectsOpened']);
+/**
+ * Whose limit a throttled reply is about. Outlook's limits are per app per mailbox, and Microsoft
+ * reports them as `ApplicationThrottled` with the limit only in the message ("Application is
+ * over its MailboxConcurrency limit"), so a refusal of a request about one mailbox slows only
+ * that mailbox. Reading only the code made every such refusal cut the whole app's pace, and the
+ * cut was kept across restarts. Requests about no mailbox (discovery, sign-in) are app-wide.
+ */
+export function throttleScope(lane: string, code: string, body: string): ThrottleScope {
+	if (lane !== '') return 'mailbox';
+	return /MailboxConcurrency|ErrorTooManyObjectsOpened/i.test(`${code} ${body}`)
+		? 'mailbox'
+		: 'app';
+}
 export class GraphError extends Error {
 	override name = 'GraphError';
 	readonly status: number;
@@ -306,7 +317,7 @@ export class GraphClient {
 				this.#onThrottle(response.status, waitMs);
 				if (THROTTLE_STATUSES.has(response.status)) {
 					// The governor makes the whole scope wait out Retry-After, then sends one probe.
-					const scope: ThrottleScope = MAILBOX_CONCURRENCY_CODES.has(code) ? 'mailbox' : 'app';
+					const scope = throttleScope(lane, code, text);
 					permit.release({ kind: 'throttled', scope, retryAfterMs: waitMs, code });
 					continue;
 				}

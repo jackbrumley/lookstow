@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { FakeGraph, TEST_CREDENTIALS, graphError, json } from '#tests/support/fake-graph.ts';
-import { backoffMs, GraphClient, GraphError, parseGraphJson, retryAfterMs } from './client.ts';
+import {
+	backoffMs,
+	GraphClient,
+	GraphError,
+	parseGraphJson,
+	retryAfterMs,
+	throttleScope
+} from './client.ts';
 import { unpacedGovernor } from './governor.ts';
 import { TokenSource } from './token.ts';
 
@@ -265,6 +272,19 @@ describe('the Graph client under load', () => {
 		const snapshot = governor.snapshot();
 		expect(snapshot.lanes[0]?.limit).toBe(3);
 		expect(snapshot.pace.lastCut).toBeNull();
+	});
+
+	it('treats Outlook’s ApplicationThrottled on a mailbox as that mailbox’s limit, not the app’s', () => {
+		const body = JSON.stringify({
+			error: {
+				code: 'ApplicationThrottled',
+				message: 'Application is over its MailboxConcurrency limit.'
+			}
+		});
+		expect(throttleScope('u', 'ApplicationThrottled', body)).toBe('mailbox');
+		expect(throttleScope('u', 'http-503', '')).toBe('mailbox');
+		expect(throttleScope('', 'ApplicationThrottled', body)).toBe('mailbox');
+		expect(throttleScope('', 'TooManyRequests', '')).toBe('app');
 	});
 
 	it('reads Microsoft’s wait in every form it sends', () => {

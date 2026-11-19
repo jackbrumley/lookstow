@@ -16,8 +16,9 @@
 
 	const PHASES: Record<
 		ThroughputView['pace']['phase'],
-		{ label: string; tone: 'ok' | 'info' | 'warn' }
+		{ label: string; tone: 'ok' | 'info' | 'warn' | 'neutral' }
 	> = {
+		idle: { label: 'Idle: nothing is being copied', tone: 'neutral' },
 		climbing: { label: 'Climbing', tone: 'info' },
 		holding: { label: 'Holding under Microsoft’s limit', tone: 'warn' },
 		probing: { label: 'At the learned limit, probing', tone: 'ok' }
@@ -64,18 +65,22 @@
 		<dt>Pace</dt>
 		<dd>
 			<Badge tone={PHASES[speed.pace.phase].tone}>{PHASES[speed.pace.phase].label}</Badge>
-			{#if speed.pace.pausedUntil !== null}
+			{#if speed.pace.phase === 'idle'}
+				Allowed {speed.pace.startsPerSecond}/s when copying starts again.
+			{:else if speed.pace.pausedUntil !== null}
 				Microsoft asked every request to wait until {formatDateTime(speed.pace.pausedUntil)}.
 			{:else if speed.pace.holdUntil !== null}
 				Holding until {formatDateTime(speed.pace.holdUntil)}, then probing upwards.
 			{/if}
 		</dd>
-		<dt>More mailboxes</dt>
-		<dd>
-			{speed.headroom.more
-				? 'Room for more: Microsoft is not holding Lookstow back'
-				: speed.headroom.reason}
-		</dd>
+		{#if speed.pace.phase !== 'idle'}
+			<dt>More mailboxes</dt>
+			<dd>
+				{speed.headroom.more
+					? 'Room for more: Microsoft is not holding Lookstow back'
+					: speed.headroom.reason}
+			</dd>
+		{/if}
 		{#if speed.pace.lastCut !== null}
 			<dt>Last slow-down</dt>
 			<dd>
