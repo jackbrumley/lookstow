@@ -11,6 +11,7 @@ import {
 	type ArchiveFolder,
 	type ArchiveItemChange
 } from '../graph/archive.ts';
+import { linkArchiveCopy } from '../mailboxes/archive-links.ts';
 import {
 	clearItemFailure,
 	dueItemFailures,
@@ -210,7 +211,11 @@ async function applyArchiveChanges(
 		const existing = storedMessage(context.db, mailbox.id, change.graphId);
 		if (existing === undefined) {
 			wanted.set(change.graphId, change);
-		} else if (existing.folderId !== folder.id || existing.deletedAt !== null) {
+		} else if (
+			existing.folderId !== folder.id ||
+			existing.deletedAt !== null ||
+			existing.leftAt !== null
+		) {
 			moveMessage(context.db, existing, folder.id, context.now());
 		}
 	}
@@ -268,7 +273,7 @@ async function storeItem(
 	const when = index?.receivedAt ?? change.createdAt;
 	const relative = `${mailboxRoot}/${archiveItemFileName(when, change.type, change.graphId)}`;
 	const stored = await writeMessageFile(resolveStoragePath(context.backupRoot, relative), data);
-	insertMessage(context.db, {
+	const id = insertMessage(context.db, {
 		mailboxId: mailbox.id,
 		folderId: folder.id,
 		graphId: change.graphId,
@@ -283,6 +288,8 @@ async function storeItem(
 		storedAt: new Date(context.now()),
 		indexFailedVersion: index === null ? APP_VERSION : null
 	});
+	// The same email from the person's mailbox, moved here by the archive policy: link the two.
+	linkArchiveCopy(context.db, id);
 	clearItemFailure(context.db, mailbox.id, change.graphId);
 	totals.added += 1;
 	totals.byteCount += stored.byteCount;

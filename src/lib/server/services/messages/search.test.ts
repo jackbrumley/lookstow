@@ -1,11 +1,7 @@
+import { removeFromFolder } from '../mailboxes/archive-links.ts';
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../../database/connection.ts';
-import {
-	applyDiscovery,
-	insertMessage,
-	markMessageDeleted,
-	syncFolderList
-} from '../mailboxes/repository.ts';
+import { applyDiscovery, insertMessage, syncFolderList } from '../mailboxes/repository.ts';
 import { messageDetail, searchMessages } from './search.ts';
 import type { MessageQuery } from '../../../domain/messages.ts';
 
@@ -89,7 +85,7 @@ function seed() {
 		'2026-11-10'
 	);
 	message('m3', inbox.id, 'Lunch', 'carol@example.com', 'ann@example.com', '2026-10-01');
-	markMessageDeleted(db, mailbox.id, inbox.id, 'm3', 5);
+	removeFromFolder(db, mailbox.id, inbox.id, 'm3', 5);
 	return { db, mailbox };
 }
 

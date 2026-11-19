@@ -1,3 +1,4 @@
+import { linkAllArchiveCopies } from '../mailboxes/archive-links.ts';
 import type { Queryable } from '../../database/connection.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { recordActivity } from '../activity/activity.ts';
@@ -115,6 +116,19 @@ export async function readOlderArchiveItems(
 					refiled.problems === 0
 						? null
 						: `${String(refiled.problems)} could not be moved; see the Log. They keep their place and still open from Search.`
+			});
+		}
+		// Then link archive items to the same emails in their mailboxes: once at upgrade, and to
+		// catch items read just now (docs/specs/SPEC-ARCHIVE-LINKS.md).
+		const links = await linkAllArchiveCopies(db, stopping);
+		if (links.linked > 0) {
+			recordActivity(db, {
+				level: 'info',
+				kind: 'engine',
+				actor: 'system',
+				summary: `${String(links.linked)} online archive items were linked to the same emails in their mailboxes`,
+				detail:
+					'Those emails were moved to the online archive by the archive policy, not deleted. Earlier Lookstow versions showed them as deleted.'
 			});
 		}
 	} catch (error) {

@@ -1,4 +1,11 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+	index,
+	integer,
+	sqliteTable,
+	text,
+	uniqueIndex,
+	type AnySQLiteColumn
+} from 'drizzle-orm/sqlite-core';
 
 /**
  * Every mailbox discovery has found. A mailbox is never deleted here: when it disappears from
@@ -114,11 +121,23 @@ export const messages = sqliteTable(
 		 * An online archive item the .fts reader could not read: the Lookstow version that tried.
 		 * A newer version tries again; the same version does not.
 		 */
-		indexFailedVersion: text()
+		indexFailedVersion: text(),
+		/**
+		 * When the message left its mailbox, if that mailbox has an online archive
+		 * (docs/specs/SPEC-ARCHIVE-LINKS.md): it is no longer in its folder. With `archiveCopyId`
+		 * it was archived; without one after 7 days, it is settled as deleted.
+		 */
+		leftAt: integer({ mode: 'timestamp_ms' }),
+		/** On a mailbox's message: the same email's copy in the person's online archive. */
+		archiveCopyId: text().references((): AnySQLiteColumn => messages.id, {
+			onDelete: 'set null'
+		})
 	},
 	(table) => [
 		uniqueIndex('messages_mailbox_graph').on(table.mailboxId, table.graphId),
-		index('messages_folder').on(table.folderId)
+		index('messages_folder').on(table.folderId),
+		index('messages_internet_id').on(table.internetMessageId),
+		index('messages_archive_copy').on(table.archiveCopyId)
 	]
 );
 
@@ -137,7 +156,7 @@ export const messageEvents = sqliteTable(
 			.references(() => messages.id, { onDelete: 'cascade' }),
 		mailboxId: text().notNull(),
 		at: integer({ mode: 'timestamp_ms' }).notNull(),
-		kind: text({ enum: ['stored', 'moved', 'deleted', 'restored'] }).notNull(),
+		kind: text({ enum: ['stored', 'moved', 'deleted', 'restored', 'archived'] }).notNull(),
 		fromFolderPath: text(),
 		toFolderPath: text()
 	},

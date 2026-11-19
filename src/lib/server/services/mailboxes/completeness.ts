@@ -44,13 +44,15 @@ export function explainGap(
 	return { kind: 'unexplained', stored, source };
 }
 
-/** Each folder's stored messages that the source has not deleted. */
+/** Each folder's stored messages still in it at the source (not deleted, not archived). */
 function storedCount(db: Queryable, folderId: string): number {
 	return (
 		db
 			.select({ total: count() })
 			.from(messages)
-			.where(and(eq(messages.folderId, folderId), isNull(messages.deletedAt)))
+			.where(
+				and(eq(messages.folderId, folderId), isNull(messages.deletedAt), isNull(messages.leftAt))
+			)
 			.get()?.total ?? 0
 	);
 }

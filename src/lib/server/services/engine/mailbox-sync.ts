@@ -217,7 +217,11 @@ async function applyChanges(
 		const existing = storedMessage(context.db, mailbox.id, change.graphId);
 		if (existing !== undefined) {
 			// Already stored: a flag change or a move. The file is the same message either way.
-			if (existing.folderId !== folder.id || existing.deletedAt !== null) {
+			if (
+				existing.folderId !== folder.id ||
+				existing.deletedAt !== null ||
+				existing.leftAt !== null
+			) {
 				moveMessage(context.db, existing, folder.id, context.now());
 			}
 			return;

@@ -1,14 +1,9 @@
+import { removeFromFolder } from './archive-links.ts';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { openDatabase } from '../../database/connection.ts';
 import { activity, mailFolders } from '../../database/schema.ts';
-import {
-	applyDiscovery,
-	foldersOf,
-	insertMessage,
-	markMessageDeleted,
-	syncFolderList
-} from './repository.ts';
+import { applyDiscovery, foldersOf, insertMessage, syncFolderList } from './repository.ts';
 import {
 	RECHECK_AFTER_MS,
 	REPORT_AFTER_MS,
@@ -116,7 +111,7 @@ describe('the completeness check', () => {
 		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 2, listed: null }], 3);
 		expect(mailboxSummaries(db, () => false)[0]?.differsFromMicrosoft).toBe(false);
 		expect(folder().differsSince).toBeNull();
-		markMessageDeleted(db, mailbox.id, inbox.id, 'm2', 3);
+		removeFromFolder(db, mailbox.id, inbox.id, 'm2', 3);
 		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 1, listed: null }], 4);
 		expect(mailboxSummaries(db, () => false)[0]?.differsFromMicrosoft).toBe(false);
 	});

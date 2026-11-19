@@ -23,6 +23,8 @@
 				return `Deleted in Microsoft 365 (was in ${event.fromFolderPath ?? '?'}). The stored copy is kept.`;
 			case 'restored':
 				return `Back in Microsoft 365, in ${event.toFolderPath ?? '?'}`;
+			case 'archived':
+				return `Moved to the online archive by the archive policy (from ${event.fromFolderPath ?? '?'} to ${event.toFolderPath ?? '?'}). Both copies are kept.`;
 		}
 	}
 </script>
@@ -52,6 +54,32 @@
 			<dd>
 				<Badge tone="warn">Deleted in Microsoft 365</Badge>
 				{formatDateTime(message.deletedAt)}. The stored copy is kept.
+			</dd>
+		{:else if message.leftAt !== null && message.otherCopy !== null}
+			<dt>State</dt>
+			<dd>
+				<Badge tone="info">Moved to the online archive</Badge>
+				{formatDateTime(message.leftAt)}.
+			</dd>
+		{:else if message.leftAt !== null}
+			<dt>State</dt>
+			<dd>
+				<Badge tone="warn">Left the mailbox</Badge>
+				{formatDateTime(message.leftAt)}. Lookstow is looking for it in the online archive; if it is
+				not there within a week, it was deleted.
+			</dd>
+		{/if}
+		{#if message.otherCopy !== null}
+			<dt>
+				{message.otherCopy.mailboxKind === 'archive'
+					? 'Also in the online archive'
+					: 'Also in the mailbox'}
+			</dt>
+			<dd>
+				<a href={resolve('/messages/[id]', { id: message.otherCopy.id })}
+					>{message.otherCopy.folderPath}</a
+				>
+				({message.otherCopy.mailboxAddress})
 			</dd>
 		{/if}
 		<dt>From</dt>

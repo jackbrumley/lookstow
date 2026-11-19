@@ -240,14 +240,18 @@ export function storedMessage(db: Queryable, mailboxId: string, graphId: string)
 			id: messages.id,
 			mailboxId: messages.mailboxId,
 			folderId: messages.folderId,
-			deletedAt: messages.deletedAt
+			deletedAt: messages.deletedAt,
+			leftAt: messages.leftAt
 		})
 		.from(messages)
 		.where(and(eq(messages.mailboxId, mailboxId), eq(messages.graphId, graphId)))
 		.get();
 }
 
-export type NewMessage = Omit<typeof messages.$inferInsert, 'id' | 'deletedAt'>;
+export type NewMessage = Omit<
+	typeof messages.$inferInsert,
+	'id' | 'deletedAt' | 'leftAt' | 'archiveCopyId'
+>;
 
 function folderPathOf(db: Queryable, folderId: string): string | null {
 	return (
@@ -300,71 +304,37 @@ export function insertMessage(db: Queryable, message: NewMessage): string {
  */
 export function moveMessage(
 	db: Queryable,
-	message: { id: string; mailboxId: string; folderId: string; deletedAt: Date | null },
+	message: {
+		id: string;
+		mailboxId: string;
+		folderId: string;
+		deletedAt: Date | null;
+		leftAt: Date | null;
+	},
 	toFolderId: string,
 	now: number
 ): void {
 	db.update(messages)
-		.set({ folderId: toFolderId, deletedAt: null })
+		.set({ folderId: toFolderId, deletedAt: null, leftAt: null })
 		.where(eq(messages.id, message.id))
 		.run();
 	recordEvent(db, {
 		messageId: message.id,
 		mailboxId: message.mailboxId,
 		at: new Date(now),
-		kind: message.deletedAt === null ? 'moved' : 'restored',
+		kind: message.deletedAt === null && message.leftAt === null ? 'moved' : 'restored',
 		fromFolderPath: folderPathOf(db, message.folderId),
 		toFolderPath: folderPathOf(db, toFolderId)
 	});
-}
-
-/**
- * A folder's delta says the message left it. Only marked deleted when the message is still
- * filed under that folder: a message moved elsewhere also leaves its old folder, and the new
- * folder's delta files it there (immutable ids keep the id across the move).
- */
-export function markMessageDeleted(
-	db: Queryable,
-	mailboxId: string,
-	folderId: string,
-	graphId: string,
-	now: number
-): boolean {
-	const message = db
-		.select({ id: messages.id })
-		.from(messages)
-		.where(
-			and(
-				eq(messages.mailboxId, mailboxId),
-				eq(messages.folderId, folderId),
-				eq(messages.graphId, graphId),
-				isNull(messages.deletedAt)
-			)
-		)
-		.get();
-	if (message === undefined) {
-		return false;
-	}
-	db.update(messages)
-		.set({ deletedAt: new Date(now) })
-		.where(eq(messages.id, message.id))
-		.run();
-	recordEvent(db, {
-		messageId: message.id,
-		mailboxId,
-		at: new Date(now),
-		kind: 'deleted',
-		fromFolderPath: folderPathOf(db, folderId),
-		toFolderPath: null
-	});
-	return true;
 }
 
 export function folderItemCounts(db: Queryable, mailboxId: string): Map<string, number> {
 	const rows = db
 		.select({ folderId: messages.folderId, count: sql<number>`count(*)` })
 		.from(messages)
-		.where(and(eq(messages.mailboxId, mailboxId), isNull(messages.deletedAt)))
+		.where(
+			and(eq(messages.mailboxId, mailboxId), isNull(messages.deletedAt), isNull(messages.leftAt))
+		)
 		.groupBy(messages.folderId)
 		.all();
 	return new Map(rows.map((row) => [row.folderId, row.count]));
@@ -499,12 +469,14 @@ export function setMessageIndex(
 		.run();
 }
 
-/** The ids of a folder's stored messages that are not marked deleted. */
+/** The ids of a folder's stored messages still in it (not deleted, not left). */
 export function liveMessageIds(db: Queryable, folderId: string): string[] {
 	return db
 		.select({ graphId: messages.graphId })
 		.from(messages)
-		.where(and(eq(messages.folderId, folderId), isNull(messages.deletedAt)))
+		.where(
+			and(eq(messages.folderId, folderId), isNull(messages.deletedAt), isNull(messages.leftAt))
+		)
 		.all()
 		.map((row) => row.graphId);
 }

@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, gte, isNull, lt, or, sql, type SQL } from 'd
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Queryable } from '../../database/connection.ts';
 import { mailboxes, mailFolders, messageEvents, messages } from '../../database/schema.ts';
+import { otherCopyOf } from '../mailboxes/archive-links.ts';
 import {
 	SEARCH_PAGE_SIZE,
 	type MessageDetail,
@@ -34,6 +35,13 @@ export function conditions(query: MessageQuery): SQL[] {
 	}
 	if (!query.includeDeleted) {
 		all.push(isNull(messages.deletedAt));
+	}
+	// One email in two places is listed once, as its mailbox copy, unless an archive is searched
+	// on its own (docs/specs/SPEC-ARCHIVE-LINKS.md).
+	if (query.mailboxId === null) {
+		all.push(
+			sql`not exists (select 1 from messages as linked where linked.archive_copy_id = ${messages.id})`
+		);
 	}
 	for (const word of query.text.split(/\s+/).filter((part) => part !== '')) {
 		all.push(
@@ -129,7 +137,8 @@ export function messageDetail(db: Queryable, id: string): MessageDetail | null {
 			internetMessageId: messages.internetMessageId,
 			sha256: messages.sha256,
 			filePath: messages.filePath,
-			storedAt: messages.storedAt
+			storedAt: messages.storedAt,
+			leftAt: messages.leftAt
 		})
 		.from(messages)
 		.innerJoin(mailboxes, eq(messages.mailboxId, mailboxes.id))
@@ -158,6 +167,8 @@ export function messageDetail(db: Queryable, id: string): MessageDetail | null {
 		sha256: row.sha256,
 		filePath: row.filePath,
 		storedAt: row.storedAt.toISOString(),
+		leftAt: row.leftAt?.toISOString() ?? null,
+		otherCopy: otherCopyOf(db, id),
 		history
 	};
 }

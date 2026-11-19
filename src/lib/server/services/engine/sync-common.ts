@@ -1,6 +1,6 @@
 import type { Queryable } from '../../database/connection.ts';
 import type { GraphClient } from '../graph/client.ts';
-import { markMessageDeleted } from '../mailboxes/repository.ts';
+import { removeFromFolder, settleLeftMessages } from '../mailboxes/archive-links.ts';
 import { folderStoragePath } from '../storage/eml-store.ts';
 
 /** What a mailbox sync and an archive sync both work with. */
@@ -39,13 +39,18 @@ export function applyRemovals(
 ): number {
 	let removed = 0;
 	for (const removal of pending) {
-		if (
-			markMessageDeleted(context.db, mailboxId, removal.folderId, removal.graphId, context.now())
-		) {
-			removed += 1;
-		}
+		// In a mailbox with an online archive a message that leaves is archived or, after a
+		// week with no archive copy, deleted (docs/specs/SPEC-ARCHIVE-LINKS.md).
+		const outcome = removeFromFolder(
+			context.db,
+			mailboxId,
+			removal.folderId,
+			removal.graphId,
+			context.now()
+		);
+		if (outcome === 'deleted') removed += 1;
 	}
-	return removed;
+	return removed + settleLeftMessages(context.db, mailboxId, context.now());
 }
 
 /**

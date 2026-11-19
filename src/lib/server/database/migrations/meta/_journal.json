@@ -71,6 +71,13 @@
       "when": 1795068277115,
       "tag": "0009_bumpy_veda",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795070079190,
+      "tag": "0010_archive-links",
+      "breakpoints": true
     }
   ]
 }
