@@ -1,10 +1,12 @@
+import { laneOf, type Governor, type Permit, type ThrottleScope } from './governor.ts';
 import type { FetchLike, TokenSource } from './token.ts';
 
 /**
- * Microsoft Graph over fetch, with the two things every Graph caller needs: paging through
- * `@odata.nextLink`, and backing off when Graph throttles (429) or is briefly unavailable
- * (503, 504), honouring Retry-After. Mailbox ids are always immutable ids, so a message keeps
- * its id when it moves between folders.
+ * Microsoft Graph over fetch: paging through `@odata.nextLink`, every request paced by the
+ * throughput governor (governor.ts), throttling (429, 503) reported to it so the whole mailbox or
+ * app waits out Microsoft's Retry-After together, time limits on every request and a watchdog on
+ * every download, and one fresh sign-in after a 401. Mailbox ids are always immutable ids, so a
+ * message keeps its id when it moves between folders.
  */
 const GRAPH_ROOT = 'https://graph.microsoft.com';
 
@@ -12,6 +14,14 @@ const MAX_ATTEMPTS = 6;
 /** How many times a reply that arrives empty, cut off or garbled is asked for again. */
 const REPLY_ATTEMPTS = 3;
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+/** Statuses that mean "slow down": the governor makes the scope wait. */
+const THROTTLE_STATUSES = new Set([429, 503]);
+/** Until the reply's headers arrive (SomeDrive: a total limit for small requests). */
+const HEADERS_TIMEOUT_MS = 30_000;
+/** A download with no data for this long has stalled (SomeDrive's read timeout). */
+const BODY_IDLE_MS = 60_000;
+/** Microsoft's per-mailbox "too many requests at once" codes. */
+const MAILBOX_CONCURRENCY_CODES = new Set(['MailboxConcurrency', 'ErrorTooManyObjectsOpened']);
 /** Graph asks for no more than 4 concurrent requests per mailbox; callers keep to that. */
 export const PER_MAILBOX_CONCURRENCY = 4;
 
@@ -86,10 +96,24 @@ function escapeControlCharactersInStrings(text: string): string {
  */
 function isBrokenReply(error: unknown): error is Error {
 	return (
-		error instanceof TypeError ||
+		isNetworkError(error) ||
 		error instanceof SyntaxError ||
 		(error instanceof GraphError && error.code === 'empty-reply')
 	);
+}
+
+/** A connection that failed, timed out or stalled (fetch's TypeError, or an abort Lookstow made). */
+function isNetworkError(error: unknown): error is Error {
+	return (
+		error instanceof TypeError ||
+		(error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'))
+	);
+}
+
+function timeoutError(message: string): Error {
+	const error = new Error(message);
+	error.name = 'TimeoutError';
+	return error;
 }
 
 export type Sleep = (ms: number) => Promise<void>;
@@ -102,22 +126,34 @@ const realSleep: Sleep = (ms) =>
 		setTimeout(resolve, ms);
 	});
 
+export type GraphClientOptions = {
+	/** Paces every request: the process's shared governor in the service. */
+	governor: Governor;
+	fetch?: FetchLike;
+	sleep?: Sleep;
+	onThrottle?: ThrottleListener;
+	/** Time limits; tests shorten them. */
+	timeouts?: { headersMs: number; bodyIdleMs: number };
+};
+
 export class GraphClient {
 	readonly #tokens: TokenSource;
+	readonly #governor: Governor;
 	readonly #fetch: FetchLike;
 	readonly #sleep: Sleep;
 	readonly #onThrottle: ThrottleListener;
+	readonly #timeouts: { headersMs: number; bodyIdleMs: number };
 
-	constructor(
-		tokens: TokenSource,
-		fetchImpl: FetchLike = fetch,
-		sleep: Sleep = realSleep,
-		onThrottle: ThrottleListener = () => undefined
-	) {
+	constructor(tokens: TokenSource, options: GraphClientOptions) {
 		this.#tokens = tokens;
-		this.#fetch = fetchImpl;
-		this.#sleep = sleep;
-		this.#onThrottle = onThrottle;
+		this.#governor = options.governor;
+		this.#fetch = options.fetch ?? fetch;
+		this.#sleep = options.sleep ?? realSleep;
+		this.#onThrottle = options.onThrottle ?? (() => undefined);
+		this.#timeouts = options.timeouts ?? {
+			headersMs: HEADERS_TIMEOUT_MS,
+			bodyIdleMs: BODY_IDLE_MS
+		};
 	}
 
 	/** A GET that must answer JSON. `path` is relative to the Graph root or a full nextLink. */
@@ -202,7 +238,18 @@ export class GraphClient {
 		if (!url.startsWith(`${GRAPH_ROOT}/`)) {
 			throw new Error(`Refusing to send the Graph token to ${new URL(url).host}`);
 		}
+		const lane = laneOf(url);
+		let signedInAgain = false;
 		for (let attempt = 1; ; attempt++) {
+			const permit = await this.#governor.acquire(lane);
+			const controller = new AbortController();
+			const headersTimer = setTimeout(() => {
+				controller.abort(
+					timeoutError(
+						`No reply from Microsoft Graph within ${String(this.#timeouts.headersMs / 1000)} s`
+					)
+				);
+			}, this.#timeouts.headersMs);
 			let response: Response;
 			try {
 				// Signing in reaches login.microsoftonline.com, which can time out like Graph can;
@@ -217,31 +264,50 @@ export class GraphClient {
 						...headers,
 						authorization: `Bearer ${token}`,
 						prefer: 'IdType="ImmutableId", odata.maxpagesize=100'
-					}
+					},
+					signal: controller.signal
 				});
 			} catch (error) {
-				if (!(error instanceof TypeError)) {
+				clearTimeout(headersTimer);
+				permit.release({ kind: 'failed' });
+				if (!isNetworkError(error)) {
 					throw error;
 				}
 				if (attempt >= MAX_ATTEMPTS) {
-					throw new GraphError(0, 'network', `Could not reach Microsoft Graph`, {
-						cause: error
-					});
+					throw new GraphError(0, 'network', 'Could not reach Microsoft Graph', { cause: error });
 				}
 				await this.#sleep(backoffMs(attempt, null));
 				continue;
 			}
+			clearTimeout(headersTimer);
 			if (response.ok) {
-				return response;
+				return watched(response, permit, controller, this.#timeouts.bodyIdleMs);
+			}
+			if (response.status === 401 && !signedInAgain) {
+				// A token withdrawn early: sign in again once, then ask again.
+				await response.arrayBuffer().catch(() => undefined);
+				permit.release({ kind: 'failed' });
+				this.#tokens.forget();
+				signedInAgain = true;
+				continue;
 			}
 			if (RETRY_STATUSES.has(response.status) && attempt < MAX_ATTEMPTS) {
-				// Drain the body so the connection can be reused.
-				await response.arrayBuffer().catch(() => undefined);
-				const waitMs = backoffMs(attempt, response.headers.get('retry-after'));
+				// Read the body for Microsoft's code and wait; it also frees the connection.
+				const text = await response.text().catch(() => '');
+				const code = errorCode(text) ?? `http-${String(response.status)}`;
+				const waitMs = retryAfterMs(response.headers.get('retry-after'), text, attempt, Date.now());
 				this.#onThrottle(response.status, waitMs);
+				if (THROTTLE_STATUSES.has(response.status)) {
+					// The governor makes the whole scope wait out Retry-After, then sends one probe.
+					const scope: ThrottleScope = MAILBOX_CONCURRENCY_CODES.has(code) ? 'mailbox' : 'app';
+					permit.release({ kind: 'throttled', scope, retryAfterMs: waitMs, code });
+					continue;
+				}
+				permit.release({ kind: 'failed' });
 				await this.#sleep(waitMs);
 				continue;
 			}
+			permit.release({ kind: 'failed' });
 			throw await graphError(response);
 		}
 	}
@@ -256,6 +322,112 @@ export function backoffMs(attempt: number, retryAfter: string | null): number {
 		}
 	}
 	return Math.min(2000 * 2 ** (attempt - 1), 120_000);
+}
+
+/**
+ * Microsoft's wait, in every form it sends: Retry-After in seconds or as an HTTP date, or
+ * `retryAfterSeconds` in the JSON body; exponential back-off when it sends none.
+ */
+export function retryAfterMs(
+	header: string | null,
+	body: string,
+	attempt: number,
+	now: number
+): number {
+	const value = header?.trim() ?? '';
+	if (value !== '') {
+		if (/^\d+$/.test(value)) return backoffMs(attempt, value);
+		const date = Date.parse(value);
+		if (!Number.isNaN(date)) return Math.min(Math.max(0, date - now), 600_000);
+	}
+	const match = /"retryAfterSeconds"\s*:\s*(\d+)/.exec(body);
+	if (match?.[1] !== undefined) return backoffMs(attempt, match[1]);
+	return backoffMs(attempt, null);
+}
+
+function errorCode(body: string): string | null {
+	try {
+		const error = asRecord(asRecord(parseGraphJson(body))['error']);
+		return typeof error['code'] === 'string' ? error['code'] : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Microsoft's early warning that most of a limit is used, where a service sends one. */
+function underPressure(headers: Headers): boolean {
+	const percentage = Number.parseFloat(headers.get('x-ms-throttle-limit-percentage') ?? '');
+	if (Number.isFinite(percentage) && percentage >= 0.8) return true;
+	const limit = Number.parseFloat(headers.get('ratelimit-limit') ?? '');
+	const remaining = Number.parseFloat(headers.get('ratelimit-remaining') ?? '');
+	return (
+		Number.isFinite(limit) && Number.isFinite(remaining) && limit > 0 && remaining / limit <= 0.2
+	);
+}
+
+/**
+ * The reply with its body watched: the permit is released (with the bytes read) when the body
+ * ends, fails or is dropped, and a download that sends nothing for BODY_IDLE_MS is aborted, so a
+ * stalled connection never holds a mailbox's lane for good.
+ */
+function watched(
+	response: Response,
+	permit: Permit,
+	controller: AbortController,
+	idleMs: number
+): Response {
+	const pressure = underPressure(response.headers);
+	const body = response.body;
+	if (body === null) {
+		permit.release({ kind: 'ok', bytes: 0, pressure });
+		return response;
+	}
+	const reader = body.getReader();
+	let bytes = 0;
+	let idle: ReturnType<typeof setTimeout> | null = null;
+	const disarm = (): void => {
+		if (idle !== null) clearTimeout(idle);
+		idle = null;
+	};
+	const arm = (): void => {
+		disarm();
+		idle = setTimeout(() => {
+			controller.abort(
+				timeoutError(`The download stalled: no data for ${String(idleMs / 1000)} s`)
+			);
+		}, idleMs);
+	};
+	arm();
+	const stream = new ReadableStream<Uint8Array>({
+		async pull(output) {
+			try {
+				const chunk = await reader.read();
+				if (chunk.done) {
+					disarm();
+					permit.release({ kind: 'ok', bytes, pressure });
+					output.close();
+					return;
+				}
+				bytes += chunk.value.byteLength;
+				arm();
+				output.enqueue(chunk.value);
+			} catch (error) {
+				disarm();
+				permit.release({ kind: 'failed' });
+				output.error(error);
+			}
+		},
+		async cancel(reason) {
+			disarm();
+			permit.release({ kind: 'failed' });
+			await reader.cancel(reason);
+		}
+	});
+	return new Response(stream, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers
+	});
 }
 
 async function graphError(response: Response): Promise<GraphError> {

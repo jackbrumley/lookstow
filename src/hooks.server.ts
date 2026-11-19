@@ -1,6 +1,8 @@
 import { building } from '$app/env';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
-import { alertService, backupEngine, database } from '#lib/server/runtime.ts';
+import { alertService, backupEngine, database, dataDir } from '#lib/server/runtime.ts';
+import { startThroughputMonitor } from '#lib/server/services/throughput/monitor.ts';
+import { throughputExtras } from '#lib/server/services/throughput/extras.ts';
 import { startAutomaticUpdates } from '#lib/server/services/engine/auto-update.ts';
 import { pruneActivity } from '#lib/server/services/activity/activity.ts';
 import { errorText, serverLog } from '#lib/server/log.ts';
@@ -8,7 +10,8 @@ import { serverUpdates, startUpdateChecks } from '#lib/server/services/server-up
 
 /**
  * Start-up and every request. At start-up the database is already open and migrated (runtime
- * imports it), email alerts start listening (before anything can record activity), the backup
+ * imports it), the throughput governor starts from the pace it learned before (before any Graph
+ * request), email alerts start listening (before anything can record activity), the backup
  * engine starts its timer, the daily release check starts, and so do
  * automatic updates (when they are on in Settings).
  *
@@ -20,6 +23,9 @@ export const init: ServerInit = () => {
 	if (building) {
 		return;
 	}
+	const throughput = startThroughputMonitor(database, dataDir(), () =>
+		throughputExtras(backupEngine().status())
+	);
 	alertService().start();
 	backupEngine().start();
 	startUpdateChecks();
@@ -32,7 +38,9 @@ export const init: ServerInit = () => {
 	setInterval(prune, 24 * 60 * 60 * 1000).unref();
 	for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 		process.once(signal, () => {
-			void backupEngine().stop();
+			void backupEngine()
+				.stop()
+				.then(() => throughput.stop());
 		});
 	}
 	serverLog('info', 'startup', `Lookstow ${__LOOKSTOW_VERSION__} started`);

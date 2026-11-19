@@ -8,6 +8,7 @@
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
+	import SpeedCard from './speed-card.svelte';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 	import {
 		formatBytes,
@@ -226,6 +227,8 @@
 		</dd>
 	</dl>
 </Card>
+
+<SpeedCard speed={data.speed} />
 
 {#if data.needsAttention.length > 0}
 	<Card title="Needs attention" tone="bad">

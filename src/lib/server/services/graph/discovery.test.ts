@@ -7,6 +7,7 @@ import {
 	noSleep
 } from '#tests/support/fake-graph.ts';
 import { GraphClient } from './client.ts';
+import { unpacedGovernor } from './governor.ts';
 import { discoverMailboxes } from './discovery.ts';
 import { TokenSource } from './token.ts';
 
@@ -29,7 +30,11 @@ function tenant(): FakeGraph {
 }
 
 function client(graph: FakeGraph): GraphClient {
-	return new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), graph.fetch, noSleep);
+	return new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), {
+		governor: unpacedGovernor(),
+		fetch: graph.fetch,
+		sleep: noSleep
+	});
 }
 
 describe('mailbox discovery', () => {

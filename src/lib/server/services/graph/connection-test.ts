@@ -1,5 +1,6 @@
 import { asRecord, GraphClient, GraphError, stringField } from './client.ts';
 import { isNoMailbox } from './discovery.ts';
+import { sharedGovernor } from './governor.ts';
 import { TokenSource, type FetchLike, type GraphCredentials } from './token.ts';
 
 /**
@@ -39,7 +40,7 @@ export async function testConnection(
 					: `Not granted yet: ${missing.join(', ')}. Add them as Microsoft Graph application permissions and grant admin consent; until then archives cannot be copied. The app has: ${roles.length === 0 ? 'no application permissions' : [...roles].sort().join(', ')}.`
 		});
 	}
-	const client = new GraphClient(tokens, fetchImpl);
+	const client = new GraphClient(tokens, { governor: sharedGovernor(), fetch: fetchImpl });
 	let candidates: { id: string; mail: string }[];
 	try {
 		const page = asRecord(await client.getJson(`/v1.0/users?$select=id,mail&$top=${SAMPLE}`));

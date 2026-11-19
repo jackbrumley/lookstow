@@ -1,3 +1,5 @@
+import type { Counters, GovernorSnapshot, PaceChange } from '../../../domain/throughput.ts';
+
 /**
  * The throughput governor (docs/specs/SPEC-THROUGHPUT.md): every Graph request asks it for a
  * permit first and reports how it ended, so Lookstow copies as fast as Microsoft allows and no
@@ -82,8 +84,6 @@ export const PACE = {
 const HISTORY_SECONDS = 15 * 60;
 const CHANGES_KEPT = 50;
 
-type Counters = { requests: number; bytes: number; throttled: number; failed: number };
-
 class Lane {
 	readonly number: number;
 	limit: number = LANE.start;
@@ -94,6 +94,10 @@ class Lane {
 	lastThrottleAt: number | null = null;
 	lastUsedAt: number;
 	waiting = 0;
+	/** Microsoft asked this mailbox to wait until then (its `Retry-After`). */
+	blockedUntil = 0;
+	/** After a wait, one request goes alone until one succeeds. */
+	probing = false;
 	/** The lane was full while requests waited, since its last change. */
 	busy = false;
 	requestsLastMinute: number[] = [];
@@ -113,39 +117,6 @@ class Lane {
 }
 
 type Waiter = { lane: string; resolve: (permit: Permit) => void };
-
-export type PaceChange = {
-	at: string;
-	what: 'pace' | 'lane';
-	lane: string | null;
-	from: string;
-	to: string;
-	reason: string;
-};
-
-export type GovernorSnapshot = {
-	pace: {
-		startsPerSecond: number;
-		inFlight: number;
-		inFlightCap: number;
-		phase: 'climbing' | 'holding' | 'probing';
-		holdUntil: string | null;
-		ceiling: { startsPerSecond: number; inFlightCap: number; at: string } | null;
-		lastCut: { at: string; code: string; retryAfterMs: number } | null;
-		/** Requests waiting because the app pace, not a lane, was full. */
-		waitingForPace: number;
-	};
-	lanes: {
-		name: string;
-		limit: number;
-		inFlight: number;
-		waiting: number;
-		requestsLastMinute: number;
-		lastThrottleAt: string | null;
-	}[];
-	rates: Record<'last10Seconds' | 'lastMinute' | 'last15Minutes', Counters>;
-	changes: PaceChange[];
-};
 
 /** Which mailbox a Graph URL is about: the lane key, or '' for requests about no mailbox. */
 export function laneOf(url: string): string {
@@ -183,6 +154,9 @@ export class Governor {
 	#successesSinceCut: number | null = null;
 	#lastPressureAt: number | null = null;
 	#lastCut: { at: number; code: string; retryAfterMs: number } | null = null;
+	/** Microsoft asked the app to wait until then; then one request goes alone. */
+	#blockedUntil = 0;
+	#probing = false;
 	/** The app pace held work back since its last change (so raising it can help). */
 	#paceBound = false;
 	#waitingForPace = 0;
@@ -244,7 +218,7 @@ export class Governor {
 	/** Whether another mailbox would get more done now, and why not if it would not. */
 	headroom(): { more: boolean; reason: string } {
 		const now = this.#now();
-		if (this.#lastCut !== null && now - this.#lastCut.at < 60_000) {
+		if (now < this.#blockedUntil || (this.#lastCut !== null && now - this.#lastCut.at < 60_000)) {
 			return { more: false, reason: 'Microsoft asked Lookstow to slow down in the last minute' };
 		}
 		if (this.#waitingForPace > 0) {
@@ -266,6 +240,7 @@ export class Governor {
 				inFlightCap: this.#cap,
 				phase: this.#phase(now),
 				holdUntil: this.#holdUntil !== null && now < this.#holdUntil ? iso(this.#holdUntil) : null,
+				pausedUntil: now < this.#blockedUntil ? iso(this.#blockedUntil) : null,
 				ceiling:
 					this.#ceiling === null
 						? null
@@ -351,7 +326,22 @@ export class Governor {
 				const waiter = this.#waiters[index];
 				if (waiter === undefined) continue;
 				const lane = waiter.lane === '' ? null : this.#lane(waiter.lane);
+				// Microsoft's wait holds every request in its scope, then one goes alone.
+				if (now < this.#blockedUntil) {
+					this.#waitingForPace += 1;
+					want(this.#blockedUntil - now);
+					continue;
+				}
+				if (this.#probing && this.#inFlight > 0) {
+					this.#waitingForPace += 1;
+					continue;
+				}
 				if (lane !== null) {
+					if (now < lane.blockedUntil) {
+						want(lane.blockedUntil - now);
+						continue;
+					}
+					if (lane.probing && lane.inFlight > 0) continue;
 					lane.refill(now);
 					if (lane.inFlight >= lane.limit) {
 						lane.busy = true;
@@ -433,12 +423,18 @@ export class Governor {
 		second.requests += 1;
 		if (outcome.kind === 'ok') {
 			second.bytes += outcome.bytes;
+			this.#probing = false;
+			if (lane !== null) lane.probing = false;
 			this.#onSuccess(lane, now, outcome.pressure);
 		} else if (outcome.kind === 'throttled') {
 			second.throttled += 1;
 			if (outcome.scope === 'mailbox' && lane !== null) {
+				lane.blockedUntil = Math.max(lane.blockedUntil, now + outcome.retryAfterMs);
+				lane.probing = true;
 				this.#onLaneThrottle(lane, now);
 			} else {
+				this.#blockedUntil = Math.max(this.#blockedUntil, now + outcome.retryAfterMs);
+				this.#probing = true;
 				this.#onAppThrottle(startedAt, now, outcome);
 			}
 		} else {
@@ -649,16 +645,22 @@ function round(value: number): number {
 	return Math.round(value * 100) / 100;
 }
 
-/** No pacing at all: for tests of code that makes Graph requests, and nothing else. */
+/**
+ * No real pacing: for tests of code that makes Graph requests, and nothing else. Its clock is
+ * virtual and jumps over every wait it schedules (Microsoft's Retry-After included), so tests
+ * never wait in real time.
+ */
 export function unpacedGovernor(): Governor {
+	let skipped = 0;
 	return new Governor({
-		now: Date.now,
+		now: () => Date.now() + skipped,
 		learned: {
 			startsPerSecond: PACE.rateCeiling,
 			inFlightCap: PACE.inFlightCeiling,
 			ceiling: null
 		},
-		schedule: (_ms, run) => {
+		schedule: (ms, run) => {
+			skipped += ms;
 			const timer = setTimeout(run, 0);
 			return () => {
 				clearTimeout(timer);

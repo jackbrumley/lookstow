@@ -5,14 +5,17 @@ import { listActivity, recordActivity } from '#lib/server/services/activity/acti
 import { recentRuns } from '#lib/server/services/mailboxes/repository.ts';
 import { mailboxSummaries, mailboxTotals } from '#lib/server/services/mailboxes/views.ts';
 import { readConnection } from '#lib/server/services/settings/settings.ts';
+import { throughputView } from '#lib/server/services/throughput/view.ts';
 
 /** The dashboard: is everything backed up, what is running, and what needs someone. */
 export const load = (() => {
 	const engine = backupEngine();
 	const summaries = mailboxSummaries(database, (id) => engine.isSyncing(id));
 	const connection = readConnection(database);
+	const status = engine.status();
 	return {
-		engine: engine.status(),
+		engine: status,
+		speed: throughputView(status),
 		totals: mailboxTotals(summaries),
 		needsAttention: summaries.filter((mailbox) => mailbox.state === 'failed').slice(0, 20),
 		setup: {

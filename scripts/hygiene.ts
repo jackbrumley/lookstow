@@ -53,6 +53,10 @@ const FILE_CHANGE_ALLOWED = new Map<string, string>([
 		'the daily index copy: written through a .partial file, only the 7 newest lookstow-*.db kept in .lookstow-index'
 	],
 	[
+		'src/lib/server/services/throughput/monitor.ts',
+		'deleting its own pace history files (<data>/throughput/*.jsonl) older than 7 days; never backup files'
+	],
+	[
 		'src/lib/server/services/server-updates/readiness.ts',
 		'atomic write of the readiness file in the data folder'
 	],

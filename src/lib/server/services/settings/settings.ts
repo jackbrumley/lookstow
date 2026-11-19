@@ -123,6 +123,21 @@ const emailSchema = z.object({
 });
 type StoredEmail = z.infer<typeof emailSchema>;
 
+/** What the throughput governor learned about Microsoft's limits, kept between restarts. */
+const learnedPaceSchema = z
+	.object({
+		startsPerSecond: z.number().positive(),
+		inFlightCap: z.number().int().positive(),
+		ceiling: z
+			.object({
+				startsPerSecond: z.number().positive(),
+				inFlightCap: z.number().int().positive(),
+				at: z.number().int().nonnegative()
+			})
+			.nullable()
+	})
+	.nullable();
+
 function emptyEmail(): StoredEmail {
 	return { mailgun: null, recipients: [] };
 }
@@ -134,7 +149,8 @@ const KEYS = {
 	backup: { schema: backupSchema, fallback: { root: null } },
 	updates: { schema: updatesSchema, fallback: UPDATE_DEFAULTS },
 	disk: { schema: diskSchema, fallback: DISK_DEFAULTS },
-	email: { schema: emailSchema, fallback: emptyEmail() }
+	email: { schema: emailSchema, fallback: emptyEmail() },
+	throughput: { schema: learnedPaceSchema, fallback: null }
 } as const;
 type Key = keyof typeof KEYS;
 
@@ -486,4 +502,18 @@ export function saveRecipients(
 		throw new SettingsError('Each email address can be on the list once.');
 	}
 	write(db, 'email', { ...readEmail(db), recipients: parsed.data }, now);
+}
+
+// ---------------------------------------------------------------------------
+// Throughput: what the governor learned, so a restart resumes just under Microsoft's limit
+// ---------------------------------------------------------------------------
+
+export type StoredPace = z.infer<typeof learnedPaceSchema>;
+
+export function readLearnedPace(db: Queryable): StoredPace {
+	return read(db, 'throughput', KEYS.throughput.schema, KEYS.throughput.fallback);
+}
+
+export function saveLearnedPace(db: Queryable, pace: StoredPace, now = Date.now()): void {
+	write(db, 'throughput', pace, now);
 }

@@ -14,6 +14,7 @@ import { openDatabase } from '../../database/connection.ts';
 import { PROP } from '../fts/fts-properties.ts';
 import { messages } from '../../database/schema.ts';
 import { GraphClient } from '../graph/client.ts';
+import { unpacedGovernor } from '../graph/governor.ts';
 import { TokenSource } from '../graph/token.ts';
 import { indexArchiveItems } from '../fts/fts-index.ts';
 import {
@@ -136,7 +137,11 @@ async function setup(graph: FakeGraph) {
 	const backupRoot = await mkdtemp(join(tmpdir(), 'lookstow-archive-'));
 	const context: SyncContext = {
 		db,
-		client: new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), graph.fetch, noSleep),
+		client: new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), {
+			governor: unpacedGovernor(),
+			fetch: graph.fetch,
+			sleep: noSleep
+		}),
 		backupRoot,
 		now: () => 1000,
 		stopping: () => false,

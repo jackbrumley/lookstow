@@ -178,6 +178,30 @@ describe('the governor', () => {
 		expect(governor.learned().ceiling?.startsPerSecond).toBeCloseTo(refused, 1);
 	});
 
+	it('holds every request through Microsoft’s wait, then sends one alone before the rest', async () => {
+		const time = manualTime();
+		const governor = new Governor({ now: time.now, schedule: time.schedule });
+		const first = await governor.acquire('');
+		first.release({ kind: 'throttled', scope: 'app', retryAfterMs: 5000, code: 'TooManyRequests' });
+		const started: Permit[] = [];
+		for (let index = 0; index < 3; index++) {
+			void governor.acquire(`m${String(index)}`).then((permit) => started.push(permit));
+		}
+		await settle();
+		expect(started).toHaveLength(0);
+		expect(governor.snapshot().pace.pausedUntil).not.toBeNull();
+		time.advance(4999);
+		await settle();
+		expect(started).toHaveLength(0);
+		time.advance(1);
+		await settle();
+		// The probe goes alone.
+		expect(started).toHaveLength(1);
+		ok(started[0] ?? fail());
+		await settle();
+		expect(started).toHaveLength(3);
+	});
+
 	it('starts from what it learned before, and forgets on request', () => {
 		const time = manualTime();
 		const governor = new Governor({

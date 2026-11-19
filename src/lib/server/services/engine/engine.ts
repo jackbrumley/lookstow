@@ -4,6 +4,7 @@ import { runs } from '../../database/schema.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { recordActivity } from '../activity/activity.ts';
 import { GraphClient } from '../graph/client.ts';
+import { sharedGovernor } from '../graph/governor.ts';
 import type { DiscoveryProgress } from '../graph/discovery.ts';
 import { TokenSource } from '../graph/token.ts';
 import { allMailboxes, type MailboxRow } from '../mailboxes/repository.ts';
@@ -404,11 +405,9 @@ export class Engine {
 			return null;
 		}
 		this.#setupProblem = null;
-		return new GraphClient(
-			new TokenSource(found.credentials),
-			fetch,
-			undefined,
-			(status, waitMs) => {
+		return new GraphClient(new TokenSource(found.credentials), {
+			governor: sharedGovernor(),
+			onThrottle: (status, waitMs) => {
 				this.#meter.record(this.#deps.now(), { throttled: 1 });
 				serverLog(
 					'warn',
@@ -416,7 +415,7 @@ export class Engine {
 					`Microsoft Graph asked Lookstow to slow down (${status}); waiting ${Math.round(waitMs / 1000)} s`
 				);
 			}
-		);
+		});
 	}
 
 	async #discover(client: GraphClient): Promise<void> {

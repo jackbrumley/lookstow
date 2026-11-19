@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FakeGraph, TEST_CREDENTIALS, graphError, json } from '#tests/support/fake-graph.ts';
-import { backoffMs, GraphClient, GraphError, parseGraphJson } from './client.ts';
+import { backoffMs, GraphClient, GraphError, parseGraphJson, retryAfterMs } from './client.ts';
+import { unpacedGovernor } from './governor.ts';
 import { TokenSource } from './token.ts';
 
 describe('reading JSON from Graph', () => {
@@ -28,11 +29,11 @@ describe('reading JSON from Graph', () => {
 				'/beta/admin/exchange/mailboxes/MBX:a@b/exportItems',
 				() => new Response(`{"value":[{"itemId":"i1","data":"QUJD","note":"x\u0007y"}]}`)
 			);
-		const client = new GraphClient(
-			new TokenSource(TEST_CREDENTIALS, graph.fetch),
-			graph.fetch,
-			() => Promise.resolve()
-		);
+		const client = new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), {
+			governor: unpacedGovernor(),
+			fetch: graph.fetch,
+			sleep: () => Promise.resolve()
+		});
 		await expect(
 			client.postJson(
 				'https://graph.microsoft.com/beta/admin/exchange/mailboxes/MBX:a@b/exportItems',
@@ -44,10 +45,17 @@ describe('reading JSON from Graph', () => {
 	});
 });
 
-function client(graph: FakeGraph, sleeps: number[] = []): GraphClient {
-	return new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), graph.fetch, (ms) => {
-		sleeps.push(ms);
-		return Promise.resolve();
+function client(graph: FakeGraph, sleeps: number[] = [], throttles: number[] = []): GraphClient {
+	return new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), {
+		governor: unpacedGovernor(),
+		fetch: graph.fetch,
+		sleep: (ms) => {
+			sleeps.push(ms);
+			return Promise.resolve();
+		},
+		onThrottle: (_status, waitMs) => {
+			throttles.push(waitMs);
+		}
 	});
 }
 
@@ -58,18 +66,25 @@ describe('the Graph client', () => {
 			calls += 1;
 			return calls === 1 ? json({}, 429, { 'retry-after': '7' }) : json({ ok: true });
 		});
+		// The governor holds the request through Microsoft's wait; the client does not sleep.
 		const sleeps: number[] = [];
-		await expect(client(graph, sleeps).getJson('/v1.0/me')).resolves.toEqual({ ok: true });
-		expect(sleeps).toEqual([7000]);
+		const throttles: number[] = [];
+		await expect(client(graph, sleeps, throttles).getJson('/v1.0/me')).resolves.toEqual({
+			ok: true
+		});
+		expect(throttles).toEqual([7000]);
+		expect(sleeps).toEqual([]);
 	});
 
 	it('gives up after six attempts and says why', async () => {
 		const graph = new FakeGraph()
 			.withToken()
 			.on('/v1.0/me', () => graphError(503, 'ServiceUnavailable'));
-		const sleeps: number[] = [];
-		await expect(client(graph, sleeps).getJson('/v1.0/me')).rejects.toBeInstanceOf(GraphError);
-		expect(sleeps).toHaveLength(5);
+		const throttles: number[] = [];
+		await expect(client(graph, [], throttles).getJson('/v1.0/me')).rejects.toBeInstanceOf(
+			GraphError
+		);
+		expect(throttles).toHaveLength(5);
 	});
 
 	it('asks again when Graph sends an empty reply, and fails clearly if it keeps doing so', async () => {
@@ -164,5 +179,97 @@ describe('the Graph client', () => {
 		expect([1, 2, 3, 10].map((attempt) => backoffMs(attempt, null))).toEqual([
 			2000, 4000, 8000, 120_000
 		]);
+	});
+});
+
+describe('the Graph client under load', () => {
+	it('aborts a download that stalls and asks again', async () => {
+		const graph = new FakeGraph()
+			.withToken()
+			.on('/v1.0/users/u/messages/m/$value', () => json({ ok: true }));
+		let calls = 0;
+		const fetchImpl = (input: string, init?: RequestInit): Promise<Response> => {
+			if (!input.endsWith('/$value')) return graph.fetch(input, init);
+			calls += 1;
+			if (calls > 1) return graph.fetch(input, init);
+			// One chunk, then nothing, until the client's watchdog aborts the request.
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode('{"ok"'));
+					init?.signal?.addEventListener('abort', () => {
+						controller.error(init.signal?.reason);
+					});
+				}
+			});
+			return Promise.resolve(new Response(body));
+		};
+		const client = new GraphClient(new TokenSource(TEST_CREDENTIALS, fetchImpl), {
+			governor: unpacedGovernor(),
+			fetch: fetchImpl,
+			sleep: () => Promise.resolve(),
+			timeouts: { headersMs: 1000, bodyIdleMs: 20 }
+		});
+		await expect(client.getJson('/v1.0/users/u/messages/m/$value')).resolves.toEqual({ ok: true });
+		expect(calls).toBe(2);
+	});
+
+	it('signs in again once after a 401, then asks again', async () => {
+		let tokens = 0;
+		let calls = 0;
+		const graph = new FakeGraph()
+			.on(/\/oauth2\/v2\.0\/token$/, () => {
+				tokens += 1;
+				return json({ access_token: `token-${String(tokens)}`, expires_in: 3600 });
+			})
+			.on('/v1.0/me', () => {
+				calls += 1;
+				return calls === 1 ? graphError(401, 'InvalidAuthenticationToken') : json({ ok: true });
+			});
+		await expect(client(graph).getJson('/v1.0/me')).resolves.toEqual({ ok: true });
+		expect(tokens).toBe(2);
+	});
+
+	it('shares one sign-in between requests that need it at once', async () => {
+		let tokens = 0;
+		const graph = new FakeGraph()
+			.on(/\/oauth2\/v2\.0\/token$/, () => {
+				tokens += 1;
+				return json({ access_token: 'token', expires_in: 3600 });
+			})
+			.on('/v1.0/me', () => json({ ok: true }));
+		const shared = client(graph);
+		await Promise.all([
+			shared.getJson('/v1.0/me'),
+			shared.getJson('/v1.0/me'),
+			shared.getJson('/v1.0/me')
+		]);
+		expect(tokens).toBe(1);
+	});
+
+	it('lowers only the mailbox’s lane when Microsoft says too many at once for it', async () => {
+		let calls = 0;
+		const graph = new FakeGraph().withToken().on('/v1.0/users/u/mailFolders', () => {
+			calls += 1;
+			return calls === 1
+				? graphError(429, 'MailboxConcurrency', 'Too many concurrent requests')
+				: json({ value: [] });
+		});
+		const governor = unpacedGovernor();
+		const paced = new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), {
+			governor,
+			fetch: graph.fetch,
+			sleep: () => Promise.resolve()
+		});
+		await paced.getJson('/v1.0/users/u/mailFolders');
+		const snapshot = governor.snapshot();
+		expect(snapshot.lanes[0]?.limit).toBe(3);
+		expect(snapshot.pace.lastCut).toBeNull();
+	});
+
+	it('reads Microsoft’s wait in every form it sends', () => {
+		expect(retryAfterMs('7', '', 1, 0)).toBe(7000);
+		expect(retryAfterMs('Thu, 01 Jan 1970 00:00:30 GMT', '', 1, 10_000)).toBe(20_000);
+		expect(retryAfterMs(null, '{"error":{"retryAfterSeconds": 12}}', 1, 0)).toBe(12_000);
+		expect(retryAfterMs(null, '', 1, 0)).toBe(backoffMs(1, null));
 	});
 });

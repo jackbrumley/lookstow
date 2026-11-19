@@ -30,6 +30,8 @@ export class TokenError extends Error {
 /** Gets access tokens for Microsoft Graph and keeps one until shortly before it expires. */
 export class TokenSource {
 	#token: { value: string; expiresAt: number } | null = null;
+	/** The renewal in progress: requests that need a token meanwhile share it. */
+	#renewing: Promise<string> | null = null;
 	readonly #credentials: GraphCredentials;
 	readonly #fetch: FetchLike;
 	readonly #now: () => number;
@@ -44,6 +46,19 @@ export class TokenSource {
 		if (this.#token !== null && this.#token.expiresAt - RENEW_BEFORE_MS > this.#now()) {
 			return this.#token.value;
 		}
+		// One renewal at a time: under load, every request at once would otherwise ask Entra.
+		this.#renewing ??= this.#renew().finally(() => {
+			this.#renewing = null;
+		});
+		return this.#renewing;
+	}
+
+	/** Drops the kept token (Microsoft refused it early, with a 401), so the next request renews. */
+	forget(): void {
+		this.#token = null;
+	}
+
+	async #renew(): Promise<string> {
 		const { tenantId, clientId, auth } = this.#credentials;
 		const body = new URLSearchParams({
 			client_id: clientId,

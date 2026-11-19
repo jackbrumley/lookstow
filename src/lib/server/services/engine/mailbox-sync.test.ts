@@ -11,6 +11,7 @@ import {
 } from '#tests/support/fake-graph.ts';
 import { openDatabase } from '../../database/connection.ts';
 import { GraphClient } from '../graph/client.ts';
+import { unpacedGovernor } from '../graph/governor.ts';
 import { TokenSource } from '../graph/token.ts';
 import { applyDiscovery, foldersOf, mailboxById } from '../mailboxes/repository.ts';
 import { messageEvents, messages } from '../../database/schema.ts';
@@ -77,7 +78,11 @@ async function setup(graph: FakeGraph) {
 	let stopping = false;
 	const context: SyncContext = {
 		db,
-		client: new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), graph.fetch, noSleep),
+		client: new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), {
+			governor: unpacedGovernor(),
+			fetch: graph.fetch,
+			sleep: noSleep
+		}),
 		backupRoot,
 		now: () => 1000,
 		stopping: () => stopping,
