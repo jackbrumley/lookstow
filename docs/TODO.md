@@ -26,7 +26,7 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 
 - **Split engine.ts.** Done (refactor, no version).
 - **0.7: index snapshot.** Done in 0.7.0: a daily copy of the index on the backup drive (7 kept), a documented restore, a How it works page, and archive items that cannot be read are tried once per version.
-- **0.8: completeness check.** Each folder's item count from Microsoft beside the index's, reported before any alert.
+- **0.8: completeness check.** Done in 0.8.0: each folder's item count from Microsoft beside the index's, on the mailbox page, a Mailboxes filter and the dashboard. Next: alerts, once a week of real numbers shows which differences are normal.
 
 ## Later
 

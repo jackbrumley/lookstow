@@ -13,6 +13,7 @@ import {
 	insertMessage,
 	moveMessage,
 	saveFolderProgress,
+	setFolderSourceCounts,
 	storedMessage,
 	syncFolderList,
 	type FolderRow,
@@ -51,6 +52,10 @@ export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Pr
 		stoppedEarly: false
 	};
 	const pending: PendingRemoval[] = [];
+	const microsoftCounts = new Map(
+		graphFolders.map((folder) => [folder.graphId, folder.totalItemCount])
+	);
+	const upToDate: { folderId: string; count: number }[] = [];
 	for (const folder of folders) {
 		if (context.stopping()) {
 			totals.stoppedEarly = true;
@@ -58,11 +63,15 @@ export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Pr
 			break;
 		}
 		const done = await syncFolder(context, mailbox, mailboxRoot, folder, totals, pending);
+		const count = microsoftCounts.get(folder.graphId) ?? null;
 		if (!done) {
 			totals.firstCopyDone = false;
+		} else if (count !== null) {
+			upToDate.push({ folderId: folder.id, count });
 		}
 	}
 	totals.removed += applyRemovals(context, mailbox.id, pending);
+	setFolderSourceCounts(context.db, upToDate, context.now());
 	return totals;
 }
 

@@ -33,6 +33,10 @@
 	let search = $state('');
 	let stateFilter = $state<MailboxState | 'all'>('all');
 	let kindFilter = $state('all');
+	let differsOnly = $state(false);
+	const differing = $derived(
+		data.mailboxes.filter((mailbox) => mailbox.differsFromMicrosoft).length
+	);
 
 	const kinds = $derived([...new Set(data.mailboxes.map((mailbox) => mailbox.kind))].sort());
 	const shown = $derived(
@@ -41,6 +45,7 @@
 			return (
 				(stateFilter === 'all' || mailbox.state === stateFilter) &&
 				(kindFilter === 'all' || mailbox.kind === kindFilter) &&
+				(!differsOnly || mailbox.differsFromMicrosoft) &&
 				(text === '' ||
 					mailbox.address.includes(text) ||
 					mailbox.displayName.toLowerCase().includes(text))
@@ -146,6 +151,13 @@
 				<option value={kind}>{KIND_LABELS[kind] ?? kind}</option>
 			{/each}
 		</select>
+		{#if differing > 0}
+			<label class="check"
+				><input type="checkbox" bind:checked={differsOnly} /> Differs from Microsoft ({formatCount(
+					differing
+				)})</label
+			>
+		{/if}
 		<span class="muted small"
 			>{formatCount(shown.length)} of {formatCount(data.mailboxes.length)}</span
 		>
@@ -256,6 +268,12 @@
 {/if}
 
 <style>
+	label.check {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
 	.filters {
 		display: flex;
 		flex-wrap: wrap;

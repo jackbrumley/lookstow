@@ -60,7 +60,10 @@ export const mailFolders = sqliteTable(
 		/** True once a delta round has reached its delta link (the folder's first copy is done). */
 		firstCopyDone: integer({ mode: 'boolean' }).notNull().default(false),
 		lastSyncedAt: integer({ mode: 'timestamp_ms' }),
-		goneAt: integer({ mode: 'timestamp_ms' })
+		goneAt: integer({ mode: 'timestamp_ms' }),
+		/** How many items Microsoft said the folder held, after its last up-to-date sync. */
+		sourceCount: integer(),
+		sourceCountAt: integer({ mode: 'timestamp_ms' })
 	},
 	(table) => [uniqueIndex('mail_folders_mailbox_graph').on(table.mailboxId, table.graphId)]
 );

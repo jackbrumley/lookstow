@@ -97,3 +97,7 @@ The export API dates an archive item by when it moved into the archive, often tw
 ## A daily index snapshot on the backup drive (2026-11-19)
 
 The index is the only record of each message's folder history, the deletions at the source and every folder's sync position, and it was copied only before an update. Now SQLite's online backup copies it once a day to `.lookstow-index` in the backup folder, and the newest 7 are kept. That is the backup drive, because an admin already looks after it, and it survives the data folder when the backup folder is on another drive. Restoring stays a manual step: the database is never replaced automatically. Rebuilding the index from the files alone was left out: the files do not hold Microsoft's ids, the folders or the history, and a day-old copy covers the same failure (SPEC-BACKUP-INTEGRITY.md section 5).
+
+## The completeness check reports before it alerts (2026-11-19)
+
+Lookstow trusted Microsoft's delta queries and could not prove a backup was whole. Now every up-to-date folder sync records Microsoft's `totalItemCount`, taken from the folder list it already asks for (no extra requests), and pages compare it with the stored messages. It only reports for now. Some differences are normal: mail arriving between the folder list and the delta, and items that are not messages in mail folders. An alert that fires on those would be ignored, so alerts wait for real numbers.

@@ -24,6 +24,8 @@ export type MailboxSummary = {
 	firstCopyDone: boolean;
 	paused: boolean;
 	goneAt: string | null;
+	/** A folder's stored messages differ from Microsoft's count (the completeness check). */
+	differsFromMicrosoft: boolean;
 };
 
 export type MailboxDetail = MailboxSummary & {
@@ -36,6 +38,8 @@ export type MailboxDetail = MailboxSummary & {
 	folders: {
 		path: string;
 		itemCount: number;
+		/** Microsoft's count after the folder's last up-to-date sync, or null before one. */
+		sourceCount: number | null;
 		firstCopyDone: boolean;
 		lastSyncedAt: string | null;
 	}[];

@@ -6,6 +6,7 @@ import {
 	folderItemCounts,
 	foldersOf,
 	mailboxById,
+	mailboxesDifferingFromSource,
 	recentRuns,
 	unreadableItemCount,
 	type MailboxRow
@@ -41,7 +42,7 @@ export function mailboxState(
 	return row.firstCopyDone ? 'backed-up' : 'waiting-first-copy';
 }
 
-function summary(row: MailboxRow, state: MailboxState): MailboxSummary {
+function summary(row: MailboxRow, state: MailboxState, differs: boolean): MailboxSummary {
 	return {
 		id: row.id,
 		address: row.address,
@@ -54,7 +55,8 @@ function summary(row: MailboxRow, state: MailboxState): MailboxSummary {
 		byteCount: row.byteCount,
 		firstCopyDone: row.firstCopyDone,
 		paused: row.paused,
-		goneAt: row.goneAt?.toISOString() ?? null
+		goneAt: row.goneAt?.toISOString() ?? null,
+		differsFromMicrosoft: differs
 	};
 }
 
@@ -63,7 +65,10 @@ export function mailboxSummaries(
 	syncing: (id: string) => boolean
 ): MailboxSummary[] {
 	const scope = readScope(db);
-	return allMailboxes(db).map((row) => summary(row, mailboxState(row, scope, syncing)));
+	const differing = mailboxesDifferingFromSource(db);
+	return allMailboxes(db).map((row) =>
+		summary(row, mailboxState(row, scope, syncing), differing.has(row.id))
+	);
 }
 
 export function mailboxDetail(
@@ -78,7 +83,11 @@ export function mailboxDetail(
 	}
 	const counts = folderItemCounts(db, id);
 	return {
-		...summary(row, mailboxState(row, readScope(db), syncing)),
+		...summary(
+			row,
+			mailboxState(row, readScope(db), syncing),
+			mailboxesDifferingFromSource(db).has(row.id)
+		),
 		userId: row.userId,
 		firstSeenAt: row.firstSeenAt.toISOString(),
 		lastSeenAt: row.lastSeenAt.toISOString(),
@@ -89,6 +98,7 @@ export function mailboxDetail(
 			.map((folder) => ({
 				path: folder.path,
 				itemCount: counts.get(folder.id) ?? 0,
+				sourceCount: folder.sourceCount,
 				firstCopyDone: folder.firstCopyDone,
 				lastSyncedAt: folder.lastSyncedAt?.toISOString() ?? null
 			})),
@@ -107,6 +117,7 @@ export function mailboxTotals(summaries: readonly MailboxSummary[]) {
 		failed: count('failed'),
 		excluded: count('excluded') + count('out-of-scope'),
 		gone: count('gone'),
+		differingFromMicrosoft: summaries.filter((s) => s.differsFromMicrosoft).length,
 		items: summaries.reduce((sum, s) => sum + s.itemCount, 0),
 		bytes: summaries.reduce((sum, s) => sum + s.byteCount, 0)
 	};

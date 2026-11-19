@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -38,8 +38,8 @@ function mailbox(deltas: Record<string, () => Response>): FakeGraph {
 		.on(new RegExp(`^${INBOX}\\?`), () =>
 			json({
 				value: [
-					{ id: 'inbox', displayName: 'Inbox', childFolderCount: 1 },
-					{ id: 'sent', displayName: 'Sent Items', childFolderCount: 0 }
+					{ id: 'inbox', displayName: 'Inbox', childFolderCount: 1, totalItemCount: 3 },
+					{ id: 'sent', displayName: 'Sent Items', childFolderCount: 0, totalItemCount: 0 }
 				]
 			})
 		)
@@ -132,6 +132,45 @@ describe('syncing one mailbox', () => {
 				.map((f) => f.path)
 				.sort()
 		).toEqual(['Inbox', 'Inbox/Projects', 'Sent Items']);
+	});
+
+	it("records Microsoft's folder count after an up-to-date sync", async () => {
+		const graph = mailbox({
+			'mailFolders/inbox/messages/delta': () =>
+				json({
+					value: [message('m1', 'First')],
+					'@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-delta-1'
+				}),
+			'mailFolders/(sent|proj)/messages/delta': empty
+		});
+		const { db, row, context } = await setup(graph);
+		await syncMailbox(context, row);
+		const counts = Object.fromEntries(
+			foldersOf(db, row.id).map((folder) => [folder.path, folder.sourceCount])
+		);
+		// Microsoft says Inbox holds 3, one is stored: the check shows both. Projects gave no count.
+		expect(counts).toEqual({ Inbox: 3, 'Sent Items': 0, 'Inbox/Projects': null });
+	});
+
+	it('after a restored index, newer mail is rewritten, not duplicated', async () => {
+		const deltas = {
+			'mailFolders/inbox/messages/delta': () =>
+				json({
+					value: [message('m1', 'First'), message('m2', 'Second')],
+					'@odata.deltaLink': 'https://graph.microsoft.com/v1.0/inbox-delta-1'
+				}),
+			'mailFolders/(sent|proj)/messages/delta': empty
+		};
+		const first = await setup(mailbox(deltas));
+		await syncMailbox(first.context, first.row);
+		const filesBefore = await readdir(first.backupRoot, { recursive: true });
+		// An index from before those messages: the files are on disk, the index does not know them.
+		const restored = await setup(mailbox(deltas));
+		await syncMailbox({ ...restored.context, backupRoot: first.backupRoot }, restored.row);
+		expect((await readdir(first.backupRoot, { recursive: true })).sort()).toEqual(
+			filesBefore.sort()
+		);
+		expect(restored.db.select().from(messages).all()).toHaveLength(2);
 	});
 
 	it('keeps the files of deleted messages and follows moves without downloading again', async () => {

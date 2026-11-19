@@ -8,6 +8,8 @@ export type GraphFolder = {
 	graphId: string;
 	/** Display path from the mailbox root, e.g. `Inbox/Projects`. */
 	path: string;
+	/** How many items Microsoft says the folder holds, or null when it did not say. */
+	totalItemCount: number | null;
 };
 
 export type MessageChange =
@@ -27,7 +29,8 @@ export type MessageChange =
 export async function listFolders(client: GraphClient, userId: string): Promise<GraphFolder[]> {
 	const folders: GraphFolder[] = [];
 	const base = `/v1.0/users/${encodeURIComponent(userId)}/mailFolders`;
-	const select = '$select=id,displayName,childFolderCount&includeHiddenFolders=true&$top=100';
+	const select =
+		'$select=id,displayName,childFolderCount,totalItemCount&includeHiddenFolders=true&$top=100';
 	const queue: { url: string; parentPath: string }[] = [
 		{ url: `${base}?${select}`, parentPath: '' }
 	];
@@ -45,7 +48,8 @@ export async function listFolders(client: GraphClient, userId: string): Promise<
 				}
 				const name = stringField(folder, 'displayName') ?? graphId;
 				const path = current.parentPath === '' ? name : `${current.parentPath}/${name}`;
-				folders.push({ graphId, path });
+				const total = folder['totalItemCount'];
+				folders.push({ graphId, path, totalItemCount: typeof total === 'number' ? total : null });
 				const children = folder['childFolderCount'];
 				if (typeof children === 'number' && children > 0) {
 					queue.push({

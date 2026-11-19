@@ -144,3 +144,10 @@ The engine's slots stayed in `engine.ts`; moving them is the throughput work's p
 - **Restore** is in the README ("If the index is lost") and on the new How it works page, with the computer's own folders.
 - **Failed reads.** Migration `0004_archive-read-failed.sql` adds `messages.index_failed_version`. Two places set it: `indexArchiveItems` (which now takes the version) and the archive sync at copy time. `setMessageIndex` clears it. The mailbox page shows "Not readable" with the count.
 - **Acceptance criteria, as tested.** 1: `snapshotDue` ("is due once a day"); the engine's guard has no unit test, because the engine has no test rig yet. 2–5: `index-snapshot.test.ts`. 6: `archive-sync.test.ts`, "reads archive items stored before 0.6.0…" (same version skips, newer version retries). 7–9: 0.8.0.
+
+**0.8.0.**
+
+- **Columns.** Migration `0005` adds `mail_folders.source_count` and `source_count_at`.
+- **Counts.** `listFolders` asks for `totalItemCount` in the same request. Both sync paths collect the folders whose delta finished, then record Microsoft's count once removals are applied (`setFolderSourceCounts`). The comparison happens when a page is shown, against the stored messages not deleted at the source (`mailboxesDifferingFromSource`, `folderItemCounts`). Folders gone from Microsoft and folders never checked do not count.
+- **Shown.** The mailbox page has a "Microsoft says" column, with differing counts marked and a note on normal differences. Mailboxes has a "Differs from Microsoft (n)" filter. The dashboard has a "Completeness" line. How it works explains it. No alert yet (open question 3).
+- **Tests.** 7: `mailbox-sync.test.ts` and `archive-sync.test.ts`. 8: `views.test.ts`. 9: `mailbox-sync.test.ts`, "after a restored index, newer mail is rewritten, not duplicated".

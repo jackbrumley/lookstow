@@ -20,6 +20,21 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.8.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, wait for a sync of a backed-up mailbox, then open its page: the Folders table has a Microsoft says column with Microsoft’s count for each folder',
+				'Where a folder’s count differs from the stored messages, it is marked, and a note under the table says why small differences are normal',
+				'Open the dashboard: Completeness says every checked folder matches, or how many mailboxes differ. If some differ, open Mailboxes and tick Differs from Microsoft to list only those'
+			]
+		},
+		changes: [
+			'Lookstow now checks that each backup is complete: after every sync it records how many items Microsoft says each folder holds, and shows that beside the number it has stored. Folders that differ are marked on the mailbox page, the dashboard says how many mailboxes differ, and Mailboxes can list only those',
+			'The numbers are shown as they are, with no alert yet: small differences are normal (mail arriving during a sync, and items in a mail folder that are not messages). Alerts will follow once real numbers show which differences matter'
+		]
+	},
+	{
 		version: '0.7.0',
 		testing: {
 			kind: 'steps',

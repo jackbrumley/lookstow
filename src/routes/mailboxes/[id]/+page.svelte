@@ -109,19 +109,41 @@
 		<p class="muted">No folders yet: they are listed on the first sync.</p>
 	{:else}
 		<table>
-			<thead><tr><th>Folder</th><th>Messages</th><th>First copy</th><th>Last synced</th></tr></thead
+			<thead
+				><tr
+					><th>Folder</th><th>Messages</th><th>Microsoft says</th><th>First copy</th><th
+						>Last synced</th
+					></tr
+				></thead
 			>
 			<tbody>
 				{#each mailbox.folders as folder (folder.path)}
 					<tr>
 						<td>{folder.path}</td>
 						<td>{formatCount(folder.itemCount)}</td>
+						<td>
+							{#if folder.sourceCount === null}
+								<span class="muted">Not yet</span>
+							{:else if folder.sourceCount === folder.itemCount}
+								{formatCount(folder.sourceCount)}
+							{:else}
+								<Badge tone="warn">{formatCount(folder.sourceCount)}</Badge>
+							{/if}
+						</td>
 						<td>{folder.firstCopyDone ? 'Done' : 'In progress'}</td>
 						<td>{formatRelative(folder.lastSyncedAt)}</td>
 					</tr>
 				{/each}
 			</tbody>
 		</table>
+		{#if mailbox.differsFromMicrosoft}
+			<p class="muted small">
+				Where Microsoft's count differs from the stored messages, it is marked. Small differences
+				are normal: mail that arrived during the last sync, and items in a mail folder that are not
+				messages (Deleted Items can hold contacts and calendar items). The numbers are shown as they
+				are, and checked again at every sync.
+			</p>
+		{/if}
 	{/if}
 </Card>
 

@@ -63,6 +63,15 @@
 	</p>
 </Card>
 
+<Card title="Checking the backup is complete">
+	<p>
+		After each sync, Lookstow notes how many items Microsoft says each folder holds, and shows it
+		beside the number it has stored. A mailbox page marks any folder where they differ, and
+		Mailboxes can show only those mailboxes. Small differences are normal: mail that arrived during
+		the sync, and items in a mail folder that are not messages.
+	</p>
+</Card>
+
 <Card title="When mail is moved or deleted in Microsoft 365">
 	<ul class="plain">
 		<li>A moved message is recorded as a move. Its file stays.</li>

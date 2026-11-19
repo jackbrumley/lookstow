@@ -196,6 +196,18 @@
 				Last {formatDateTime(data.engine.indexSnapshot.lastAt)}
 			{/if}
 		</dd>
+		<dt>Completeness</dt>
+		<dd>
+			{#if data.totals.differingFromMicrosoft === 0}
+				Every checked folder matches Microsoft's count
+			{:else}
+				<Badge tone="warn"
+					>{plural(data.totals.differingFromMicrosoft, 'mailbox', 'mailboxes')} differ</Badge
+				>
+				from Microsoft's count: see <a href={resolve('/mailboxes')}>Mailboxes</a>, Differs from
+				Microsoft.
+			{/if}
+		</dd>
 		<dt>Backup drive</dt>
 		<dd>
 			{#if data.engine.disk.usedPercent === null}

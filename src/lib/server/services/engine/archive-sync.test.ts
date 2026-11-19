@@ -64,7 +64,15 @@ function archive(): FakeGraph {
 		.withToken()
 		.on(/^\/beta\/admin\/exchange\/mailboxes\/MBX:arc@t\/folders\?/, () =>
 			json({
-				value: [{ id: 'inbox', displayName: 'Inbox', childFolderCount: 1, parentMailboxUrl: MAIN }]
+				value: [
+					{
+						id: 'inbox',
+						displayName: 'Inbox',
+						childFolderCount: 1,
+						totalItemCount: 2,
+						parentMailboxUrl: MAIN
+					}
+				]
 			})
 		)
 		.on(/MBX:arc@t\/folders\/inbox\/childFolders/, () =>
@@ -165,6 +173,8 @@ describe('copying an online archive', () => {
 				.map((folder) => folder.path)
 				.sort()
 		).toEqual(['Inbox', 'Inbox/2019']);
+		// Microsoft's count is recorded for the completeness check.
+		expect(foldersOf(db, row.id).find((folder) => folder.graphId === 'inbox')?.sourceCount).toBe(2);
 	});
 
 	it('says which permissions to add when Microsoft refuses', async () => {
