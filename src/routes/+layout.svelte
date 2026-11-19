@@ -48,9 +48,24 @@
 	// runs, every 30 s otherwise (docs/specs/SPEC-STATUS.md).
 	onMount(() => {
 		let timer: ReturnType<typeof setTimeout>;
+		// Only refresh while the server answers. When it is stopped (an update, a restart),
+		// SvelteKit reacts to a refresh it cannot load by reloading the whole page, which shows
+		// the browser's "Unable to connect" page; the Updates page reloads by itself once the new
+		// version answers.
+		const serverUp = async (): Promise<boolean> => {
+			try {
+				return (await fetch('/healthz', { cache: 'no-store' })).ok;
+			} catch {
+				return false;
+			}
+		};
 		const refresh = () => {
 			timer = setTimeout(() => {
-				void invalidate(LIVE_STATUS).finally(refresh);
+				void serverUp()
+					.then(async (up) => {
+						if (up) await invalidate(LIVE_STATUS);
+					})
+					.finally(refresh);
 			}, refreshAfterMs(live));
 		};
 		refresh();
