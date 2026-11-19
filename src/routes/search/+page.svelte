@@ -101,8 +101,8 @@
 	</form>
 	<p class="muted small">
 		Words match anywhere in the subject, sender and recipients, without regard to case. Message
-		bodies are not searched. Recipients are recorded for messages stored from version 0.4 on. Online
-		archive items have no subject or addresses yet: find them by mailbox, folder and date.
+		bodies are not searched. Recipients are recorded for messages stored from version 0.4 on, and
+		for every online archive item.
 	</p>
 </Card>
 
@@ -116,7 +116,8 @@
 	<Card title={`${formatCount(data.total)} ${data.total === 1 ? 'message' : 'messages'}`}>
 		{#if data.searchingArchive}
 			<p class="muted small">
-				This is an online archive: its items are stored as full-fidelity exports (.fts).
+				This is an online archive: its items are stored as Exchange's full-fidelity exports (.fts),
+				and each downloads as an .eml from its page.
 			</p>
 		{/if}
 		{#if data.hits.length === 0}

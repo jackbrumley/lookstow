@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
 import { mailboxes, mailFolders, messageEvents, messages, runs } from '../../database/schema.ts';
 import type { DiscoveredMailbox } from '../graph/discovery.ts';
@@ -423,4 +423,37 @@ export function recentRuns(
 			byteCount: run.byteCount,
 			error: run.error
 		}));
+}
+
+/** Online archive items stored before Lookstow could read them: nothing to search them by. */
+export function archiveItemsToIndex(db: Queryable) {
+	return db
+		.select({ id: messages.id, filePath: messages.filePath, receivedAt: messages.receivedAt })
+		.from(messages)
+		.innerJoin(mailboxes, eq(messages.mailboxId, mailboxes.id))
+		.where(
+			and(
+				eq(mailboxes.kind, 'archive'),
+				eq(messages.subject, ''),
+				eq(messages.sender, ''),
+				isNull(messages.internetMessageId),
+				like(messages.filePath, '%.fts')
+			)
+		)
+		.all();
+}
+
+/** Fills in what Search finds a message by; the stored file is not touched. */
+export function setMessageIndex(
+	db: Queryable,
+	id: string,
+	index: {
+		subject: string;
+		sender: string;
+		recipients: string;
+		internetMessageId: string | null;
+		receivedAt: Date | null;
+	}
+): void {
+	db.update(messages).set(index).where(eq(messages.id, id)).run();
 }

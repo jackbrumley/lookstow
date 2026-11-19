@@ -34,9 +34,14 @@
 	lede={`${message.mailboxAddress}${archive ? ' (online archive)' : ''} · ${message.folderPath}`}
 >
 	{#snippet actions()}
-		<Button href={resolve('/messages/[id]/download', { id: message.id })}
-			>Download {archive ? '.fts' : '.eml'}</Button
-		>
+		{#if archive}
+			<Button href={resolve('/messages/[id]/eml', { id: message.id })}>Download .eml</Button>
+			<Button variant="secondary" href={resolve('/messages/[id]/download', { id: message.id })}
+				>Download the original (.fts)</Button
+			>
+		{:else}
+			<Button href={resolve('/messages/[id]/download', { id: message.id })}>Download .eml</Button>
+		{/if}
 	{/snippet}
 </PageHeader>
 
@@ -49,13 +54,11 @@
 				{formatDateTime(message.deletedAt)}. The stored copy is kept.
 			</dd>
 		{/if}
-		{#if !archive}
-			<dt>From</dt>
-			<dd>{message.sender === '' ? '—' : message.sender}</dd>
-			<dt>To and Cc</dt>
-			<dd>{message.recipients === '' ? 'Not recorded' : message.recipients}</dd>
-		{/if}
-		<dt>{archive ? 'Created' : 'Received'}</dt>
+		<dt>From</dt>
+		<dd>{message.sender === '' ? '—' : message.sender}</dd>
+		<dt>To and Cc</dt>
+		<dd>{message.recipients === '' ? 'Not recorded' : message.recipients}</dd>
+		<dt>Received</dt>
 		<dd>{formatDateTime(message.receivedAt)}</dd>
 		<dt>Mailbox</dt>
 		<dd>
@@ -72,8 +75,9 @@
 		{#if archive}
 			<dt>Format</dt>
 			<dd>
-				Exchange's full-fidelity export (<code>.fts</code>): complete, and importable into a
-				mailbox, but mail programs cannot open it.
+				Exchange's full-fidelity export (<code>.fts</code>), kept exactly as Microsoft gave it.
+				Download .eml makes a copy any mail program opens, with the body, attachments and attached
+				messages.
 			</dd>
 		{/if}
 		<dt>SHA-256</dt>

@@ -20,6 +20,24 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.6.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, Activity soon says how many online archive items stored earlier can now be found in Search (Log names any that could not be read)',
+				'In Search, pick Jason’s online archive as the mailbox and search for a sender or a word in a subject: archive items come back with their subject, sender and received date',
+				'Open an archive item and press Download .eml: it opens in Outlook with its body, inline pictures, attachments, and any attached email',
+				'Download the original (.fts) of the same item: it is the file exactly as Microsoft exported it',
+				'Press Sync now on the archive: items copied from now on are filed under the year and month they were received'
+			]
+		},
+		changes: [
+			'Online archive items can be read: Lookstow reads Exchange’s full-fidelity export itself, so Search finds archive items by subject, sender, recipients, date and Message-ID, like normal mail',
+			'Download .eml for any archive item: a copy that Outlook and other mail programs open, with the body, inline pictures, attachments and attached emails. The original .fts file is kept unchanged and can still be downloaded',
+			'Archive items copied from now on are filed by the date they were received, not the date they moved into the archive (often two years later). Items copied earlier keep their place on disk and are found by their received date in Search'
+		]
+	},
+	{
 		version: '0.5.1',
 		testing: {
 			kind: 'steps',

@@ -26,6 +26,7 @@ import {
 } from '../settings/settings.ts';
 import { diskStatus, measureDisk } from '../storage/disk.ts';
 import { relayoutFiles, type RelayoutProgress } from '../storage/relayout.ts';
+import { indexArchiveItems } from '../fts/fts-index.ts';
 import { inScope } from './scope.ts';
 import { planSyncs } from './scheduler.ts';
 import { AdaptiveSlots, Throughput } from './throughput.ts';
@@ -93,6 +94,8 @@ export class Engine {
 	/** Moving files stored before 0.4.0 into the date layout; syncs wait until it is done. */
 	#relayout: Promise<void> | null = null;
 	#relayoutProgress: RelayoutProgress | null = null;
+	/** Reading archive items stored before 0.6.0 for Search, once, in the background. */
+	#indexing: Promise<void> | null = null;
 
 	constructor(deps: EngineDeps) {
 		this.#deps = { now: Date.now, ...deps };
@@ -116,6 +119,10 @@ export class Engine {
 			this.#relayout = null;
 			this.#relayoutProgress = null;
 			this.#tick();
+			// Reading older archive items for Search only reads files, so syncs go on meanwhile.
+			this.#indexing = this.#indexArchive().finally(() => {
+				this.#indexing = null;
+			});
 		});
 		this.#timer = setInterval(() => {
 			this.#tick();
@@ -133,7 +140,8 @@ export class Engine {
 		await Promise.all([
 			...[...this.#running.values()].map((live) => live.done),
 			this.#discovery,
-			this.#relayout
+			this.#relayout,
+			this.#indexing
 		]);
 	}
 
@@ -358,6 +366,30 @@ export class Engine {
 	}
 
 	/** Moves files stored before 0.4.0 into the date layout (once; a no-op after that). */
+	async #indexArchive(): Promise<void> {
+		const { db, dataDir } = this.#deps;
+		try {
+			const outcome = await indexArchiveItems(
+				db,
+				effectiveBackupRoot(db, dataDir),
+				() => this.#stopping
+			);
+			if (outcome.total === 0 || outcome.stopped) return;
+			recordActivity(db, {
+				level: outcome.problems === 0 ? 'info' : 'warn',
+				kind: 'engine',
+				actor: 'system',
+				summary: `${String(outcome.indexed)} online archive items stored earlier can now be found in Search`,
+				detail:
+					outcome.problems === 0
+						? null
+						: `${String(outcome.problems)} could not be read; see the Log. Their files are kept as they are.`
+			});
+		} catch (error) {
+			serverLog('error', 'archive', `Reading archive items for Search failed: ${errorText(error)}`);
+		}
+	}
+
 	async #relayoutFiles(): Promise<void> {
 		const { db, dataDir } = this.#deps;
 		const backupRoot = effectiveBackupRoot(db, dataDir);

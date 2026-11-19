@@ -74,8 +74,9 @@
 			<dt>Archive</dt>
 			<dd>
 				Copied through Microsoft's mailbox export API. Each item is stored as Exchange's own
-				full-fidelity export (<code>.fts</code>): nothing is lost, and it can be imported back into
-				a mailbox, but mail programs cannot open it.
+				full-fidelity export (<code>.fts</code>), kept exactly as it came. Search finds its items by
+				subject, sender and recipient, and each item downloads as an <code>.eml</code> any mail program
+				opens.
 			</dd>
 		{/if}
 		<dt>Messages</dt>

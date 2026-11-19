@@ -9,11 +9,20 @@ import {
 	json,
 	noSleep
 } from '#tests/support/fake-graph.ts';
+import { ftsFile, int, recipient, str, time } from '#tests/support/fts-builder.ts';
 import { openDatabase } from '../../database/connection.ts';
+import { PROP } from '../fts/fts-properties.ts';
 import { messages } from '../../database/schema.ts';
 import { GraphClient } from '../graph/client.ts';
 import { TokenSource } from '../graph/token.ts';
-import { applyDiscovery, foldersOf } from '../mailboxes/repository.ts';
+import { indexArchiveItems } from '../fts/fts-index.ts';
+import {
+	applyDiscovery,
+	foldersOf,
+	insertMessage,
+	syncFolderList
+} from '../mailboxes/repository.ts';
+import { resolveStoragePath, writeMessageFile } from '../storage/eml-store.ts';
 import { syncMailbox, type SyncContext } from './mailbox-sync.ts';
 
 const BETA = 'https://graph.microsoft.com/beta/admin/exchange/mailboxes';
@@ -24,8 +33,28 @@ function item(id: string, created: string) {
 	return { id, type: 'IPM.Note', size: 10, createdDateTime: created };
 }
 
+/** When each invented item was received: years before it moved into the archive. */
+const RECEIVED: Record<string, number> = {
+	i1: Date.parse('2018-01-02T03:04:05Z'),
+	i2: Date.parse('2018-01-03T00:00:00Z'),
+	i3: Date.parse('2017-05-06T00:00:00Z')
+};
+
+/** An invented archive item as the export API gives it: a real-format .fts file. */
+function ftsOf(id: string): Buffer {
+	return ftsFile(
+		Buffer.concat([
+			str(PROP.messageClass, 'IPM.Note'),
+			str(PROP.subject, `Subject ${id}`),
+			str(PROP.senderSmtpAddress, `${id}@example.com`),
+			time(PROP.messageDeliveryTime, RECEIVED[id] ?? 0),
+			recipient(int(PROP.recipientType, 1), str(PROP.smtpAddress, 'Ann@Example.com'))
+		])
+	);
+}
+
 function exported(id: string) {
-	return { itemId: id, data: Buffer.from(`fts of ${id}`).toString('base64') };
+	return { itemId: id, data: ftsOf(id).toString('base64') };
 }
 
 /** An archive with Inbox, and Inbox/2019 in an auxiliary archive. */
@@ -116,11 +145,19 @@ describe('copying an online archive', () => {
 		const stored = db.select().from(messages).all();
 		expect(stored.map((message) => message.graphId).sort()).toEqual(['i1', 'i2', 'i3']);
 		const first = stored.find((message) => message.graphId === 'i1');
+		// Filed by when it was received (read from the item), not when it moved into the archive.
 		expect(first?.filePath).toMatch(
-			/^ann@example.com \(archive\)\/2020\/02\/2020-02-03_040506_IPM.Note_[0-9a-f]{10}\.fts$/
+			/^ann@example.com \(archive\)\/2018\/01\/2018-01-02_030405_IPM.Note_[0-9a-f]{10}\.fts$/
 		);
-		expect(await readFile(join(backupRoot, ...(first?.filePath ?? '').split('/')), 'utf8')).toBe(
-			'fts of i1'
+		expect(first).toMatchObject({
+			subject: 'Subject i1',
+			sender: 'i1@example.com',
+			recipients: 'ann@example.com',
+			receivedAt: new Date(RECEIVED['i1'] ?? 0)
+		});
+		// The file is the export exactly as Microsoft gave it.
+		expect(await readFile(join(backupRoot, ...(first?.filePath ?? '').split('/')))).toEqual(
+			ftsOf('i1')
 		);
 		expect(
 			foldersOf(db, row.id)
@@ -145,5 +182,50 @@ describe('copying an online archive', () => {
 		await expect(syncMailbox(context, row)).rejects.toThrow(/could not be exported/);
 		const inbox = foldersOf(db, row.id).find((folder) => folder.graphId === 'inbox');
 		expect(inbox?.deltaLink).toBeNull();
+	});
+});
+
+describe('archive items stored before Lookstow could read them', () => {
+	it('are read once for Search; their files are not changed', async () => {
+		const { db, row, backupRoot } = await setup(new FakeGraph());
+		const [folder] = syncFolderList(
+			db,
+			row.id,
+			[{ graphId: 'inbox', path: 'Inbox', storagePath: 'Inbox' }],
+			1
+		);
+		if (folder === undefined) throw new Error('no folder');
+		const store = async (graphId: string, data: Buffer) => {
+			const relative = `ann@example.com (archive)/2020/02/${graphId}.fts`;
+			await writeMessageFile(resolveStoragePath(backupRoot, relative), data);
+			insertMessage(db, {
+				mailboxId: row.id,
+				folderId: folder.id,
+				graphId,
+				internetMessageId: null,
+				subject: '',
+				sender: '',
+				recipients: '',
+				receivedAt: new Date(Date.parse('2020-02-03T00:00:00Z')),
+				filePath: relative,
+				byteCount: data.length,
+				sha256: 'x',
+				storedAt: new Date(1)
+			});
+		};
+		await store('i1', ftsOf('i1'));
+		await store('bad', Buffer.from('not an fts file'));
+		const outcome = await indexArchiveItems(db, backupRoot, () => false);
+		expect(outcome).toEqual({ total: 2, indexed: 1, problems: 1, stopped: false });
+		const rows = db.select().from(messages).all();
+		expect(rows.find((message) => message.graphId === 'i1')).toMatchObject({
+			subject: 'Subject i1',
+			sender: 'i1@example.com',
+			receivedAt: new Date(RECEIVED['i1'] ?? 0),
+			filePath: 'ann@example.com (archive)/2020/02/i1.fts'
+		});
+		expect(rows.find((message) => message.graphId === 'bad')?.subject).toBe('');
+		// Read once: a second start finds only the item it could not read.
+		expect((await indexArchiveItems(db, backupRoot, () => false)).total).toBe(1);
 	});
 });

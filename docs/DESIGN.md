@@ -21,8 +21,8 @@ Lookstow's goal: **every active mailbox is backed up without anyone choosing it*
 2. **Sync** (every 15 minutes, or Sync now) lists the mailbox's folders, then runs each folder's **delta query**: the first time it returns every message; after that only what changed. New messages are fetched as MIME (`/messages/{id}/$value`), exactly as Exchange holds them with attachments, and written as `.eml`.
 3. **Storage:** `<backup folder>/<address>/<yyyy>/<mm>/<date>_<time>_<subject>_<id>.eml`, filed by the date received. A file is written once and never moved. Names are made safe for Windows and Linux. A SQLite index records each message's id, folder, sender, recipients, file, size and SHA-256. Files stored before 0.4 were under mail-folder paths; 0.4.3 moves them into the date layout once, at startup.
 4. **Deletions and moves** at the source change the index, not the file, and each is recorded as the message's history (stored, moved, deleted, restored). A move between folders in one sync is recorded as a move (immutable ids).
-5. **Online archives** go through the beta Mailbox Import/Export API (`/beta/admin/exchange/mailboxes/{id}`): folder list, a delta per folder, and `exportItems` in batches of 20. Items are stored as Exchange's full-fidelity export (`.fts`) under `<address> (archive)/<yyyy>/<mm>/`. Auxiliary archives are followed through `parentMailboxUrl` and the moved-item redirects. An item that fails to export keeps the folder's place, so the next sync tries it again.
-6. **Search** (the Search page) queries the index: words in the subject, sender and recipients, plus sender, To/Cc, subject, folder, Message-ID, dates and mailbox. Message bodies are not indexed. Archive items have no subject or addresses until a converter exists.
+5. **Online archives** go through the beta Mailbox Import/Export API (`/beta/admin/exchange/mailboxes/{id}`): folder list, a delta per folder, and `exportItems` in batches of 20. Items are stored as Exchange's full-fidelity export (`.fts`), exactly as exported, under `<address> (archive)/<yyyy>/<mm>/` by the date each was received (read from the item; the export itself only says when it moved into the archive). Lookstow reads each item (`services/fts/`: the FastTransfer stream of MS-OXCFXICS) for its subject, sender, recipients, received date and Message-ID, and turns it into an `.eml` on request. Auxiliary archives are followed through `parentMailboxUrl` and the moved-item redirects. An item that fails to export keeps the folder's place, so the next sync tries it again.
+6. **Search** (the Search page) queries the index: words in the subject, sender and recipients, plus sender, To/Cc, subject, folder, Message-ID, dates and mailbox. Message bodies are not indexed. Archive items are indexed like normal mail; items copied before 0.6.0 are read once at start-up.
 7. **Resilience:** progress is saved after every page of a delta query, so a stop or crash in the middle of a large first copy loses one page at most. Throttling (429) is retried with Retry-After. An expired delta link restarts the folder without downloading again.
 
 ## 4. Security
@@ -48,7 +48,8 @@ Ported from BMuster (see the spec). One archive per platform: the Rust launcher,
 | Console: dashboard, mailboxes, activity, settings, updates | Built, rendered from a production build                                                |
 | Launcher, installer, root updater (Windows + Linux)        | Ported from BMuster, unit and scratch tests pass; real root/SYSTEM runs untested       |
 | Installers, release workflow, signing                      | See the release agent's notes in `RELEASE.md`                                          |
-| Online archive copy                                        | Built (FTS export), tested against a fake Graph; real tenant untested                  |
+| Online archive copy                                        | Built (FTS export), copying on the real tenant                                         |
+| Reading .fts: index fields and .eml download               | Built; all 32 real samples read and converted; tests use invented files                |
 | Search, message page, download                             | Built, tested on the index; rendered from a production build                           |
 | Email alerts (Mailgun, outbox with retries, Alerts page)   | Built, tested against a fake Mailgun; real sending untested                            |
 | Restore                                                    | **Not built**: the .eml files open in any mail program                                 |
@@ -56,7 +57,7 @@ Ported from BMuster (see the spec). One archive per platform: the Rust launcher,
 
 ## 7. Open risks
 
-1. **Online archives.** Graph v1.0 cannot read archive mailboxes, so archives use a beta API, which Microsoft can change. Items are FTS, not MIME: complete and importable into a mailbox through Graph, but no mail program opens them. A converter to .eml is still to come. EWS is being retired in Exchange Online, so it is not an option.
+1. **Online archives.** Graph v1.0 cannot read archive mailboxes, so archives use a beta API, which Microsoft can change. Items are FTS, not MIME: Lookstow reads them itself and makes `.eml` copies on request, and the `.fts` file stays the record. An item the reader cannot read is still stored and says why in the log. EWS is being retired in Exchange Online, so it is not an option.
 2. **First copy of large mailboxes.** Throttling limits each mailbox to about 4 concurrent requests. A 50 GB mailbox can take a day or more. Measure on a real large mailbox.
 3. **Proving completeness.** The dashboard shows each mailbox's state; a periodic check comparing Graph's folder item counts with the index would catch silent gaps.
 4. **The beta discovery call** (`settings/exchange`, property `inPlaceArchiveMailboxId`) works on Midfield's tenant (verified 18 November 2026).

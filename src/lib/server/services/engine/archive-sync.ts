@@ -1,3 +1,4 @@
+import { indexFts } from '../fts/fts-index.ts';
 import { GraphError } from '../graph/client.ts';
 import {
 	archiveItemChanges,
@@ -203,7 +204,12 @@ async function applyArchiveChanges(
 				failures.push(`${folder.path}: ${item.error}`);
 				continue;
 			}
-			const relative = `${mailboxRoot}/${archiveItemFileName(change.createdAt, change.type, change.graphId)}`;
+			// The export says only when the item moved into the archive; the item itself says when it
+			// was received, so it is filed and found by that. An item the reader cannot read is
+			// still stored, under the archive date, and says why in the log.
+			const index = indexFts(item.data, `${mailbox.address} (online archive), ${folder.path}`);
+			const when = index?.receivedAt ?? change.createdAt;
+			const relative = `${mailboxRoot}/${archiveItemFileName(when, change.type, change.graphId)}`;
 			const stored = await writeMessageFile(
 				resolveStoragePath(context.backupRoot, relative),
 				item.data
@@ -212,11 +218,11 @@ async function applyArchiveChanges(
 				mailboxId: mailbox.id,
 				folderId: folder.id,
 				graphId: change.graphId,
-				internetMessageId: null,
-				subject: '',
-				sender: '',
-				recipients: '',
-				receivedAt: change.createdAt === null ? null : new Date(change.createdAt),
+				internetMessageId: index?.internetMessageId ?? null,
+				subject: index?.subject ?? '',
+				sender: index?.sender ?? '',
+				recipients: index?.recipients.join(' ') ?? '',
+				receivedAt: when === null ? null : new Date(when),
 				filePath: relative,
 				byteCount: stored.byteCount,
 				sha256: stored.sha256,

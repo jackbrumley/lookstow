@@ -77,3 +77,7 @@ Alerts were planned over SMTP; i12-pt6-control already sends through Mailgun's H
 ## Graph JSON with raw control characters is accepted (2026-11-19)
 
 The mailbox export API answered with JSON holding raw control characters inside strings, which strict JSON forbids, and the same reply came back on every try, so an online archive stopped at that batch for good. `parseGraphJson` (graph/client.ts) escapes such characters inside strings only, so every value keeps its exact text; any other fault in a reply still fails.
+
+## Lookstow reads online archive items itself (2026-11-19)
+
+Archive items come only as Exchange's full-fidelity export, which no mail program opens and Search could not see into. Real exports from the tenant showed the format: a list of records whose type 2 parts hold a FastTransfer stream (MS-OXCFXICS) of the item's properties, recipients and attachments, with attached messages nested. Lookstow reads it with its own strict reader (no dependency), indexes each item like normal mail, and turns an item into an `.eml` (HTML or text body, inline images, attachments, attached messages as `message/rfc822`) when asked. The `.fts` file stays the stored record, unchanged; the `.eml` is a readable copy made from it. New items are filed by the date they were received, read from the item, not the date they moved into the archive.
