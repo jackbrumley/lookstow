@@ -10,7 +10,14 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 - **0.4.1–0.4.4** (19 November 2026): retries for broken replies, the archive permission check, an updater that starts at once on Windows with step times, old files moved into the date layout, a type-to-filter mailbox field in Search, a 380-file update archive, and no permission reset across the backup on each update.
 - **0.4, archives and find mail** (18 November 2026): online archives copied (FTS through the beta export API), date-based file layout with folder history, Search with a message page and download, To/Cc recorded. Left out: message bodies in search, a readable view of archive items.
 
-## Now: 0.5, email alerts and the update popup
+## Now: throughput governor (docs/specs/SPEC-THROUGHPUT.md)
+
+- **Phase 1, done in 0.9.0:** the governor (mailbox lanes, adaptive app pace, shared throttle windows), time limits and a stalled-download watchdog, one sign-in at a time, Retry-After in every form, parallel archive exports in a memory budget, /api/throughput, the pace history and the dashboard Speed card.
+- **Phase 2:** the mailbox pipeline (next page fetched early, one queue across folders, large items limited to a share of a lane), streaming writes with hashing, one bad message never stops a folder (needs a migration), deletions checked after a delta restart.
+- **Phase 3:** mailboxes at once driven by the governor's headroom (replaces AdaptiveSlots), default maximum 32, Settings > Speed (Forget what was learned), back-off and kinds of failure for a failing mailbox.
+- **Phase 4:** a benchmark against a simulated Microsoft; tuning on the tenant from the pace history.
+
+## Then: 0.5, email alerts and the update popup
 
 - **Email alerts.** Done in 0.5.0, as in i12-pt6-control: Mailgun, people who each choose their alerts, an outbox with retries, test emails, the Alerts page. Next: a disk warning at 85% (only the 90% pause alerts now), the result of an update (installed, rolled back, failed), and a daily summary.
 - **Update popup.** A dismissable dialog in the middle of the screen when a newer release waits: Update now or Later. Comes back after 24 hours (per browser). With automatic updates on, it says when the update will install.

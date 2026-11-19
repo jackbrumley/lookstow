@@ -186,6 +186,7 @@ src/
         server-updates/ release checks, Update now, the updater's status (BMuster's)
         alerts/        alert rules (activity to email), the outbox, Mailgun
         fts/           reading archive items (.fts): index fields, .eml copies
+        throughput/    the governor's life: learned pace kept, pace history, /api/throughput view
     domain/            browser-safe types and pure rules (releases/changelog.ts lives here)
     schemas/           zod contracts shared by server and browser
     ui/                tokens.css, global.css, shared components
@@ -305,7 +306,7 @@ The backup is evidence that mail existed. Treat every file and index row as irre
 
 ## 12. Microsoft Graph
 
-- **Every Graph request goes through `GraphClient`** (`graph/client.ts`); every token through `graph/token.ts`. Never call `fetch` on a Microsoft URL anywhere else.
+- **Every Graph request goes through `GraphClient`** (`graph/client.ts`), and so through the throughput governor (`graph/governor.ts`, docs/specs/SPEC-THROUGHPUT.md); every token through `graph/token.ts`. Never call `fetch` on a Microsoft URL anywhere else, never sleep or count requests for throttling outside the governor, and never give a client a governor other than `sharedGovernor()` outside tests.
 - **Immutable ids always** (`Prefer: IdType="ImmutableId"`). Never store or compare a mutable id.
 - **Throttling and retries:** honour Retry-After on 429 and 503/504; retry transient failures with backoff up to the client's limits; never retry a 4xx other than 429 as if it were transient; never add parallelism beyond the engine's limits (about 4 concurrent requests per mailbox). Report throttling in the console, never hide it.
 - **Paging:** follow `@odata.nextLink` to the end and save delta links only after the page they finish is stored.

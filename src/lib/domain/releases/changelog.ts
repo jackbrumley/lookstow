@@ -20,6 +20,27 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.9.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, the dashboard shows a Speed card: download rate, requests a second against what Microsoft allows, requests in flight, and whether Microsoft has asked Lookstow to slow down',
+				'Open http://127.0.0.1:8030/api/throughput: the same numbers as JSON, with mailboxes shown only as mailbox-1, mailbox-2 and so on',
+				'Press Sync now on Jason’s online archive: its download rate is well above the 2.8 MB/s seen before (several export batches now run at once)',
+				'Leave it syncing for an hour: the Speed card’s Pace climbs while Microsoft allows it; if Microsoft throttles, Pace changes lists one cut and the pace holds just under the limit',
+				'Restart the service (or update again): the Speed card starts at the pace it had learned, not from the beginning'
+			]
+		},
+		changes: [
+			'A throughput governor paces every request to Microsoft: each mailbox runs as many requests at once as Microsoft allows, and the app as a whole climbs to the fastest pace Microsoft accepts, settles just under it when Microsoft asks it to slow down, and remembers that pace across restarts',
+			'Online archives export several batches at once instead of one, within a memory budget, so a large archive copies several times faster',
+			'When Microsoft asks for a pause, every request to that mailbox (or the whole app) waits it out together, then one request checks before the rest resume, so the pause is not made longer',
+			'Requests that get no reply in 30 seconds, and downloads that stall for 60 seconds, are stopped and tried again instead of holding a mailbox for good; signing in happens once for all requests, and again once if Microsoft withdraws a token',
+			'The dashboard has a Speed card, and http://127.0.0.1:8030/api/throughput gives the same numbers as JSON; a history of them, sampled every 10 seconds, is kept for 7 days in the data folder (no addresses, names or ids)',
+			'This release also brings 0.7.0 and 0.8.0, which were not published on their own'
+		]
+	},
+	{
 		version: '0.8.0',
 		testing: {
 			kind: 'steps',
