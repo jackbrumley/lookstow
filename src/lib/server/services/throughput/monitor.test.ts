@@ -46,7 +46,8 @@ function status(): EngineStatus {
 			warnPercent: 85,
 			pausePercent: 90
 		},
-		relayout: null
+		relayout: null,
+		indexSnapshot: { running: false, lastAt: null }
 	} as const satisfies EngineStatus;
 }
 
