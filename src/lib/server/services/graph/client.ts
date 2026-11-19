@@ -196,7 +196,8 @@ export class GraphClient {
 		path: string,
 		headers: Record<string, string>,
 		init: { method: 'GET' | 'POST'; body?: string },
-		read: (response: Response) => Promise<T>
+		read: (response: Response) => Promise<T>,
+		attempts = REPLY_ATTEMPTS
 	): Promise<T> {
 		for (let attempt = 1; ; attempt++) {
 			const response = await this.request(path, headers, init);
@@ -206,7 +207,7 @@ export class GraphClient {
 				if (!isBrokenReply(error)) {
 					throw error;
 				}
-				if (attempt >= REPLY_ATTEMPTS) {
+				if (attempt >= attempts) {
 					const empty = error instanceof GraphError;
 					throw new GraphError(
 						response.status,
@@ -236,14 +237,20 @@ export class GraphClient {
 
 	/**
 	 * A POST with a JSON body that answers JSON (the mailbox export API). Safe to retry: an
-	 * export changes nothing in the mailbox.
+	 * export changes nothing in the mailbox. `replyAttempts` limits how often a reply that
+	 * breaks off is asked for again (a giant item's export can take many minutes each time).
 	 */
-	async postJson(path: string, body: unknown): Promise<unknown> {
+	async postJson(
+		path: string,
+		body: unknown,
+		options: { replyAttempts?: number } = {}
+	): Promise<unknown> {
 		return this.#read(
 			path,
 			{ accept: 'application/json', 'content-type': 'application/json' },
 			{ method: 'POST', body: JSON.stringify(body) },
-			readJson
+			readJson,
+			options.replyAttempts ?? REPLY_ATTEMPTS
 		);
 	}
 
@@ -401,7 +408,6 @@ function watched(
 		return response;
 	}
 	const reader = body.getReader();
-	let bytes = 0;
 	let idle: ReturnType<typeof setTimeout> | null = null;
 	const disarm = (): void => {
 		if (idle !== null) clearTimeout(idle);
@@ -422,11 +428,14 @@ function watched(
 				const chunk = await reader.read();
 				if (chunk.done) {
 					disarm();
-					permit.release({ kind: 'ok', bytes, pressure });
+					// The bytes were counted as they arrived.
+					permit.release({ kind: 'ok', bytes: 0, pressure });
 					output.close();
 					return;
 				}
-				bytes += chunk.value.byteLength;
+				// Counted as it arrives, so a reply that takes minutes (an archive export) shows
+				// on the Speed card while it downloads, not only once it is complete.
+				permit.received(chunk.value.byteLength);
 				arm();
 				output.enqueue(chunk.value);
 			} catch (error) {

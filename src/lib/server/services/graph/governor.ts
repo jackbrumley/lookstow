@@ -29,6 +29,8 @@ export type Permit = {
 	lane: string;
 	startedAt: number;
 	release: (outcome: RequestOutcome) => void;
+	/** Bytes of the reply that have arrived so far (counted in this second's rates). */
+	received: (bytes: number) => void;
 };
 
 /** Runs `run` after `ms`; returns a function that cancels it. */
@@ -449,6 +451,9 @@ export class Governor {
 				if (released) return;
 				released = true;
 				this.#finish(lane, now, outcome);
+			},
+			received: (bytes) => {
+				this.#counters(this.#now()).bytes += bytes;
 			}
 		});
 	}

@@ -19,27 +19,45 @@ export const EXPORT_BATCH_BYTES = 8 * 1024 * 1024;
 /** Export replies held in memory at once, across every archive syncing. */
 const EXPORT_BUDGET_BYTES = 256 * 1024 * 1024;
 
+/**
+ * Items at least this big are exported on their own and tried once per sync: Microsoft sends
+ * archive exports slowly, so one such reply can take many minutes, and when it breaks off,
+ * asking again straight away only holds up the rest of the folder. The item is recorded and
+ * tried again on later syncs instead.
+ */
+export const GIANT_ITEM_BYTES = 25 * 1024 * 1024;
+
 export type ExportItem = { id: string; size: number | null };
 
-/** Splits items into export batches: at most EXPORT_BATCH items and EXPORT_BATCH_BYTES each. */
-export function exportBatches(items: readonly ExportItem[]): { ids: string[]; bytes: number }[] {
-	const batches: { ids: string[]; bytes: number }[] = [];
-	let current: { ids: string[]; bytes: number } = { ids: [], bytes: 0 };
+export type ExportBatch = { ids: string[]; bytes: number; giant: boolean };
+
+/**
+ * Splits items into export batches: at most EXPORT_BATCH items and EXPORT_BATCH_BYTES each;
+ * each giant item alone, after the rest, so the ordinary items are stored first.
+ */
+export function exportBatches(items: readonly ExportItem[]): ExportBatch[] {
+	const batches: ExportBatch[] = [];
+	const giants: ExportBatch[] = [];
+	let current: ExportBatch = { ids: [], bytes: 0, giant: false };
 	for (const item of items) {
 		// An export reply is base64: a third larger than the item.
 		const bytes = Math.ceil(((item.size ?? 0) * 4) / 3);
+		if ((item.size ?? 0) >= GIANT_ITEM_BYTES) {
+			giants.push({ ids: [item.id], bytes, giant: true });
+			continue;
+		}
 		const full =
 			current.ids.length >= EXPORT_BATCH ||
 			(current.ids.length > 0 && current.bytes + bytes > EXPORT_BATCH_BYTES);
 		if (full) {
 			batches.push(current);
-			current = { ids: [], bytes: 0 };
+			current = { ids: [], bytes: 0, giant: false };
 		}
 		current.ids.push(item.id);
 		current.bytes += bytes;
 	}
 	if (current.ids.length > 0) batches.push(current);
-	return batches;
+	return [...batches, ...giants];
 }
 
 /**

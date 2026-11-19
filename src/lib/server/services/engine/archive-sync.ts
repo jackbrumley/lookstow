@@ -243,7 +243,9 @@ async function exportAndStore(
 		}
 		const release = await exportBudget.take(batch.bytes);
 		try {
-			await exportBatch(run, folder, folderMailbox, wanted, batch.ids);
+			// A giant item is asked for once per sync: if its reply breaks off, it is recorded and
+			// tried again on a later sync instead of holding up the folder now.
+			await exportBatch(run, folder, folderMailbox, wanted, batch.ids, batch.giant ? 1 : undefined);
 		} finally {
 			release();
 		}
@@ -269,12 +271,18 @@ async function exportBatch(
 	folder: FolderRow,
 	folderMailbox: string,
 	wanted: Map<string, Upsert>,
-	ids: readonly string[]
+	ids: readonly string[],
+	replyAttempts?: number
 ): Promise<void> {
 	const { context } = run;
 	let exported: Awaited<ReturnType<typeof exportArchiveItems>>;
 	try {
-		exported = await exportArchiveItems(context.client, folderMailbox, [...ids]);
+		exported = await exportArchiveItems(
+			context.client,
+			folderMailbox,
+			[...ids],
+			replyAttempts === undefined ? {} : { replyAttempts }
+		);
 	} catch (error) {
 		if (!isBrokenExport(error)) throw error;
 		if (ids.length > 1) {

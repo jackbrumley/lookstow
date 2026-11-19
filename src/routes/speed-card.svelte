@@ -38,10 +38,12 @@
 <Card title="Speed">
 	<div class="tiles">
 		<div class="tile">
-			<span class="muted small">Downloading</span>
-			<strong>{formatBytes(speed.service.rates.lastMinute.bytesPerSecond)}/s</strong>
+			<!-- What is arriving from Microsoft now (counted as it arrives), and what has been
+			     stored: an archive export reply can take minutes before its emails are stored. -->
+			<span class="muted small">Receiving</span>
+			<strong>{formatBytes(speed.rates.lastMinute.bytes / 60)}/s</strong>
 			<span class="small"
-				>{speed.service.rates.lastMinute.messagesPerSecond.toFixed(1)} messages/s</span
+				>{speed.service.rates.lastMinute.messagesPerSecond.toFixed(1)} messages/s stored</span
 			>
 		</div>
 		<div class="tile">

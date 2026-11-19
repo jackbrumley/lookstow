@@ -171,7 +171,8 @@ export type ExportedItem = { graphId: string; data: Buffer } | { graphId: string
 export async function exportArchiveItems(
 	client: GraphClient,
 	mailboxUrl: string,
-	itemIds: readonly string[]
+	itemIds: readonly string[],
+	options: { replyAttempts?: number } = {}
 ): Promise<ExportedItem[]> {
 	if (itemIds.length === 0) {
 		return [];
@@ -179,7 +180,7 @@ export async function exportArchiveItems(
 	if (itemIds.length > EXPORT_BATCH) {
 		throw new Error(`exportItems takes at most ${EXPORT_BATCH} items at a time`);
 	}
-	const reply = asRecord(await client.postJson(`${mailboxUrl}/exportItems`, { itemIds }));
+	const reply = asRecord(await client.postJson(`${mailboxUrl}/exportItems`, { itemIds }, options));
 	const results = Array.isArray(reply['value']) ? reply['value'].map(asRecord) : [];
 	const exported: ExportedItem[] = [];
 	const moved = new Map<string, string[]>();
@@ -206,7 +207,7 @@ export async function exportArchiveItems(
 		}
 	}
 	for (const [target, ids] of moved) {
-		exported.push(...(await exportArchiveItems(client, target, ids)));
+		exported.push(...(await exportArchiveItems(client, target, ids, options)));
 	}
 	const answered = new Set(exported.map((item) => item.graphId));
 	for (const id of itemIds) {
