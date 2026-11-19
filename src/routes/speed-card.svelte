@@ -6,7 +6,7 @@
 	import Badge from '#lib/ui/badge.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import type { ThroughputView } from '#lib/domain/throughput.ts';
-	import { formatBytes, formatDateTime, formatRelative } from '#lib/utils/format.ts';
+	import { formatBytes, formatDateTime, formatRelative, plural } from '#lib/utils/format.ts';
 
 	interface Props {
 		speed: ThroughputView;
@@ -52,7 +52,9 @@
 		<div class="tile">
 			<span class="muted small">In flight</span>
 			<strong>{speed.pace.inFlight} of {speed.pace.inFlightCap}</strong>
-			<span class="small">{speed.service.engine.mailboxesSyncing} mailboxes syncing</span>
+			<span class="small"
+				>{plural(speed.service.engine.mailboxesSyncing, 'mailbox', 'mailboxes')} syncing</span
+			>
 		</div>
 		<div class="tile">
 			<span class="muted small">Throttled (1 min)</span>
