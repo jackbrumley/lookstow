@@ -19,17 +19,18 @@ const KEY = Buffer.alloc(32, 7);
 const TENANT = '0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0';
 const CLIENT = '11111111-2222-3333-4444-555555555555';
 
+/** What graphCredentials says is missing, or null when it found everything. */
+function missingOf(result: ReturnType<typeof graphCredentials>): string | null {
+	return 'missing' in result ? result.missing : null;
+}
+
 describe('settings', () => {
 	it('start from the defaults and say what is missing to sign in', () => {
 		const db = openDatabase(':memory:');
 		expect(readSchedule(db)).toEqual(SCHEDULE_DEFAULTS);
-		expect(graphCredentials(db, KEY)).toEqual({
-			missing: expect.stringMatching(/tenant ID/) as unknown
-		});
+		expect(missingOf(graphCredentials(db, KEY))).toMatch(/tenant ID/);
 		saveConnectionIds(db, TENANT, CLIENT);
-		expect(graphCredentials(db, KEY)).toEqual({
-			missing: expect.stringMatching(/certificate/) as unknown
-		});
+		expect(missingOf(graphCredentials(db, KEY))).toMatch(/certificate/);
 	});
 
 	it('store a client secret sealed, never as text', () => {

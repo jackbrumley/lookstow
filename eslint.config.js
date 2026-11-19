@@ -59,11 +59,8 @@ export default defineConfig(
 			'@typescript-eslint/strict-boolean-expressions': 'error',
 			// Discriminated unions are handled case by case.
 			'@typescript-eslint/switch-exhaustiveness-check': 'error',
-			// `{...} as T` hides missing fields; build typed values instead.
-			'@typescript-eslint/consistent-type-assertions': [
-				'error',
-				{ assertionStyle: 'as', objectLiteralTypeAssertions: 'never' }
-			],
+			// `x as T` overrides the compiler; narrow, parse or use satisfies instead.
+			'@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
 			eqeqeq: ['error', 'always'],
 			'no-console': 'error',
 			'svelte/block-lang': ['error', { script: 'ts' }],

@@ -48,6 +48,10 @@
 	--colour-text: #0f2230;
 	--colour-text-muted: #4a5d6b;
 	--colour-text-inverse: #ffffff;
+	/* Text on the danger colour: white in both themes */
+	--colour-on-bad: #ffffff;
+	/* Behind an open modal: dims the page in both themes */
+	--colour-backdrop: rgb(15 23 42 / 0.45);
 	--colour-border: #dde3e9;
 	--colour-border-strong: #c3ccd5;
 

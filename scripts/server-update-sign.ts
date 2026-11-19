@@ -67,10 +67,8 @@ if (
 }
 
 const signingPem =
-	values.key === undefined
-		? (process.env['LOOKSTOW_RELEASE_KEY'] ?? '')
-		: readFileSync(values.key, 'utf8');
-if (signingPem.trim() === '') {
+	values.key === undefined ? process.env['LOOKSTOW_RELEASE_KEY'] : readFileSync(values.key, 'utf8');
+if (signingPem === undefined || signingPem.trim() === '') {
 	fail('set LOOKSTOW_RELEASE_KEY or give --key <file>: nothing is released unsigned');
 }
 if (publicKeyOfPrivate(signingPem) !== projectPublicKey()) {

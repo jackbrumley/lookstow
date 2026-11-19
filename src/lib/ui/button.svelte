@@ -110,7 +110,7 @@
 
 	.danger {
 		background: var(--colour-bad);
-		color: #ffffff;
+		color: var(--colour-on-bad);
 	}
 
 	.danger:hover:not(:disabled) {

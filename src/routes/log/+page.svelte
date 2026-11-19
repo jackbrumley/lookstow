@@ -5,7 +5,7 @@
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { toast } from '#lib/runes/toast.svelte.ts';
-	import type { LogLine } from '#lib/domain/log.ts';
+	import { logReplySchema, type LogLine } from '#lib/schemas/log.ts';
 
 	let { data }: PageProps = $props();
 
@@ -43,11 +43,11 @@
 			const after = lines.at(-1)?.seq ?? 0;
 			void fetch(`/api/log?after=${after}`, { cache: 'no-store' })
 				.then(async (response) => {
-					const reply: unknown = await response.json();
-					if (typeof reply !== 'object' || reply === null || !('lines' in reply)) {
+					const reply = logReplySchema.safeParse(await response.json());
+					if (!reply.success) {
 						return;
 					}
-					const fresh = Array.isArray(reply.lines) ? (reply.lines as LogLine[]) : [];
+					const fresh = reply.data.lines;
 					if (fresh.length === 0) {
 						return;
 					}

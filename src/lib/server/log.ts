@@ -1,4 +1,4 @@
-import type { LogLine } from '../domain/log.ts';
+import type { LogLine } from '../schemas/log.ts';
 
 /**
  * The service log: one line per event on standard output, which the launcher sends to

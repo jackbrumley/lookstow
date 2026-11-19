@@ -94,7 +94,7 @@
 	}
 
 	dialog::backdrop {
-		background: rgb(15 23 42 / 0.45);
+		background: var(--colour-backdrop);
 	}
 
 	header {

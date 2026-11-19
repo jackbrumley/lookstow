@@ -42,15 +42,19 @@ process.env['PROTOCOL_HEADER'] = PROTOCOL_HEADER;
 
 // Importing the handler runs the app's `init` hook (migrations, the backup engine, update checks).
 const handlerModule: unknown = await import(new URL('./build/handler.js', import.meta.url).href);
+/** adapter-node's handler is a (request, response) listener; a function is all JavaScript can check. */
+function isRequestListener(value: unknown): value is RequestListener {
+	return typeof value === 'function';
+}
 if (
 	typeof handlerModule !== 'object' ||
 	handlerModule === null ||
 	!('handler' in handlerModule) ||
-	typeof handlerModule.handler !== 'function'
+	!isRequestListener(handlerModule.handler)
 ) {
 	throw new Error('build/handler.js has no handler; run npm run build first');
 }
-const handler = handlerModule.handler as RequestListener;
+const handler = handlerModule.handler;
 
 const server = createServer((request, response) => {
 	request.headers[PROTOCOL_HEADER] = 'http';
