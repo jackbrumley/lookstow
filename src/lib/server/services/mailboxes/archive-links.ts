@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
 import { mailboxes, mailFolders, messageEvents, messages } from '../../database/schema.ts';
 
@@ -189,20 +189,23 @@ export function linkArchiveCopy(db: Queryable, archiveMessageId: string): boolea
 		.map((row) => row.id);
 	if (owners.length === 0) return false;
 	const received = copy.receivedAt.getTime();
+	// Look up by Message-ID alone (its own index; a handful of rows) and filter the rest here:
+	// with the mailbox in the query SQLite chose the mailbox index and read every message in the
+	// mailbox, about 50 ms per archive item on a large mailbox.
+	const ownerSet = new Set(owners);
 	const candidates = db
 		.select()
 		.from(messages)
-		.where(
-			and(
-				inArray(messages.mailboxId, owners),
-				inArray(messages.internetMessageId, idForms(copy.internetMessageId)),
-				gte(messages.receivedAt, new Date(received - RECEIVED_SLACK_MS)),
-				lte(messages.receivedAt, new Date(received + RECEIVED_SLACK_MS)),
-				isNull(messages.archiveCopyId)
-			)
-		)
+		.where(inArray(messages.internetMessageId, idForms(copy.internetMessageId)))
 		.orderBy(asc(messages.storedAt))
-		.all();
+		.all()
+		.filter(
+			(candidate) =>
+				ownerSet.has(candidate.mailboxId) &&
+				candidate.archiveCopyId === null &&
+				candidate.receivedAt !== null &&
+				Math.abs(candidate.receivedAt.getTime() - received) <= RECEIVED_SLACK_MS
+		);
 	if (candidates.length === 0) return false;
 	// An email sent to oneself is in Sent Items and the Inbox: the same folder name decides.
 	const archivePath = folderPath(db, copy.folderId);
@@ -271,7 +274,7 @@ export async function linkAllArchiveCopies(
 					)
 				)
 				.orderBy(asc(messages.id))
-				.limit(500)
+				.limit(100)
 				.all();
 			if (batch.length === 0) break;
 			for (const row of batch) {

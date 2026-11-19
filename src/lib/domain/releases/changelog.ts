@@ -20,6 +20,21 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.12.1',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update, then open the dashboard straight away and move between pages. Expected: pages open within a second or two, even while Lookstow links archive items and builds the AI content index in the background',
+				'Watch the Log page for the first few minutes. Expected: syncs start as usual (seconds apart, not more than a minute apart)',
+				'After a while, check the Activity page. Expected: an entry saying how many online archive items were linked to the same emails in their mailboxes'
+			]
+		},
+		changes: [
+			'Fixes the console being very slow after updating to 0.12.0. Linking emails to their online archive copies, which runs once after the update, read every message in the mailbox for each archive item (about 50 ms each, so minutes at a time with nothing else running). It now looks each one up directly (under 1 ms) and pauses every 100 items, so pages and syncs carry on while it runs',
+			'The AI content index no longer sorts every stored message each time it reads the next 100 (about 130 ms each time on a large backup); it walks through them in order instead'
+		]
+	},
+	{
 		version: '0.12.0',
 		testing: {
 			kind: 'steps',

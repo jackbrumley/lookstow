@@ -1,4 +1,4 @@
-import { count, desc, eq, isNull, lt, or } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
 import { messageContent, messages } from '../../database/schema.ts';
 import { errorText, serverLog } from '../../log.ts';
@@ -79,17 +79,27 @@ export function saveContent(
 		.run();
 }
 
-/** Messages with no content row from the current reader, newest first. */
-function unindexed(db: Queryable, limit: number): string[] {
+/**
+ * Messages with no content row from the current reader, most recently stored first, below a
+ * cursor (the row number of the last one read). Walking the table's own order with a cursor
+ * reads each row once; sorting the whole table by date for every batch held the server for
+ * over 100 ms each time on a large backup.
+ */
+function unindexed(
+	db: Queryable,
+	limit: number,
+	before: number | null
+): { id: string; row: number }[] {
+	const row = sql<number>`${messages}.rowid`;
+	const pending = or(isNull(messageContent.messageId), lt(messageContent.version, CONTENT_VERSION));
 	return db
-		.select({ id: messages.id })
+		.select({ id: messages.id, row })
 		.from(messages)
 		.leftJoin(messageContent, eq(messageContent.messageId, messages.id))
-		.where(or(isNull(messageContent.messageId), lt(messageContent.version, CONTENT_VERSION)))
-		.orderBy(desc(messages.receivedAt))
+		.where(before === null ? pending : and(pending, sql`${messages}.rowid < ${before}`))
+		.orderBy(desc(row))
 		.limit(limit)
-		.all()
-		.map((row) => row.id);
+		.all();
 }
 
 export function contentIndexProgress(db: Queryable): { indexed: number; total: number } {
@@ -117,10 +127,12 @@ export async function indexContent(
 	now: () => number = Date.now
 ): Promise<number> {
 	let done = 0;
+	let cursor: number | null = null;
 	for (;;) {
-		const batch = unindexed(db, BATCH);
+		const batch = unindexed(db, BATCH, cursor);
 		if (batch.length === 0 || stopping()) return done;
-		for (const id of batch) {
+		cursor = batch.at(-1)?.row ?? cursor;
+		for (const { id } of batch) {
 			if (stopping()) return done;
 			const loaded = await loadMessage(db, backupRoot(), id);
 			saveContent(db, id, 'error' in loaded ? loaded : loaded.parsed, now());
