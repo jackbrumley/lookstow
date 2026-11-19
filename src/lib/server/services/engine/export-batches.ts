@@ -10,8 +10,12 @@ import { EXPORT_BATCH } from '../graph/archive.ts';
 
 /** Batches a mailbox exports at once; the governor's lane is the real limit (4 at first). */
 export const EXPORT_PARALLEL = 6;
-/** Items in a batch add up to at most this, unless one item alone is bigger. */
-export const EXPORT_BATCH_BYTES = 32 * 1024 * 1024;
+/**
+ * Items in a batch add up to at most this, unless one item alone is bigger. Smaller replies are
+ * less often cut off by Microsoft (32 MB batches broke off on a real archive), and several run at
+ * once anyway.
+ */
+export const EXPORT_BATCH_BYTES = 8 * 1024 * 1024;
 /** Export replies held in memory at once, across every archive syncing. */
 const EXPORT_BUDGET_BYTES = 256 * 1024 * 1024;
 

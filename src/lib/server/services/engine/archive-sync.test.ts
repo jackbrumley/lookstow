@@ -226,6 +226,25 @@ describe('copying an online archive', () => {
 		).toEqual(['i1', 'i2', 'i3']);
 		expect(mailboxItemFailures(db, row.id)).toEqual([]);
 	});
+
+	it('splits a batch whose reply keeps breaking off, and records an item that still breaks', async () => {
+		// Seen on a real archive: Microsoft cut the export reply off every time. The sync must
+		// carry on with everything else, not fail and start the first copy over.
+		const cutOff = () =>
+			new Response('{"value": [{"itemId": "i2", "data": "AAAA', {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			});
+		// The auxiliary archive (i2 moved there, and i3) always cuts its reply off.
+		const graph = archive().on(/MBX:aux@t\/exportItems$/, cutOff);
+		const { db, row, context } = await setup(graph);
+		await expect(syncMailbox(context, row)).resolves.toMatchObject({ added: 1 });
+		expect(
+			mailboxItemFailures(db, row.id)
+				.map((failure) => failure.graphId)
+				.sort()
+		).toEqual(['i2', 'i3']);
+	});
 });
 
 describe('archive items stored before Lookstow could read them', () => {

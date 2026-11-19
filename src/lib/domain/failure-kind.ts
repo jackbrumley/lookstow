@@ -35,7 +35,7 @@ const RULES: readonly [FailureKind, RegExp][] = [
 	],
 	[
 		'network',
-		/\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|UND_ERR\w*)\b|fetch failed|socket|timed? ?out|network|broken reply/i
+		/\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|UND_ERR\w*)\b|fetch failed|socket|timed? ?out|network|broken reply|broke off|terminated|empty reply/i
 	],
 	['microsoft', /\b5\d\d\b|Microsoft|Graph|ErrorInternalServerError|ServiceUnavailable/i]
 ];

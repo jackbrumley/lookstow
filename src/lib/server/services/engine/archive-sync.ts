@@ -243,20 +243,68 @@ async function exportAndStore(
 		}
 		const release = await exportBudget.take(batch.bytes);
 		try {
-			const exported = await exportArchiveItems(context.client, folderMailbox, batch.ids);
-			for (const item of exported) {
-				const change = wanted.get(item.graphId);
-				if (change === undefined) continue;
-				if ('error' in item) {
-					recordArchiveFailure(run, folder, change, item.error);
-				} else {
-					await storeItem(run, folder, change, item.data);
-				}
-			}
+			await exportBatch(run, folder, folderMailbox, wanted, batch.ids);
 		} finally {
 			release();
 		}
 	});
+}
+
+/** A reply Microsoft cut off, or sent empty, again and again (the client already retried). */
+function isBrokenExport(error: unknown): boolean {
+	return (
+		error instanceof GraphError && (error.code === 'broken-reply' || error.code === 'empty-reply')
+	);
+}
+
+/**
+ * Exports one batch and stores what came back. When Microsoft keeps cutting the reply off (a
+ * very large reply, or one item it cannot export), the batch is split in half and each half
+ * tried on its own, down to single items; an item that still breaks is recorded as one that
+ * could not be copied, tried again later, and the rest of the archive carries on. Before, one
+ * such batch failed the whole sync, so a first copy started over and never finished.
+ */
+async function exportBatch(
+	run: ArchiveRun,
+	folder: FolderRow,
+	folderMailbox: string,
+	wanted: Map<string, Upsert>,
+	ids: readonly string[]
+): Promise<void> {
+	const { context } = run;
+	let exported: Awaited<ReturnType<typeof exportArchiveItems>>;
+	try {
+		exported = await exportArchiveItems(context.client, folderMailbox, [...ids]);
+	} catch (error) {
+		if (!isBrokenExport(error)) throw error;
+		if (ids.length > 1) {
+			const half = Math.ceil(ids.length / 2);
+			await exportBatch(run, folder, folderMailbox, wanted, ids.slice(0, half));
+			await exportBatch(run, folder, folderMailbox, wanted, ids.slice(half));
+			return;
+		}
+		const change = wanted.get(ids[0] ?? '');
+		if (change !== undefined) {
+			recordArchiveFailure(
+				run,
+				folder,
+				change,
+				`Microsoft's export of this item broke off every time (${error instanceof Error ? error.message : String(error)})`
+			);
+		}
+		return;
+	}
+	const asked = new Set(ids);
+	for (const item of exported) {
+		const change = wanted.get(item.graphId);
+		// Only what this batch asked for: a split batch's halves must not store an item twice.
+		if (change === undefined || !asked.has(item.graphId)) continue;
+		if ('error' in item) {
+			recordArchiveFailure(run, folder, change, item.error);
+		} else {
+			await storeItem(run, folder, change, item.data);
+		}
+	}
 }
 
 async function storeItem(
