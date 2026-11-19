@@ -1,9 +1,10 @@
 import { indexFts } from '../fts/fts-index.ts';
 import { GraphError } from '../graph/client.ts';
+import { forEachLimited } from '../graph/discovery.ts';
+import { EXPORT_PARALLEL, exportBatches, exportBudget } from './export-batches.ts';
 import {
 	archiveItemChanges,
 	archiveMailboxUrl,
-	EXPORT_BATCH,
 	exportArchiveItems,
 	isArchivePermissionError,
 	listArchiveFolders,
@@ -194,17 +195,26 @@ async function applyArchiveChanges(
 			moveMessage(context.db, existing, folder.id, context.now());
 		}
 	}
-	const ids = [...wanted.keys()];
+	const batches = exportBatches(
+		[...wanted.values()].map((change) => ({ id: change.graphId, size: change.size }))
+	);
 	const failures: string[] = [];
-	for (let start = 0; start < ids.length; start += EXPORT_BATCH) {
+	// Several batches at once: the governor holds the mailbox to what Microsoft allows, and the
+	// byte budget holds the replies in memory to EXPORT_BUDGET_BYTES across every archive.
+	await forEachLimited(batches, EXPORT_PARALLEL, async (batch) => {
 		if (context.stopping()) {
-			break;
+			return;
 		}
-		const exported = await exportArchiveItems(
-			context.client,
-			folderMailbox,
-			ids.slice(start, start + EXPORT_BATCH)
-		);
+		const release = await exportBudget.take(batch.bytes);
+		try {
+			await storeExported(await exportArchiveItems(context.client, folderMailbox, batch.ids));
+		} finally {
+			release();
+		}
+	});
+	return failures;
+
+	async function storeExported(exported: Awaited<ReturnType<typeof exportArchiveItems>>) {
 		for (const item of exported) {
 			const change = wanted.get(item.graphId);
 			if (change === undefined) {
@@ -244,7 +254,6 @@ async function applyArchiveChanges(
 			context.progress({ folder: folder.path, stored: totals.added, bytes: totals.byteCount });
 		}
 	}
-	return failures;
 }
 
 /** Microsoft's refusal, with what to do about it. */
