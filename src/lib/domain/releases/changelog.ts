@@ -20,6 +20,20 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.12.4',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.12.4 the usual way (this update still runs on the old page, so it may show "Unable to connect" once more)',
+				'For the next update after this one: press Update now and watch. Expected: the full-screen countdown stays on screen while Lookstow restarts, with no "Unable to connect" page, and the console comes back by itself on the new version',
+				'Or restart the Lookstow service with a page open (Restart-Service Lookstow in an administrator PowerShell). Expected: the page waits and carries on refreshing once Lookstow is back, instead of showing "Unable to connect"'
+			]
+		},
+		changes: [
+			'An update (or any restart of Lookstow) no longer drops the browser onto an "Unable to connect" page. Every page refreshes its live status every few seconds; while Lookstow was stopped, that refresh failed and the browser reloaded the page into the error. Pages now check that Lookstow answers before refreshing, and wait while it is away'
+		]
+	},
+	{
 		version: '0.12.3',
 		testing: {
 			kind: 'steps',
