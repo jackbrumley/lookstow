@@ -20,6 +20,23 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.6.1',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, open Settings: What is backed up says how many mailboxes that are not backed up still have backups, and their size (15 mailboxes on the test machine)',
+				'Open What is backed up > Change, leave the mailboxes as they are, choose Delete them from the backup drive, type DELETE and Save: the toast says how many backups were deleted, and the mailboxes folder on the backup drive holds only the mailboxes you back up',
+				'Open Activity: one Backup deleted entry for each of those mailboxes, and a What is backed up was changed entry saying how many were deleted',
+				'Open the mailbox page of a mailbox whose first copy was cut off before (abby.aguinaldo@midfield.com.au): before deleting, it showed its real message count and a Delete backup button'
+			]
+		},
+		changes: [
+			'What is backed up: Delete now deletes the backup of every mailbox that is not backed up, also those left out by an earlier change. Before, it only covered mailboxes that stopped in that same save, so choosing it later deleted nothing and said nothing',
+			'A mailbox whose first copy stopped part-way now shows its real message count. Before, it showed 0 until a sync finished, which hid its backup from Delete backup, Search this mailbox and the What is backed up choice. Counts left wrong by earlier versions are corrected at start-up',
+			'Settings shows how many mailboxes that are not backed up still have backups on the drive, and their size'
+		]
+	},
+	{
 		version: '0.6.0',
 		testing: {
 			kind: 'steps',

@@ -10,6 +10,7 @@ import {
 	allMailboxes,
 	applyDiscovery,
 	closeInterruptedRuns,
+	recountStoredMessages,
 	finishRun,
 	markSyncFinished,
 	markSyncStarted,
@@ -112,6 +113,15 @@ export class Engine {
 				kind: 'engine',
 				actor: 'system',
 				summary: `${interrupted} run${interrupted === 1 ? ' was' : 's were'} interrupted by the last stop`
+			});
+		}
+		const recounted = recountStoredMessages(db);
+		if (recounted > 0) {
+			recordActivity(db, {
+				level: 'info',
+				kind: 'engine',
+				actor: 'system',
+				summary: `Corrected the message count of ${plural(recounted, 'mailbox', 'mailboxes')} from the stored messages`
 			});
 		}
 		this.#lastDiscoveryAt = lastFinished(db, 'discovery');

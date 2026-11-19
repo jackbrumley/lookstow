@@ -85,3 +85,7 @@ Archive items come only as Exchange's full-fidelity export, which no mail progra
 ## Stricter checks: hygiene, knip, no type assertions, clippy pedantic (2026-11-19)
 
 AGENTS.md states many rules that no tool enforced, so an agent could break them and stay green. `scripts/hygiene.ts` now checks the structural ones (file size, boundaries, the files allowed to delete or move on disk, where Microsoft's hosts are named), and knip finds unused code and import cycles; both run in `npm run verify`. ESLint now refuses every type assertion except `as const`, tsconfig adds unused locals and parameters and unchecked side-effect imports, and the launcher denies clippy's `pedantic` group. The idea came from Midfield AI's hygiene script, rewritten for Lookstow's rules rather than copied.
+
+## Delete covers every mailbox that is not backed up; counts come from the stored messages (2026-11-19)
+
+What is backed up offered Delete only for mailboxes leaving in that save. A mailbox left out earlier with Keep could never be deleted from there, and choosing Delete later did nothing without saying so. Delete now means: the backup drive holds only what is backed up. And a mailbox's item count was written only when a sync finished, so a first copy stopped part-way showed 0 and its backup was invisible to every delete path. The stored messages are now the one record of what a mailbox holds: storing a message raises its count in the same transaction, deleting a backup clears it, and start-up corrects any count left wrong.

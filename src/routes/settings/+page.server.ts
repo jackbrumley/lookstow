@@ -5,22 +5,21 @@ import { env } from '#lib/server/env.ts';
 import { backupEngine, database, dataDir } from '#lib/server/runtime.ts';
 import { recordActivity } from '#lib/server/services/activity/activity.ts';
 import { testConnection } from '#lib/server/services/graph/connection-test.ts';
-import { inScope } from '#lib/server/services/engine/scope.ts';
-import { deleteMailboxBackup } from '#lib/server/services/mailboxes/delete-backup.ts';
-import { allMailboxes } from '#lib/server/services/mailboxes/repository.ts';
-import { plural } from '#lib/utils/format.ts';
+import {
+	backupsOutsideScope,
+	changeScope,
+	describeScopeChange
+} from '#lib/server/services/engine/scope-change.ts';
 import {
 	effectiveBackupRoot,
 	graphCredentials,
 	readSchedule,
-	readScope,
 	saveBackup,
 	saveDisk,
 	saveCertificate,
 	saveClientSecret,
 	saveConnectionIds,
 	saveSchedule,
-	saveScope,
 	saveUpdates,
 	settingsView
 } from '#lib/server/services/settings/settings.ts';
@@ -28,7 +27,8 @@ import { hostname } from 'node:os';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
 export const load = (() => ({
-	settings: settingsView(database, dataDir())
+	settings: settingsView(database, dataDir()),
+	backupsOutsideScope: backupsOutsideScope(database)
 })) satisfies PageServerLoad;
 
 function saved(summary: string, message: string) {
@@ -107,60 +107,28 @@ export const actions = {
 	},
 	scope: async ({ request }) => {
 		const data = await request.formData();
-		const previous = readScope(database);
-		const before = new Set(
-			allMailboxes(database)
-				.filter((row) => inScope(row, previous))
-				.map((row) => row.id)
-		);
 		const mode = field(data, 'mode') === 'selected' ? 'selected' : 'all';
 		const selectedAddresses = addresses(field(data, 'selected'));
-		try {
-			saveScope(database, {
+		const change = await changeScope(
+			database,
+			backupEngine(),
+			effectiveBackupRoot(database, dataDir()),
+			{
 				mode,
 				selectedAddresses,
 				includeShared: checked(data, 'includeShared'),
 				includeResources: checked(data, 'includeResources'),
 				includeArchives: checked(data, 'includeArchives'),
 				excludedAddresses: addresses(field(data, 'excluded'))
-			});
-		} catch (error) {
-			return refused(error instanceof Error ? error.message : String(error));
+			},
+			field(data, 'existing') === 'delete'
+				? { kind: 'delete', confirmation: field(data, 'confirm') }
+				: { kind: 'keep' }
+		);
+		if (change.kind === 'refused') {
+			return refused(change.reason);
 		}
-		const scope = readScope(database);
-		const rows = allMailboxes(database);
-		const leaving = rows.filter((row) => before.has(row.id) && !inScope(row, scope));
-		const joining = rows.filter((row) => !before.has(row.id) && inScope(row, scope));
-		const engine = backupEngine();
-		for (const row of leaving) {
-			engine.cancel(row.id);
-		}
-		const withBackup = leaving.filter((row) => row.itemCount > 0);
-		let deleted = 0;
-		if (field(data, 'existing') === 'delete' && withBackup.length > 0) {
-			if (field(data, 'confirm') !== 'DELETE') {
-				saveScope(database, previous);
-				return refused('Type DELETE to confirm deleting their backups. Nothing was changed.');
-			}
-			const backupRoot = effectiveBackupRoot(database, dataDir());
-			for (const row of withBackup) {
-				await engine.waitUntilIdle(row.id);
-				await deleteMailboxBackup(database, row, backupRoot, 'console');
-				deleted += 1;
-			}
-		}
-		engine.requestSync(joining.map((row) => row.id));
-		const summary = [
-			`${plural(joining.length, 'mailbox', 'mailboxes')} start being backed up`,
-			`${plural(leaving.length, 'mailbox', 'mailboxes')} stop`,
-			deleted > 0
-				? `${plural(deleted, 'backup')} deleted`
-				: withBackup.length > 0
-					? `${plural(withBackup.length, 'backup')} kept`
-					: null
-		]
-			.filter((part) => part !== null)
-			.join(', ');
+		const summary = describeScopeChange(change);
 		return saved(
 			`What is backed up was changed: ${summary}`,
 			mode === 'selected' && selectedAddresses.length === 0

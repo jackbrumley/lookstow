@@ -10,7 +10,7 @@
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { SCHEDULE_LIMITS } from '#lib/domain/settings.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
-	import { formatDateTime } from '#lib/utils/format.ts';
+	import { formatBytes, formatDateTime, plural } from '#lib/utils/format.ts';
 
 	let { data, form }: PageProps = $props();
 
@@ -20,6 +20,7 @@
 
 	const settings = $derived(data.settings);
 	const connection = $derived(settings.connection);
+	const outside = $derived(data.backupsOutsideScope);
 
 	let idsOpen = $state(false);
 	let secretOpen = $state(false);
@@ -167,6 +168,13 @@
 				{/if}
 			</li>
 		</ul>
+	{/if}
+	{#if outside.mailboxes > 0}
+		<p>
+			<strong>{plural(outside.mailboxes, 'mailbox', 'mailboxes')} that are not backed up</strong>
+			still have backups on the drive ({formatBytes(outside.bytes)}). To delete them, use Change and
+			choose Delete.
+		</p>
 	{/if}
 	<p class="muted small">
 		Picking limits what Lookstow copies. To limit what it can read at all, scope the app with
@@ -349,15 +357,20 @@
 		<textarea name="excluded" rows="5">{settings.scope.excludedAddresses.join('\n')}</textarea>
 	</label>
 	<fieldset class="choice">
-		<legend>Mailboxes this change stops backing up</legend>
+		<legend>Backups of mailboxes that are not backed up</legend>
 		<label class="check"
-			><input type="radio" name="existing" value="keep" bind:group={scopeExisting} /> Keep their backups</label
+			><input type="radio" name="existing" value="keep" bind:group={scopeExisting} /> Keep them</label
 		>
 		<label class="check"
-			><input type="radio" name="existing" value="delete" bind:group={scopeExisting} /> Delete their backups
-			from the backup drive</label
+			><input type="radio" name="existing" value="delete" bind:group={scopeExisting} /> Delete them from
+			the backup drive</label
 		>
 		{#if scopeExisting === 'delete'}
+			<p class="muted small">
+				Deletes the backup of every mailbox that is not backed up once you save: those this change
+				leaves out, those left out before ({plural(outside.mailboxes, 'mailbox', 'mailboxes')} now,
+				{formatBytes(outside.bytes)}), and mailboxes gone from Microsoft 365 that are not backed up.
+			</p>
 			<label>
 				Type DELETE to confirm. The files cannot be brought back.
 				<input name="confirm" autocomplete="off" required />

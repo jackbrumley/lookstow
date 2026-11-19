@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../../database/connection.ts';
 import { inScope } from '../engine/scope.ts';
-import { applyDiscovery, mailboxById } from './repository.ts';
+import { eq } from 'drizzle-orm';
+import { mailboxes } from '../../database/schema.ts';
+import {
+	applyDiscovery,
+	insertMessage,
+	mailboxById,
+	recountStoredMessages,
+	syncFolderList
+} from './repository.ts';
 import { SCOPE_DEFAULTS } from '../../../domain/settings.ts';
 
 const ann = {
@@ -82,5 +90,43 @@ describe('scope', () => {
 				{ ...SCOPE_DEFAULTS, excludedAddresses: ['x@example.com'] }
 			)
 		).toBe(false);
+	});
+});
+
+describe('stored-message counts', () => {
+	it('follow every stored message, and a wrong count is corrected from the stored messages', () => {
+		const db = openDatabase(':memory:');
+		const mailbox = applyDiscovery(db, [ann], 1).added[0];
+		if (mailbox === undefined) throw new Error('no mailbox');
+		const [folder] = syncFolderList(
+			db,
+			mailbox.id,
+			[{ graphId: 'inbox', path: 'Inbox', storagePath: 'Inbox' }],
+			1
+		);
+		if (folder === undefined) throw new Error('no folder');
+		for (const [index, bytes] of [5, 7].entries()) {
+			insertMessage(db, {
+				mailboxId: mailbox.id,
+				folderId: folder.id,
+				graphId: `m${String(index)}`,
+				internetMessageId: null,
+				subject: 's',
+				sender: 'b',
+				receivedAt: null,
+				filePath: `ann@example.com/2026/11/${String(index)}.eml`,
+				byteCount: bytes,
+				sha256: 'x',
+				storedAt: new Date(1)
+			});
+		}
+		expect(mailboxById(db, mailbox.id)).toMatchObject({ itemCount: 2, byteCount: 12 });
+		db.update(mailboxes)
+			.set({ itemCount: 0, byteCount: 0 })
+			.where(eq(mailboxes.id, mailbox.id))
+			.run();
+		expect(recountStoredMessages(db)).toBe(1);
+		expect(mailboxById(db, mailbox.id)).toMatchObject({ itemCount: 2, byteCount: 12 });
+		expect(recountStoredMessages(db)).toBe(0);
 	});
 });

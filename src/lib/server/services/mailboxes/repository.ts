@@ -139,24 +139,30 @@ export function markSyncFinished(
 	now: number,
 	outcome: { error: string | null; firstCopyDone: boolean }
 ): void {
-	const totals = db
-		.select({
-			count: sql<number>`count(*)`,
-			bytes: sql<number>`coalesce(sum(${messages.byteCount}), 0)`
-		})
-		.from(messages)
-		.where(eq(messages.mailboxId, id))
-		.get();
 	db.update(mailboxes)
 		.set({
 			lastSyncFinishedAt: new Date(now),
 			lastSyncError: outcome.error,
-			firstCopyDone: outcome.firstCopyDone,
-			itemCount: totals?.count ?? 0,
-			byteCount: totals?.bytes ?? 0
+			firstCopyDone: outcome.firstCopyDone
 		})
 		.where(eq(mailboxes.id, id))
 		.run();
+}
+
+/**
+ * A mailbox's item count and size are the stored messages, nothing else. insertMessage and
+ * clearMailboxBackup keep them in step as they change those rows; this sets every mailbox from
+ * the rows themselves, so a count left wrong (by an older version, or a crash between the two
+ * writes) is corrected at start-up. Returns how many mailboxes it corrected.
+ */
+export function recountStoredMessages(db: Queryable): number {
+	const stored = sql`(select count(*) from ${messages} where ${messages.mailboxId} = ${mailboxes.id})`;
+	const bytes = sql`(select coalesce(sum(${messages.byteCount}), 0) from ${messages} where ${messages.mailboxId} = ${mailboxes.id})`;
+	return db
+		.update(mailboxes)
+		.set({ itemCount: stored, byteCount: bytes })
+		.where(sql`${mailboxes.itemCount} <> ${stored} or ${mailboxes.byteCount} <> ${bytes}`)
+		.run().changes;
 }
 
 export function foldersOf(db: Queryable, mailboxId: string): FolderRow[] {
@@ -259,19 +265,31 @@ function recordEvent(db: Queryable, event: Omit<typeof messageEvents.$inferInser
 		.run();
 }
 
-/** A message stored for the first time: its row, and a `stored` event naming its folder. */
+/**
+ * A message stored for the first time: its row, a `stored` event naming its folder, and its
+ * mailbox's count and size, in one transaction so the count never misses a stored message.
+ */
 export function insertMessage(db: Queryable, message: NewMessage): string {
 	const id = randomUUID();
-	db.insert(messages)
-		.values({ ...message, id, deletedAt: null })
-		.run();
-	recordEvent(db, {
-		messageId: id,
-		mailboxId: message.mailboxId,
-		at: message.storedAt,
-		kind: 'stored',
-		fromFolderPath: null,
-		toFolderPath: folderPathOf(db, message.folderId)
+	db.transaction((tx) => {
+		tx.insert(messages)
+			.values({ ...message, id, deletedAt: null })
+			.run();
+		tx.update(mailboxes)
+			.set({
+				itemCount: sql`${mailboxes.itemCount} + 1`,
+				byteCount: sql`${mailboxes.byteCount} + ${message.byteCount}`
+			})
+			.where(eq(mailboxes.id, message.mailboxId))
+			.run();
+		recordEvent(tx, {
+			messageId: id,
+			mailboxId: message.mailboxId,
+			at: message.storedAt,
+			kind: 'stored',
+			fromFolderPath: null,
+			toFolderPath: folderPathOf(tx, message.folderId)
+		});
 	});
 	return id;
 }

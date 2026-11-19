@@ -21,7 +21,7 @@ These rules are not suggestions. "Must" and "never" mean exactly that. If a rule
 
 > - The backup is the product. A backup file is written once and is never overwritten, moved, renamed or deleted, except by the three flows in Section 11.
 > - A deletion at the source never deletes a backup file. Deleted messages and gone mailboxes are marked in the index; their files stay.
-> - Deleting a backup happens only through `deleteMailboxBackup` after the mailbox's address is typed to confirm. There is no other delete path, and you never add one without the maintainer's approval.
+> - Deleting a backup happens only through `deleteMailboxBackup`: for one mailbox after its address is typed to confirm, or for every mailbox that is not backed up after DELETE is typed in What is backed up. There is no other delete path, and you never add one without the maintainer's approval.
 
 # 🚨 CRITICAL: NEVER WIPE A DATABASE OR A BACKUP FOLDER
 
@@ -293,7 +293,7 @@ The backup is evidence that mail existed. Treat every file and index row as irre
 - **Written once.** After a file is stored it is never rewritten, moved, renamed or deleted, with exactly three exceptions:
   1. `writeMessageFile` replacing a file of the same name, which carries the same immutable message id, so the same message;
   2. the one-time move into the date layout (`storage/relayout.ts`, `docs/decisions.md` "Old files moved into the date layout"), which renames on the same drive, never replaces an existing file and records the new path;
-  3. `deleteMailboxBackup` (`services/mailboxes/delete-backup.ts`), reached only through `existing-backup.ts` when the admin chose Delete and typed the mailbox's address (`confirmsDeletion`).
+  3. `deleteMailboxBackup` (`services/mailboxes/delete-backup.ts`), reached only through `existing-backup.ts` when the admin chose Delete and typed the mailbox's address (`confirmsDeletion`), or through `engine/scope-change.ts` when the admin chose Delete in What is backed up and typed DELETE: that deletes the backup of every mailbox the saved scope does not back up.
 - **A new exception needs the maintainer's approval**, a `docs/decisions.md` entry, a test that proves no file is lost when it stops half way, and an activity record for every file it touches.
 - **Source deletions never delete files.** A deleted message, a removed folder, a gone mailbox or an excluded mailbox changes the index, never the disk, unless the admin chose Delete with the typed confirmation.
 - **Typed confirmation is not optional.** Any action that deletes backup files requires the exact address typed, checked on the server, and records an activity entry saying what was deleted and by whom. Never pre-fill, skip or relax it, and never add a "delete all" without the same check per mailbox.
