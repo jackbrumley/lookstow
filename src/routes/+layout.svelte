@@ -12,6 +12,7 @@
 	import IconSettings from '@tabler/icons-svelte-runes/icons/settings';
 	import IconTerminal2 from '@tabler/icons-svelte-runes/icons/terminal-2';
 	import IconCloudDownload from '@tabler/icons-svelte-runes/icons/cloud-download';
+	import IconBook from '@tabler/icons-svelte-runes/icons/book';
 	import ToastHost from '#lib/ui/toast-host.svelte';
 	import IconPlayerPause from '@tabler/icons-svelte-runes/icons/player-pause';
 	import IconPlayerPlay from '@tabler/icons-svelte-runes/icons/player-play';
@@ -29,7 +30,8 @@
 		{ path: '/log', href: resolve('/log'), label: 'Log', icon: IconTerminal2 },
 		{ path: '/alerts', href: resolve('/alerts'), label: 'Alerts', icon: IconBell },
 		{ path: '/settings', href: resolve('/settings'), label: 'Settings', icon: IconSettings },
-		{ path: '/updates', href: resolve('/updates'), label: 'Updates', icon: IconCloudDownload }
+		{ path: '/updates', href: resolve('/updates'), label: 'Updates', icon: IconCloudDownload },
+		{ path: '/how-it-works', href: resolve('/how-it-works'), label: 'How it works', icon: IconBook }
 	];
 
 	function active(path: string): boolean {

@@ -21,6 +21,7 @@
 	const settings = $derived(data.settings);
 	const connection = $derived(settings.connection);
 	const outside = $derived(data.backupsOutsideScope);
+	const snapshots = $derived(data.indexSnapshots);
 
 	let idsOpen = $state(false);
 	let secretOpen = $state(false);
@@ -215,8 +216,37 @@
 			: ''}
 	</p>
 	<p class="muted small">
-		One folder per mailbox, then the mailbox's own folders, then one .eml file per message. Any mail
-		program opens them. The Lookstow service account must be able to write here.
+		One folder per mailbox, then one folder per year and month, then one file per message: .eml for
+		mailboxes (any mail program opens them), .fts for online archives. The Lookstow service account
+		must be able to write here.
+	</p>
+	<h3>Index snapshots</h3>
+	{#if snapshots.kind === 'unreadable'}
+		<p>
+			<Badge tone="bad">Unreadable</Badge> Lookstow cannot read <code>{snapshots.folder}</code>: {snapshots.reason}
+		</p>
+	{:else}
+		<p>
+			{#if snapshots.newest === null}
+				<Badge tone="warn">None yet</Badge> The first copy is made once the start-up work is done.
+			{:else}
+				Last copy {formatDateTime(snapshots.newest.takenAt)} ({formatBytes(
+					snapshots.newest.bytes
+				)}).
+				{plural(snapshots.kept, 'copy', 'copies')} kept, the newest 7, in
+				<code>{snapshots.folder}</code>.
+			{/if}
+		</p>
+		{#if snapshots.drive === 'same'}
+			<p class="muted small">
+				The copies are on the same drive as the index. They survive a damaged index, not the loss of
+				that drive. A backup folder on another drive protects against both.
+			</p>
+		{/if}
+	{/if}
+	<p class="muted small">
+		The index is Lookstow's record of every message's folder and history. It is copied here once a
+		day. If it is ever lost, How it works says how to put a copy back.
 	</p>
 </Card>
 

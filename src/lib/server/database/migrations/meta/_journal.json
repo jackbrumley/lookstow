@@ -29,6 +29,13 @@
       "when": 1795048148055,
       "tag": "0003_email-outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1795054846485,
+      "tag": "0004_archive-read-failed",
+      "breakpoints": true
     }
   ]
 }

@@ -81,6 +81,14 @@
 		{/if}
 		<dt>Messages</dt>
 		<dd>{formatCount(mailbox.itemCount)} ({formatBytes(mailbox.byteCount)})</dd>
+		{#if mailbox.unreadableItems > 0}
+			<dt>Not readable</dt>
+			<dd>
+				<Badge tone="warn">{formatCount(mailbox.unreadableItems)}</Badge> archive items could not be read
+				for Search. They are stored as they came; the Log names each one. A newer Lookstow tries them
+				again.
+			</dd>
+		{/if}
 		<dt>First full copy</dt>
 		<dd>{mailbox.firstCopyDone ? 'Done' : 'Not finished yet'}</dd>
 		<dt>Last sync</dt>

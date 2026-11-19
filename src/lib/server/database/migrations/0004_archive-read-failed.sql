@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `index_failed_version` text;

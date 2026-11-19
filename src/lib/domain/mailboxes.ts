@@ -31,6 +31,8 @@ export type MailboxDetail = MailboxSummary & {
 	firstSeenAt: string;
 	lastSeenAt: string;
 	backupFolder: string;
+	/** Online archive items the .fts reader could not read for Search (stored as they came). */
+	unreadableItems: number;
 	folders: {
 		path: string;
 		itemCount: number;

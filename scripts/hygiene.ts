@@ -49,6 +49,10 @@ const FILE_CHANGE_ALLOWED = new Map<string, string>([
 		'deleting a backup after the typed confirmation'
 	],
 	[
+		'src/lib/server/services/storage/index-snapshot.ts',
+		'the daily index copy: written through a .partial file, only the 7 newest lookstow-*.db kept in .lookstow-index'
+	],
+	[
 		'src/lib/server/services/server-updates/readiness.ts',
 		'atomic write of the readiness file in the data folder'
 	],

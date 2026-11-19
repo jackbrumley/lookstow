@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { Queryable } from '../../database/connection.ts';
 import { serverLog } from '../../log.ts';
-import { archiveItemsToIndex, setMessageIndex } from '../mailboxes/repository.ts';
+import { archiveItemsToIndex, markIndexFailed, setMessageIndex } from '../mailboxes/repository.ts';
 import { resolveStoragePath } from '../storage/eml-store.ts';
 import { summarise, type FtsSummary } from './fts-properties.ts';
 import { readFts } from './fts-reader.ts';
@@ -30,14 +30,16 @@ export type IndexOutcome = { total: number; indexed: number; problems: number; s
 
 /**
  * Archive items copied before 0.6.0 have no subject, sender or Message-ID in the index; this
- * reads each one's file and fills them in. The files are only read, never changed or moved.
+ * reads each one's file and fills them in. An item `version` cannot read is marked, so it is
+ * tried again only by a newer version. The files are only read, never changed or moved.
  */
 export async function indexArchiveItems(
 	db: Queryable,
 	backupRoot: string,
-	stopping: () => boolean
+	stopping: () => boolean,
+	version: string
 ): Promise<IndexOutcome> {
-	const rows = archiveItemsToIndex(db);
+	const rows = archiveItemsToIndex(db, version);
 	const outcome: IndexOutcome = { total: rows.length, indexed: 0, problems: 0, stopped: false };
 	for (const row of rows) {
 		if (stopping()) {
@@ -57,6 +59,7 @@ export async function indexArchiveItems(
 			summary = null;
 		}
 		if (summary === null) {
+			markIndexFailed(db, row.id, version);
 			outcome.problems += 1;
 			continue;
 		}

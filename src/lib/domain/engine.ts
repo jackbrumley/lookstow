@@ -57,4 +57,6 @@ export type EngineStatus = {
 	disk: DiskStatus;
 	/** While files stored before 0.4.0 move into the date layout: how far it is. Syncs wait. */
 	relayout: { total: number; moved: number; problems: number } | null;
+	/** The daily copy of the index onto the backup drive. */
+	indexSnapshot: { running: boolean; lastAt: string | null };
 };

@@ -186,6 +186,16 @@
 				)} of {formatCount(data.engine.relayout.total)}. Syncs start when it is done.
 			</dd>
 		{/if}
+		<dt>Index copy</dt>
+		<dd>
+			{#if data.engine.indexSnapshot.running}
+				<Badge tone="info">Copying</Badge>
+			{:else if data.engine.indexSnapshot.lastAt === null}
+				<Badge tone="warn">None yet</Badge>
+			{:else}
+				Last {formatDateTime(data.engine.indexSnapshot.lastAt)}
+			{/if}
+		</dd>
 		<dt>Backup drive</dt>
 		<dd>
 			{#if data.engine.disk.usedPercent === null}

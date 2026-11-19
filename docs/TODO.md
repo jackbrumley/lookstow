@@ -24,8 +24,8 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 
 ## Next: 0.7 and 0.8, backup integrity (docs/specs/SPEC-BACKUP-INTEGRITY.md)
 
-- **Split engine.ts** by responsibility, with no change in behaviour, after 0.6.2.
-- **0.7: index snapshot.** A daily copy of the index on the backup drive (7 kept), a documented restore, and archive items that cannot be read are tried once per version.
+- **Split engine.ts.** Done (refactor, no version).
+- **0.7: index snapshot.** Done in 0.7.0: a daily copy of the index on the backup drive (7 kept), a documented restore, a How it works page, and archive items that cannot be read are tried once per version.
 - **0.8: completeness check.** Each folder's item count from Microsoft beside the index's, reported before any alert.
 
 ## Later

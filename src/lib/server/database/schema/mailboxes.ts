@@ -92,7 +92,12 @@ export const messages = sqliteTable(
 		byteCount: integer().notNull(),
 		sha256: text().notNull(),
 		storedAt: integer({ mode: 'timestamp_ms' }).notNull(),
-		deletedAt: integer({ mode: 'timestamp_ms' })
+		deletedAt: integer({ mode: 'timestamp_ms' }),
+		/**
+		 * An online archive item the .fts reader could not read: the Lookstow version that tried.
+		 * A newer version tries again; the same version does not.
+		 */
+		indexFailedVersion: text()
 	},
 	(table) => [
 		uniqueIndex('messages_mailbox_graph').on(table.mailboxId, table.graphId),

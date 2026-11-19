@@ -216,7 +216,7 @@ describe('archive items stored before Lookstow could read them', () => {
 		};
 		await store('i1', ftsOf('i1'));
 		await store('bad', Buffer.from('not an fts file'));
-		const outcome = await indexArchiveItems(db, backupRoot, () => false);
+		const outcome = await indexArchiveItems(db, backupRoot, () => false, '0.7.0');
 		expect(outcome).toEqual({ total: 2, indexed: 1, problems: 1, stopped: false });
 		const rows = db.select().from(messages).all();
 		expect(rows.find((message) => message.graphId === 'i1')).toMatchObject({
@@ -226,7 +226,15 @@ describe('archive items stored before Lookstow could read them', () => {
 			filePath: 'ann@example.com (archive)/2020/02/i1.fts'
 		});
 		expect(rows.find((message) => message.graphId === 'bad')?.subject).toBe('');
-		// Read once: a second start finds only the item it could not read.
-		expect((await indexArchiveItems(db, backupRoot, () => false)).total).toBe(1);
+		// Read once: the same version does not try the unreadable item again, a newer one does.
+		expect((await indexArchiveItems(db, backupRoot, () => false, '0.7.0')).total).toBe(0);
+		expect(
+			db
+				.select()
+				.from(messages)
+				.all()
+				.find((message) => message.graphId === 'bad')?.indexFailedVersion
+		).toBe('0.7.0');
+		expect((await indexArchiveItems(db, backupRoot, () => false, '0.7.1')).total).toBe(1);
 	});
 });

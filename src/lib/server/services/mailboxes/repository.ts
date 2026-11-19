@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
 import { mailboxes, mailFolders, messageEvents, messages, runs } from '../../database/schema.ts';
 import type { DiscoveredMailbox } from '../graph/discovery.ts';
@@ -443,8 +443,11 @@ export function recentRuns(
 		}));
 }
 
-/** Online archive items stored before Lookstow could read them: nothing to search them by. */
-export function archiveItemsToIndex(db: Queryable) {
+/**
+ * Online archive items with nothing to search them by: stored before Lookstow could read them,
+ * or not readable by an earlier version. Items this version already failed to read are left out.
+ */
+export function archiveItemsToIndex(db: Queryable, version: string) {
 	return db
 		.select({ id: messages.id, filePath: messages.filePath, receivedAt: messages.receivedAt })
 		.from(messages)
@@ -455,10 +458,27 @@ export function archiveItemsToIndex(db: Queryable) {
 				eq(messages.subject, ''),
 				eq(messages.sender, ''),
 				isNull(messages.internetMessageId),
-				like(messages.filePath, '%.fts')
+				like(messages.filePath, '%.fts'),
+				or(isNull(messages.indexFailedVersion), ne(messages.indexFailedVersion, version))
 			)
 		)
 		.all();
+}
+
+/** Records that this version could not read the item, so it is not read again until an update. */
+export function markIndexFailed(db: Queryable, id: string, version: string): void {
+	db.update(messages).set({ indexFailedVersion: version }).where(eq(messages.id, id)).run();
+}
+
+/** How many of a mailbox's archive items could not be read for Search. */
+export function unreadableItemCount(db: Queryable, mailboxId: string): number {
+	return (
+		db
+			.select({ count: sql<number>`count(*)` })
+			.from(messages)
+			.where(and(eq(messages.mailboxId, mailboxId), isNotNull(messages.indexFailedVersion)))
+			.get()?.count ?? 0
+	);
 }
 
 /** Fills in what Search finds a message by; the stored file is not touched. */
@@ -473,5 +493,8 @@ export function setMessageIndex(
 		receivedAt: Date | null;
 	}
 ): void {
-	db.update(messages).set(index).where(eq(messages.id, id)).run();
+	db.update(messages)
+		.set({ ...index, indexFailedVersion: null })
+		.where(eq(messages.id, id))
+		.run();
 }

@@ -58,6 +58,16 @@ export function alertFor(entry: AlertableActivity): EmailSource | null {
 				),
 				page: 'Dashboard'
 			};
+		case 'index-snapshot':
+			return {
+				alert: 'index-snapshot',
+				title: entry.summary,
+				body: body(
+					entry,
+					'Check that the backup drive is connected and has space. Lookstow tries again every hour and says nothing more until a copy succeeds.'
+				),
+				page: 'Dashboard'
+			};
 		case 'mailbox-found':
 		case 'mailbox-gone':
 			return {

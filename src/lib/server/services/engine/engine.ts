@@ -1,5 +1,5 @@
 import { desc, eq } from 'drizzle-orm';
-import type { Queryable } from '../../database/connection.ts';
+import type { AppDatabase, Queryable } from '../../database/connection.ts';
 import { runs } from '../../database/schema.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { recordActivity } from '../activity/activity.ts';
@@ -16,11 +16,13 @@ import {
 	savePause
 } from '../settings/settings.ts';
 import { diskStatus, measureDisk } from '../storage/disk.ts';
+import { snapshotDue } from '../storage/index-snapshot.ts';
 import type { RelayoutProgress } from '../storage/relayout.ts';
 import { runDiscovery } from './discovery-pass.ts';
 import { inScope } from './scope.ts';
 import { planSyncs } from './scheduler.ts';
 import { closeLastStop, moveToDateLayout, readOlderArchiveItems } from './startup-tasks.ts';
+import { newestSnapshotAt, snapshotIndex } from './snapshot-task.ts';
 import { syncOneMailbox } from './sync-pass.ts';
 import { AdaptiveSlots, Throughput } from './throughput.ts';
 import type { DiskStatus, EngineStatus } from '../../../domain/engine.ts';
@@ -37,9 +39,12 @@ import { formatPercent } from '../../../utils/format.ts';
  * change takes effect within seconds.
  */
 const TICK_MS = 5_000;
+/** After a failed index snapshot, the next try. */
+const SNAPSHOT_RETRY_MS = 60 * 60 * 1000;
 
 export type EngineDeps = {
-	db: Queryable;
+	/** The process's database itself (not a transaction): the daily snapshot copies it. */
+	db: AppDatabase;
 	dataDir: string;
 	secretsKey: Buffer;
 	now?: () => number;
@@ -88,6 +93,10 @@ export class Engine {
 	#relayoutProgress: RelayoutProgress | null = null;
 	/** Reading archive items stored before 0.6.0 for Search, once, in the background. */
 	#indexing: Promise<void> | null = null;
+	/** The daily copy of the index onto the backup drive, while it runs. */
+	#snapshot: Promise<void> | null = null;
+	#snapshotAt: number | null = null;
+	#snapshotRetryAt: number | null = null;
 
 	constructor(deps: EngineDeps) {
 		this.#deps = { now: Date.now, ...deps };
@@ -100,6 +109,7 @@ export class Engine {
 		closeLastStop(db, now());
 		this.#lastDiscoveryAt = lastFinished(db, 'discovery');
 		const backupRoot = effectiveBackupRoot(db, dataDir);
+		this.#snapshotAt = newestSnapshotAt(backupRoot);
 		const stopping = () => this.#stopping;
 		this.#relayout = moveToDateLayout(db, backupRoot, stopping, (progress) => {
 			this.#relayoutProgress = { ...progress };
@@ -129,7 +139,8 @@ export class Engine {
 			...[...this.#running.values()].map((live) => live.done),
 			this.#discovery,
 			this.#relayout,
-			this.#indexing
+			this.#indexing,
+			this.#snapshot
 		]);
 	}
 
@@ -249,7 +260,8 @@ export class Engine {
 				last15Minutes: this.#meter.rates(this.#deps.now(), 15 * 60_000).throttled
 			},
 			disk: this.#disk ?? this.#measureDisk(),
-			relayout: this.#relayout === null ? null : this.#relayoutProgress
+			relayout: this.#relayout === null ? null : this.#relayoutProgress,
+			indexSnapshot: { running: this.#snapshot !== null, lastAt: iso(this.#snapshotAt) }
 		};
 	}
 
@@ -292,6 +304,7 @@ export class Engine {
 				`${disk.path} is ${formatPercent(disk.usedPercent)} full; the limit is ${disk.pausePercent}%.`
 			);
 		}
+		this.#snapshotWhenDue(disk);
 		if (this.#paused) {
 			return;
 		}
@@ -351,6 +364,37 @@ export class Engine {
 		if (plan.waiting.requested === 0 && this.#allRequestedAt !== null && plan.start.length === 0) {
 			this.#allRequestedAt = null;
 		}
+	}
+
+	/**
+	 * The daily index snapshot: after the start-up passes, never onto a full drive, and an hour
+	 * after a failure. It runs while paused too: the index needs its copy either way.
+	 */
+	#snapshotWhenDue(disk: DiskStatus): void {
+		const { db, dataDir, now } = this.#deps;
+		const time = now();
+		if (
+			this.#snapshot !== null ||
+			this.#relayout !== null ||
+			this.#indexing !== null ||
+			disk.level === 'full' ||
+			(this.#snapshotRetryAt !== null && time < this.#snapshotRetryAt) ||
+			!snapshotDue(this.#snapshotAt, time)
+		) {
+			return;
+		}
+		this.#snapshot = snapshotIndex(db, effectiveBackupRoot(db, dataDir), time)
+			.then((takenAt) => {
+				if (takenAt === null) {
+					this.#snapshotRetryAt = now() + SNAPSHOT_RETRY_MS;
+				} else {
+					this.#snapshotAt = takenAt;
+					this.#snapshotRetryAt = null;
+				}
+			})
+			.finally(() => {
+				this.#snapshot = null;
+			});
 	}
 
 	#client(): GraphClient | null {

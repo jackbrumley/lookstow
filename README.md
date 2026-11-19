@@ -47,6 +47,17 @@ Lookstow is a backup service for Microsoft 365 mail that you run on your own ser
 - A local web console: what is backed up, what is running, what failed, and every setting
 - Signs in with a certificate it makes itself; the private key never leaves the server
 - Updates itself from signed releases, and rolls back a release that does not start
+- Copies its index to the backup drive once a day, keeping the newest 7
+
+## If the index is lost
+
+The index (`lookstow.db` in the data folder: `C:\ProgramData\Lookstow` on Windows, `/var/lib/lookstow` on Linux) records each message's folder and history. Lookstow copies it once a day to `.lookstow-index` in the backup folder. To put a copy back:
+
+1. Stop the service: `Stop-Service Lookstow` on Windows, `sudo systemctl stop lookstow` on Linux.
+2. Copy the newest `lookstow-<date>.db` over `lookstow.db`, and delete `lookstow.db-wal` and `lookstow.db-shm` beside it if they are there.
+3. Start the service again.
+
+Syncs carry on from that copy. Mail stored since then is downloaded again into the same files, so nothing is doubled; history recorded since then (at most a day) is lost. The console's How it works page says the same with this installation's own folders.
 
 ## Build from source
 

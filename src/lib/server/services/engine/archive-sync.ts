@@ -32,6 +32,7 @@ import {
 	type SyncContext,
 	type SyncOutcome
 } from './sync-common.ts';
+import { APP_VERSION } from '../../../utils/app-version.ts';
 
 /**
  * One sync of one online archive: the same shape as a mailbox sync (folder list, then each
@@ -226,7 +227,8 @@ async function applyArchiveChanges(
 				filePath: relative,
 				byteCount: stored.byteCount,
 				sha256: stored.sha256,
-				storedAt: new Date(context.now())
+				storedAt: new Date(context.now()),
+				indexFailedVersion: index === null ? APP_VERSION : null
 			});
 			totals.added += 1;
 			totals.byteCount += stored.byteCount;

@@ -4,6 +4,7 @@ import { recordActivity } from '../activity/activity.ts';
 import { indexArchiveItems } from '../fts/fts-index.ts';
 import { closeInterruptedRuns, recountStoredMessages } from '../mailboxes/repository.ts';
 import { refileArchiveItems, relayoutFiles, type RelayoutProgress } from '../storage/relayout.ts';
+import { APP_VERSION } from '../../../utils/app-version.ts';
 import { plural } from '../../../utils/format.ts';
 
 /**
@@ -83,7 +84,7 @@ export async function readOlderArchiveItems(
 	stopping: () => boolean
 ): Promise<void> {
 	try {
-		const outcome = await indexArchiveItems(db, backupRoot, stopping);
+		const outcome = await indexArchiveItems(db, backupRoot, stopping, APP_VERSION);
 		if (outcome.stopped) return;
 		if (outcome.total > 0) {
 			recordActivity(db, {

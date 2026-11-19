@@ -20,6 +20,25 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.7.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'A few minutes after the update, open the backup folder: it holds a .lookstow-index folder with one lookstow-<today>.db file, and the dashboard shows Index copy with today’s time',
+				'Open Settings > Backup folder: Index snapshots shows the last copy, its size and the folder. With the default backup folder it also says the copies are on the same drive as the index',
+				'Open How it works in the side bar: it shows this computer’s own sync interval, backup folder and index copy folder, and the steps to put a copy back',
+				'Open an online archive’s mailbox page: if any item could not be read for Search, it says how many under Not readable. Restart the service: the Log does not repeat the same warning for those items',
+				'Optional: open Alerts and tick The index cannot be copied for someone, so a failed copy is emailed'
+			]
+		},
+		changes: [
+			'Lookstow copies its index to the backup drive once a day and keeps the newest 7. The index records every message’s folder and history; if it is ever lost, putting back a copy loses at most a day of history instead of all of it, and nothing is downloaded twice. How to do it is on the new How it works page and in the README',
+			'A failed copy is an error under Recent problems on the dashboard, and an email alert you can turn on (The index cannot be copied). Lookstow tries again every hour',
+			'New How it works page: what Lookstow copies and when, how online archives and dates work, what happens when mail is moved or deleted in Microsoft 365, and how to restore the index, with this computer’s own folders and schedule',
+			'An online archive item Lookstow cannot read is tried once per version, not at every start. Its mailbox page says how many could not be read; they stay stored as they came'
+		]
+	},
+	{
 		version: '0.6.2',
 		testing: {
 			kind: 'steps',

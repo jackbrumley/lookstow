@@ -177,10 +177,10 @@ src/
       crypto/          DER, the Entra certificate, sealed secrets
       services/
         graph/         token, client (paging, throttling, retries), discovery, mail, archive, connection test
-        engine/        engine, scheduler, mailbox-sync, archive-sync, scope, throughput, auto-update
+        engine/        engine (timer, queue), sync-pass, discovery-pass, startup-tasks, snapshot-task, scheduler, mailbox-sync, archive-sync, scope-change
         mailboxes/     repository (all mailbox SQL), views, delete-backup
         messages/      search
-        storage/       eml-store (safe names, atomic writes), relayout, disk guard
+        storage/       eml-store (safe names, atomic writes), relayout, disk guard, index-snapshot
         settings/      the one owner of the settings table
         activity/      recordActivity() and the activity log
         server-updates/ release checks, Update now, the updater's status (BMuster's)
@@ -294,6 +294,7 @@ The backup is evidence that mail existed. Treat every file and index row as irre
   1. `writeMessageFile` replacing a file of the same name, which carries the same immutable message id, so the same message;
   2. the one-time moves into the date layout (`storage/relayout.ts`): files stored before 0.4.0 (`docs/decisions.md` "Old files moved into the date layout"), and online archive items copied before 0.6.0, moved to the month they were received once the index knows it ("Archive items filed by their received date"). Both go through `moveStoredFiles`, which renames on the same drive, never replaces an existing file and records the new path;
   3. `deleteMailboxBackup` (`services/mailboxes/delete-backup.ts`), reached only through `existing-backup.ts` when the admin chose Delete and typed the mailbox's address (`confirmsDeletion`), or through `engine/scope-change.ts` when the admin chose Delete in What is backed up and typed DELETE: that deletes the backup of every mailbox the saved scope does not back up.
+- **The index snapshots** (`storage/index-snapshot.ts`) are not mail: a daily copy of `lookstow.db` in `<backup root>/.lookstow-index/`, of which only the 7 newest are kept. Pruning touches only `lookstow-*.db` files in that folder.
 - **A new exception needs the maintainer's approval**, a `docs/decisions.md` entry, a test that proves no file is lost when it stops half way, and an activity record for every file it touches.
 - **Source deletions never delete files.** A deleted message, a removed folder, a gone mailbox or an excluded mailbox changes the index, never the disk, unless the admin chose Delete with the typed confirmation.
 - **Typed confirmation is not optional.** Any action that deletes backup files requires the exact address typed, checked on the server, and records an activity entry saying what was deleted and by whom. Never pre-fill, skip or relax it, and never add a "delete all" without the same check per mailbox.

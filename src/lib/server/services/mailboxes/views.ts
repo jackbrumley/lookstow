@@ -7,6 +7,7 @@ import {
 	foldersOf,
 	mailboxById,
 	recentRuns,
+	unreadableItemCount,
 	type MailboxRow
 } from './repository.ts';
 import { mailboxFolderName, resolveStoragePath } from '../storage/eml-store.ts';
@@ -82,6 +83,7 @@ export function mailboxDetail(
 		firstSeenAt: row.firstSeenAt.toISOString(),
 		lastSeenAt: row.lastSeenAt.toISOString(),
 		backupFolder: resolveStoragePath(backupRoot, mailboxFolderName(row.address, row.kind)),
+		unreadableItems: unreadableItemCount(db, id),
 		folders: foldersOf(db, id)
 			.filter((folder) => folder.goneAt === null)
 			.map((folder) => ({

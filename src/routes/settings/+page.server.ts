@@ -23,12 +23,14 @@ import {
 	saveUpdates,
 	settingsView
 } from '#lib/server/services/settings/settings.ts';
+import { snapshotSummary } from '#lib/server/services/storage/index-snapshot.ts';
 import { hostname } from 'node:os';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
 export const load = (() => ({
 	settings: settingsView(database, dataDir()),
-	backupsOutsideScope: backupsOutsideScope(database)
+	backupsOutsideScope: backupsOutsideScope(database),
+	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir())
 })) satisfies PageServerLoad;
 
 function saved(summary: string, message: string) {

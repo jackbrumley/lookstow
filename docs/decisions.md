@@ -93,3 +93,7 @@ What is backed up offered Delete only for mailboxes leaving in that save. A mail
 ## Archive items filed by their received date (2026-11-19)
 
 The export API dates an archive item by when it moved into the archive, often two years after it was received, so archive folders did not match the mailbox's own. From 0.6.0 new items are filed by the received date read from the item; items copied earlier are moved once, after the start-up indexing has read their received date, through the same safe move as the 0.4.3 relayout (`moveStoredFiles`): a rename on the same drive, never replacing a file, the new path recorded. An item whose received date is unknown keeps its place.
+
+## A daily index snapshot on the backup drive (2026-11-19)
+
+The index is the only record of each message's folder history, the deletions at the source and every folder's sync position, and it was copied only before an update. Now SQLite's online backup copies it once a day to `.lookstow-index` in the backup folder, and the newest 7 are kept. That is the backup drive, because an admin already looks after it, and it survives the data folder when the backup folder is on another drive. Restoring stays a manual step: the database is never replaced automatically. Rebuilding the index from the files alone was left out: the files do not hold Microsoft's ids, the folders or the history, and a day-old copy covers the same failure (SPEC-BACKUP-INTEGRITY.md section 5).

@@ -122,3 +122,25 @@ Every existing test passes unchanged. A refactor commit with no version bump, si
 1. A refactor commit: the `engine.ts` split (after 0.6.2).
 2. 0.7.0: the index snapshot, its Settings line and alert, the restore steps in the README, and failed archive reads.
 3. 0.8.0: the completeness check, reporting only.
+
+## 12. As built
+
+**The `engine.ts` split** (refactor, no version). The engine keeps its lifecycle, timer, queue, slots and status. The other jobs moved out:
+
+- `sync-pass.ts`: `syncOneMailbox`, with its run record, log lines and activity entries.
+- `discovery-pass.ts`: `runDiscovery`.
+- `startup-tasks.ts`: closing interrupted runs, the recount, the date-layout move, and reading older archive items.
+
+The engine's slots stayed in `engine.ts`; moving them is the throughput work's phase 3.
+
+**0.7.0.**
+
+- **Snapshot.** `storage/index-snapshot.ts` takes, lists and prunes snapshots. `engine/snapshot-task.ts` records a failure. The engine (`#snapshotWhenDue`) schedules it:
+  - on the tick, after the start-up passes, never onto a full drive, and while paused too;
+  - an hour after a failure.
+
+  A failure is an `error` activity entry of kind `index-snapshot`, so it shows under Recent problems, with an alert type of the same name. The dashboard shows "Index copy". Settings shows the last copy and says when the copies share the index's drive. `.partial` files a stop left behind are removed by the next snapshot.
+
+- **Restore** is in the README ("If the index is lost") and on the new How it works page, with the computer's own folders.
+- **Failed reads.** Migration `0004_archive-read-failed.sql` adds `messages.index_failed_version`. Two places set it: `indexArchiveItems` (which now takes the version) and the archive sync at copy time. `setMessageIndex` clears it. The mailbox page shows "Not readable" with the count.
+- **Acceptance criteria, as tested.** 1: `snapshotDue` ("is due once a day"); the engine's guard has no unit test, because the engine has no test rig yet. 2–5: `index-snapshot.test.ts`. 6: `archive-sync.test.ts`, "reads archive items stored before 0.6.0…" (same version skips, newer version retries). 7–9: 0.8.0.
