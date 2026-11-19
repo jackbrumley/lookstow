@@ -43,6 +43,15 @@
 
 	type Open = Folder & { gap: Extract<Folder['gap'], { kind: 'checking' | 'needs-look' }> };
 
+	/** How far a first copy has got: folders done, started (some mail stored), not started. */
+	const firstCopy = $derived.by(() => {
+		const done = mailbox.folders.filter((folder) => folder.firstCopyDone).length;
+		const started = mailbox.folders.filter(
+			(folder) => !folder.firstCopyDone && folder.lastSyncedAt !== null
+		).length;
+		return { done, started, waiting: mailbox.folders.length - done - started };
+	});
+
 	/** Folders whose difference nothing explains yet: one line each below the table. */
 	const open = $derived(
 		mailbox.folders.filter(
@@ -129,7 +138,16 @@
 			</dd>
 		{/if}
 		<dt>First full copy</dt>
-		<dd>{mailbox.firstCopyDone ? 'Done' : 'Not finished yet'}</dd>
+		<dd>
+			{#if mailbox.firstCopyDone}
+				Done
+			{:else}
+				Not finished yet: {formatCount(firstCopy.done)} of {formatCount(mailbox.folders.length)}
+				folders copied{firstCopy.started > 0
+					? `, ${formatCount(firstCopy.started)} in progress`
+					: ''}, {formatCount(firstCopy.waiting)} still to start.
+			{/if}
+		</dd>
 		<dt>Last sync</dt>
 		<dd>{formatDateTime(mailbox.lastSyncFinishedAt)}</dd>
 		<dt>Backup folder</dt>
