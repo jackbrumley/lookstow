@@ -73,3 +73,7 @@ The 0.4.3 update took three minutes on Windows. Two causes. The archive held abo
 ## Alert email through Mailgun, from the activity log (2026-11-19)
 
 Alerts were planned over SMTP; i12-pt6-control already sends through Mailgun's HTTP API with a sending domain Midfield has, so Lookstow does the same: no mail server to configure, one key, and a clear refusal message when something is wrong. The key is sealed like the Graph secret and goes only to Mailgun's API host for the chosen region, fixed in code. Alerts follow the activity log (a listener on `recordActivity`) instead of each part of Lookstow sending email, so every alert is also an activity entry, and adding an alert is one rule in `alert-rules.ts`. The outbox and its retry schedule are i12-pt6-control's.
+
+## Graph JSON with raw control characters is accepted (2026-11-19)
+
+The mailbox export API answered with JSON holding raw control characters inside strings, which strict JSON forbids, and the same reply came back on every try, so an online archive stopped at that batch for good. `parseGraphJson` (graph/client.ts) escapes such characters inside strings only, so every value keeps its exact text; any other fault in a reply still fails.

@@ -1,7 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import { FakeGraph, TEST_CREDENTIALS, graphError, json } from '#tests/support/fake-graph.ts';
-import { backoffMs, GraphClient, GraphError } from './client.ts';
+import { backoffMs, GraphClient, GraphError, parseGraphJson } from './client.ts';
 import { TokenSource } from './token.ts';
+
+describe('reading JSON from Graph', () => {
+	it('accepts raw control characters inside strings, keeping each value exact', () => {
+		// As the mailbox export API sends them: a raw tab, line feed and U+0001 inside values.
+		const raw = `{\n\t"value": [{"itemId": "a\u0001b", "message": "line 1\nline 2\tend \\"q\\""}]\n}`;
+		expect(() => {
+			JSON.parse(raw);
+		}).toThrow(SyntaxError);
+		expect(parseGraphJson(raw)).toEqual({
+			value: [{ itemId: 'a\u0001b', message: 'line 1\nline 2\tend "q"' }]
+		});
+	});
+
+	it('still refuses JSON that is wrong in any other way', () => {
+		expect(() => parseGraphJson('{"value": [')).toThrow(SyntaxError);
+		expect(() => parseGraphJson('{"a": 1,}')).toThrow(SyntaxError);
+		expect(() => parseGraphJson('{"a": "x\u0001"')).toThrow(SyntaxError);
+	});
+
+	it('posts an export and reads a reply that holds a raw control character', async () => {
+		const graph = new FakeGraph()
+			.withToken()
+			.on(
+				'/beta/admin/exchange/mailboxes/MBX:a@b/exportItems',
+				() => new Response(`{"value":[{"itemId":"i1","data":"QUJD","note":"x\u0007y"}]}`)
+			);
+		const client = new GraphClient(
+			new TokenSource(TEST_CREDENTIALS, graph.fetch),
+			graph.fetch,
+			() => Promise.resolve()
+		);
+		await expect(
+			client.postJson(
+				'https://graph.microsoft.com/beta/admin/exchange/mailboxes/MBX:a@b/exportItems',
+				{
+					itemIds: ['i1']
+				}
+			)
+		).resolves.toEqual({ value: [{ itemId: 'i1', data: 'QUJD', note: 'x\u0007y' }] });
+	});
+});
 
 function client(graph: FakeGraph, sleeps: number[] = []): GraphClient {
 	return new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), graph.fetch, (ms) => {

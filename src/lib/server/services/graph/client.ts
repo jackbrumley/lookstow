@@ -32,7 +32,52 @@ async function readJson(response: Response): Promise<unknown> {
 	if (text.trim() === '') {
 		throw new GraphError(response.status, 'empty-reply', 'Microsoft Graph sent an empty reply');
 	}
-	return JSON.parse(text);
+	return parseGraphJson(text);
+}
+
+/**
+ * JSON.parse, accepting one fault Graph is known to make: a raw control character (U+0000 to
+ * U+001F) inside a string, which strict JSON forbids. The mailbox export API sends them in its
+ * replies, and asking again returns the same reply, so refusing it would stop the archive for
+ * good. Those characters are escaped inside strings only, so every value keeps its exact text;
+ * anything else wrong with the reply still fails.
+ */
+export function parseGraphJson(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch (error) {
+		if (!(error instanceof SyntaxError)) throw error;
+		const repaired = escapeControlCharactersInStrings(text);
+		if (repaired === text) throw error;
+		return JSON.parse(repaired);
+	}
+}
+
+function escapeControlCharactersInStrings(text: string): string {
+	const parts: string[] = [];
+	let inString = false;
+	let escaped = false;
+	let start = 0;
+	for (let index = 0; index < text.length; index++) {
+		const code = text.charCodeAt(index);
+		if (!inString) {
+			if (code === 0x22) inString = true;
+			continue;
+		}
+		if (escaped) {
+			escaped = false;
+		} else if (code === 0x5c) {
+			escaped = true;
+		} else if (code === 0x22) {
+			inString = false;
+		} else if (code < 0x20) {
+			parts.push(text.slice(start, index), `\\u${code.toString(16).padStart(4, '0')}`);
+			start = index + 1;
+		}
+	}
+	if (start === 0) return text;
+	parts.push(text.slice(start));
+	return parts.join('');
 }
 
 /**

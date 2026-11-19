@@ -20,6 +20,19 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.5.1',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'After the update, open the online archive’s mailbox page (Jason Shaw (archive)) and press Sync now: its message count grows, and Log shows no "Bad control character" error',
+				'When the archive’s first copy is done, its page says First full copy: Done, and Search with that archive as the mailbox lists its items by date'
+			]
+		},
+		changes: [
+			'Online archives: copying no longer stops at an item whose export reply holds a raw control character. Microsoft’s export API sends such replies, and Lookstow refused them, so the archive stayed stuck at the same batch'
+		]
+	},
+	{
 		version: '0.5.0',
 		testing: {
 			kind: 'steps',
