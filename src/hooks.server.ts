@@ -1,60 +1,40 @@
 import { building } from '$app/env';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
-import { alertService, backupEngine, database, dataDir } from '#lib/server/runtime.ts';
-import { startThroughputMonitor } from '#lib/server/services/throughput/monitor.ts';
-import { throughputExtras } from '#lib/server/services/throughput/extras.ts';
+import { database, startWork } from '#lib/server/runtime.ts';
 import { startAutomaticUpdates } from '#lib/server/services/engine/auto-update.ts';
-import { pruneActivity } from '#lib/server/services/activity/activity.ts';
-import { startContentIndexer } from '#lib/server/services/ai/content-index.ts';
-import { effectiveBackupRoot, readAiAccess } from '#lib/server/services/settings/settings.ts';
 import { errorText, serverLog } from '#lib/server/log.ts';
 import { serverUpdates, startUpdateChecks } from '#lib/server/services/server-updates/live.ts';
+import { watchThread } from '#lib/server/work/thread-health.ts';
 
 /**
  * Start-up and every request. At start-up the database is already open and migrated (runtime
- * imports it), the throughput governor starts from the pace it learned before (before any Graph
- * request), email alerts start listening (before anything can record activity), the backup
- * engine starts its timer, the daily release check starts, and so do
- * automatic updates (when they are on in Settings).
+ * imports it). The work thread starts (docs/specs/SPEC-SCALE.md): the backup engine, email
+ * alerts, the throughput monitor, the indexes and the AI tools run there, so this thread only
+ * answers the console. The daily release check starts here, and so do automatic updates (when
+ * they are on in Settings).
  *
  * Access: the console answers only on this computer. Anyone who can open a browser on the
  * server is already trusted with it; reaching it from another computer needs sign-in, which
  * is not built yet (docs/TODO.md), so it is refused rather than left open.
  */
-export const init: ServerInit = () => {
+export const init: ServerInit = async () => {
 	if (building) {
 		return;
 	}
-	const throughput = startThroughputMonitor(database, dataDir(), () =>
-		throughputExtras(backupEngine().status())
-	);
-	alertService().start();
-	backupEngine().start();
+	watchThread('web');
+	const work = await startWork();
 	startUpdateChecks();
-	// The AI tools' content index: built in the background while AI tools are on.
-	const contentIndex = startContentIndexer(
-		database,
-		() => effectiveBackupRoot(database, dataDir()),
-		() => readAiAccess(database).enabled
-	);
 	startAutomaticUpdates(database, serverUpdates);
-	// The activity log keeps 90 days (the Activity page says so).
-	const prune = (): void => {
-		pruneActivity(database, ACTIVITY_DAYS);
-	};
-	prune();
-	setInterval(prune, 24 * 60 * 60 * 1000).unref();
 	for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 		process.once(signal, () => {
-			void backupEngine()
-				.stop()
-				.then(() => Promise.all([throughput.stop(), contentIndex.stop()]));
+			void work.stop();
 		});
 	}
 	serverLog('info', 'startup', `Lookstow ${__LOOKSTOW_VERSION__} started`);
 };
 
-const ACTIVITY_DAYS = 90;
+/** A request slower than this is logged with its path, so a slow page names itself. */
+const SLOW_REQUEST_MS = 2_000;
 
 const LOCAL = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -80,7 +60,16 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (!aiTool && crossSiteWrite(event.request)) {
 		return new Response('Cross-site requests are refused', { status: 403 });
 	}
+	const started = performance.now();
 	const response = await resolve(event);
+	const ms = performance.now() - started;
+	if (ms >= SLOW_REQUEST_MS) {
+		serverLog(
+			'warn',
+			'slow-request',
+			`${event.request.method} ${event.url.pathname} took ${String(Math.round(ms))} ms`
+		);
+	}
 	response.headers.set('X-Frame-Options', 'DENY');
 	response.headers.set('X-Content-Type-Options', 'nosniff');
 	response.headers.set('Referrer-Policy', 'same-origin');

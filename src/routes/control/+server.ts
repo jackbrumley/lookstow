@@ -11,11 +11,11 @@ export const POST: RequestHandler = async ({ request }) => {
 		typeof body === 'object' && body !== null && 'action' in body ? body.action : undefined;
 	try {
 		if (action === 'pause') {
-			backupEngine().pause('manual', 'console');
+			await backupEngine().pause('manual', 'console');
 			return Response.json({ message: 'Paused. Running syncs stop after their current page.' });
 		}
 		if (action === 'resume') {
-			backupEngine().resume('console');
+			await backupEngine().resume('console');
 			return Response.json({ message: 'Resumed.' });
 		}
 		return Response.json(

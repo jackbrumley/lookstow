@@ -26,7 +26,6 @@ import {
 } from '#lib/server/services/settings/settings.ts';
 import { snapshotSummary } from '#lib/server/services/storage/index-snapshot.ts';
 import { storedTotals } from '#lib/server/services/mailboxes/repository.ts';
-import { forgetLearnedPace, learnedPace } from '#lib/server/services/throughput/monitor.ts';
 import { newAiToken, setAiEnabled } from '#lib/server/services/ai/access.ts';
 import { hostname } from 'node:os';
 
@@ -35,7 +34,7 @@ export const load = (() => ({
 	settings: settingsView(database, dataDir()),
 	backupsOutsideScope: backupsOutsideScope(database),
 	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir()),
-	learnedPace: learnedPace(),
+	learnedPace: backupEngine().learnedPace(),
 	storedFiles: storedTotals(database).files,
 	ai: aiView()
 })) satisfies PageServerLoad;
@@ -57,6 +56,15 @@ function saved(summary: string, message: string) {
 function attempt(work: () => ReturnType<typeof done>) {
 	try {
 		return work();
+	} catch (error) {
+		return refused(error instanceof Error ? error.message : String(error));
+	}
+}
+
+/** attempt, for work the work thread answers. */
+async function attemptAsync(work: () => Promise<ReturnType<typeof done>>) {
+	try {
+		return await work();
 	} catch (error) {
 		return refused(error instanceof Error ? error.message : String(error));
 	}
@@ -199,8 +207,8 @@ export const actions = {
 		}
 	},
 	forgetPace: () =>
-		attempt(() => {
-			forgetLearnedPace(database);
+		attemptAsync(async () => {
+			await backupEngine().forgetPace();
 			return saved(
 				'The learned speed was forgotten',
 				'Lookstow starts again from the first-run pace and finds Microsoft’s limit again.'
@@ -257,8 +265,8 @@ export const actions = {
 		return done('The move has started. Backups stop until every file is copied and checked.');
 	},
 	cancelMove: () =>
-		attempt(() => {
-			backupEngine().cancelMove('console');
+		attemptAsync(async () => {
+			await backupEngine().cancelMove('console');
 			return done('The move was stopped. The backup stays where it was.');
 		}),
 	removeOld: async ({ request }) => {
@@ -266,8 +274,8 @@ export const actions = {
 		if (field(data, 'confirm').trim() !== 'REMOVE') {
 			return refused('Type REMOVE to confirm removing the old copy.');
 		}
-		return attempt(() => {
-			backupEngine().removeOldCopy('console');
+		return attemptAsync(async () => {
+			await backupEngine().removeOldCopy('console');
 			return done('Removing the old copy. Files whose copy is not identical are kept.');
 		});
 	}

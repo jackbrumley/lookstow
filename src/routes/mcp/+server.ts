@@ -1,12 +1,11 @@
 import type { RequestHandler } from './$types';
-import { database, dataDir } from '#lib/server/runtime.ts';
+import { backupEngine, database } from '#lib/server/runtime.ts';
 import { authoriseAi } from '#lib/server/services/ai/access.ts';
-import { handleMcp } from '#lib/server/services/ai/mcp.ts';
-import { effectiveBackupRoot } from '#lib/server/services/settings/settings.ts';
 
 /**
  * POST /mcp: the Model Context Protocol endpoint for AI tools (Streamable HTTP, JSON replies).
- * Only on this computer, only when turned on in Settings, and only with the access token.
+ * Only on this computer, only when turned on in Settings, and only with the access token. The
+ * tools run on the work thread, one call at a time, so a busy AI tool never holds the console.
  */
 export const POST: RequestHandler = async ({ request, url }) => {
 	const allowed = authoriseAi(database, request.headers.get('authorization'));
@@ -25,16 +24,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 			{ status: 400 }
 		);
 	}
-	const reply = await handleMcp(
-		{
-			db: database,
-			backupRoot: effectiveBackupRoot(database, dataDir()),
-			baseUrl: url.origin,
-			dataDir: dataDir(),
-			now: Date.now
-		},
-		message
-	);
+	const reply = await backupEngine().mcp(message, url.origin);
 	if (reply.body === null) return new Response(null, { status: reply.status });
 	return Response.json(reply.body, {
 		status: reply.status,

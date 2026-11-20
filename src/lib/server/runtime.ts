@@ -1,32 +1,38 @@
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { database } from './database/app-database.ts';
-import { env } from './env.ts';
-import { Alerts } from './services/alerts/alerts.ts';
-import { Engine } from './services/engine/engine.ts';
+import { dataDir } from './data-dir.ts';
+import { workEntryPath } from './env.ts';
+import { WorkThread } from './work/work-client.ts';
+import { APP_VERSION } from '../utils/app-version.ts';
 
 /**
- * The process's running parts, made once: the database (opened and migrated on import), the
- * data folder, and the backup engine. Routes and hooks reach them through here, never by
- * building their own.
+ * The web thread's running parts, made once: its database connection (opened and migrated on
+ * import), the data folder, and the work thread that runs the backup engine
+ * (docs/specs/SPEC-SCALE.md). Routes and hooks reach them through here, never by building
+ * their own.
  */
-export function dataDir(): string {
-	return env.launcher.kind === 'installed'
-		? env.launcher.dataDir
-		: resolve(dirname(env.databasePath));
+let work: WorkThread | null = null;
+
+/**
+ * The work thread's entry: app/work.js beside a release's server.js (server.ts says where), or
+ * the source file in a source run.
+ */
+function workEntry(): URL {
+	return pathToFileURL(workEntryPath() ?? resolve('src/lib/server/work/work-thread.ts'));
 }
 
-let engine: Engine | null = null;
-
-export function backupEngine(): Engine {
-	engine ??= new Engine({ db: database, dataDir: dataDir(), secretsKey: env.secretsKey });
-	return engine;
+/** Starts the work thread and waits for its first snapshot. */
+export async function startWork(): Promise<WorkThread> {
+	work ??= new WorkThread(workEntry(), APP_VERSION);
+	await work.started();
+	return work;
 }
 
-let alerts: Alerts | null = null;
-
-export function alertService(): Alerts {
-	alerts ??= new Alerts({ db: database, secretsKey: env.secretsKey });
-	return alerts;
+/** The backup engine, on the work thread. */
+export function backupEngine(): WorkThread {
+	if (work === null) throw new Error('The backup engine has not started yet.');
+	return work;
 }
 
-export { database };
+export { database, dataDir };

@@ -113,7 +113,11 @@
 {/if}
 
 {#if data.total !== null}
-	<Card title={`${formatCount(data.total)} ${data.total === 1 ? 'message' : 'messages'}`}>
+	<Card
+		title={data.more
+			? `More than ${formatCount(data.total)} messages`
+			: `${formatCount(data.total)} ${data.total === 1 ? 'message' : 'messages'}`}
+	>
 		{#if data.searchingArchive}
 			<p class="muted small">
 				This is an online archive: its items are stored as Exchange's full-fidelity exports (.fts),

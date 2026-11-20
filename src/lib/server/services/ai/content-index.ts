@@ -1,6 +1,9 @@
-import { and, count, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, lt, sql } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
-import { messageContent, messages } from '../../database/schema.ts';
+import { contentDocs, contentText } from '../../database/content-schema.ts';
+import { messages } from '../../database/schema.ts';
+import { ensureDoc, indexNewHeaders } from '../search-index/headers.ts';
+import { legacyContentLeft } from '../search-index/legacy-content.ts';
 import { errorText, serverLog } from '../../log.ts';
 import { loadMessage } from './message-content.ts';
 import type { ParsedMessage } from './mime.ts';
@@ -12,7 +15,7 @@ import type { ParsedMessage } from './mime.ts';
  * It runs in the background, newest messages first, a batch at a time, and catches up with new
  * messages every few minutes, while AI tools are turned on. Files are only read.
  */
-export const CONTENT_VERSION = 1;
+const CONTENT_VERSION = 1;
 const TEXT_LIMIT = 20_000;
 /** Pictures smaller than this are logos and icons, not photos of a timesheet. */
 export const SMALL_PICTURE_BYTES = 30_000;
@@ -73,43 +76,64 @@ export function saveContent(
 					return { ...summary, attachments: JSON.stringify(summary.attachments), problem: null };
 				})();
 	const row = { ...values, version: CONTENT_VERSION, indexedAt: new Date(now) };
-	db.insert(messageContent)
-		.values({ messageId, ...row })
-		.onConflictDoUpdate({ target: messageContent.messageId, set: row })
-		.run();
+	db.transaction((tx) => {
+		const doc = ensureDoc(tx, messageId);
+		if (doc === null) return;
+		// The body index keeps no copy of the text, so an older entry is removed by its doc.
+		tx.run(sql`delete from content_body where rowid = ${doc}`);
+		tx.insert(contentText)
+			.values({ doc, ...row })
+			.onConflictDoUpdate({ target: contentText.doc, set: row })
+			.run();
+		tx.run(sql`insert into content_body (rowid, text) values (${doc}, ${row.text})`);
+	});
+	progress = null;
 }
 
 /**
- * Messages with no content row from the current reader, most recently stored first, below a
- * cursor (the row number of the last one read). Walking the table's own order with a cursor
- * reads each row once; sorting the whole table by date for every batch held the server for
- * over 100 ms each time on a large backup.
+ * Messages whose text the current reader has not read (version 0 is one never read), most
+ * recently stored first, below a cursor (the doc number of the last one read). The version index
+ * finds them without walking the messages already read.
  */
 function unindexed(
 	db: Queryable,
 	limit: number,
 	before: number | null
-): { id: string; row: number }[] {
-	const row = sql<number>`${messages}.rowid`;
-	const pending = or(isNull(messageContent.messageId), lt(messageContent.version, CONTENT_VERSION));
+): { id: string; doc: number }[] {
 	return db
-		.select({ id: messages.id, row })
-		.from(messages)
-		.leftJoin(messageContent, eq(messageContent.messageId, messages.id))
-		.where(before === null ? pending : and(pending, sql`${messages}.rowid < ${before}`))
-		.orderBy(desc(row))
+		.select({ id: contentDocs.messageId, doc: contentText.doc })
+		.from(contentText)
+		.innerJoin(contentDocs, eq(contentDocs.doc, contentText.doc))
+		.where(
+			and(
+				lt(contentText.version, CONTENT_VERSION),
+				before === null ? undefined : lt(contentText.doc, before)
+			)
+		)
+		.orderBy(desc(contentText.doc))
 		.limit(limit)
 		.all();
 }
 
-export function contentIndexProgress(db: Queryable): { indexed: number; total: number } {
+/** Counted at most every PROGRESS_MS: every AI search reports it. */
+const PROGRESS_MS = 30_000;
+let progress: { indexed: number; total: number; at: number } | null = null;
+
+export function contentIndexProgress(
+	db: Queryable,
+	now = Date.now()
+): { indexed: number; total: number } {
+	if (progress !== null && now - progress.at < PROGRESS_MS) {
+		return { indexed: progress.indexed, total: progress.total };
+	}
 	const total = db.select({ n: count() }).from(messages).get()?.n ?? 0;
 	const indexed =
 		db
 			.select({ n: count() })
-			.from(messageContent)
-			.where(eq(messageContent.version, CONTENT_VERSION))
+			.from(contentText)
+			.where(eq(contentText.version, CONTENT_VERSION))
 			.get()?.n ?? 0;
+	progress = { indexed, total, at: now };
 	return { indexed, total };
 }
 
@@ -128,10 +152,14 @@ export async function indexContent(
 ): Promise<number> {
 	let done = 0;
 	let cursor: number | null = null;
+	// Only messages in the search index have a doc to keep their text under: catch it up first.
+	while (!stopping() && indexNewHeaders(db) > 0) await pause();
+	// Text read by an older Lookstow is still being moved over: read nothing again meanwhile.
+	if (legacyContentLeft(db)) return done;
 	for (;;) {
 		const batch = unindexed(db, BATCH, cursor);
 		if (batch.length === 0 || stopping()) return done;
-		cursor = batch.at(-1)?.row ?? cursor;
+		cursor = batch.at(-1)?.doc ?? cursor;
 		for (const { id } of batch) {
 			if (stopping()) return done;
 			const loaded = await loadMessage(db, backupRoot(), id);

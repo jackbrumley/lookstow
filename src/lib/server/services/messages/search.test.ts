@@ -1,7 +1,13 @@
 import { removeFromFolder } from '../mailboxes/archive-links.ts';
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../../database/connection.ts';
-import { applyDiscovery, insertMessage, syncFolderList } from '../mailboxes/repository.ts';
+import {
+	applyDiscovery,
+	insertMessage,
+	setMessageIndex,
+	syncFolderList
+} from '../mailboxes/repository.ts';
+import { headersCursor, indexNewHeaders } from '../search-index/headers.ts';
 import { messageDetail, searchMessages } from './search.ts';
 import type { MessageQuery } from '../../../domain/messages.ts';
 
@@ -86,7 +92,7 @@ function seed() {
 	);
 	message('m3', inbox.id, 'Lunch', 'carol@example.com', 'ann@example.com', '2026-10-01');
 	removeFromFolder(db, mailbox.id, inbox.id, 'm3', 5);
-	return { db, mailbox };
+	return { db, mailbox, inbox };
 }
 
 describe('searching messages', () => {
@@ -122,5 +128,57 @@ describe('searching messages', () => {
 		const detail = messageDetail(db, hit?.id ?? '');
 		expect(detail?.history.map((event) => event.kind)).toEqual(['stored', 'deleted']);
 		expect(detail?.folderPath).toBe('Inbox');
+	});
+});
+
+describe('searching with the search index built', () => {
+	it('finds the same messages through the index as without it', () => {
+		const { db } = seed();
+		const subjects = (query: Partial<MessageQuery>) =>
+			searchMessages(db, { ...EMPTY, ...query }, 0).hits.map((hit) => hit.subject);
+		const asked: Partial<MessageQuery>[] = [
+			{ text: 'payroll' },
+			{ text: 'PAY run' },
+			{ from: 'BOB@' },
+			{ to: 'fin@' },
+			{ to: 'yroll@exa' },
+			{ subject: 'sheet' },
+			{ text: 'lunch', includeDeleted: true },
+			{ from: 'bo' }
+		];
+		const before = asked.map(subjects);
+		expect(indexNewHeaders(db)).toBe(3);
+		expect(headersCursor(db)).toBeGreaterThan(0);
+		expect(asked.map(subjects)).toEqual(before);
+	});
+
+	it('finds a message stored after the index last ran, and one whose subject changed', () => {
+		const { db, mailbox, inbox } = seed();
+		indexNewHeaders(db);
+		const later = insertMessage(db, {
+			mailboxId: mailbox.id,
+			folderId: inbox.id,
+			graphId: 'm4',
+			internetMessageId: '<m4@example.com>',
+			subject: 'Overtime claims',
+			sender: 'dave@example.com',
+			recipients: 'ann@example.com',
+			receivedAt: new Date('2026-11-12T10:00:00Z'),
+			filePath: 'ann@example.com/m4.eml',
+			byteCount: 100,
+			sha256: 'x',
+			storedAt: new Date(3)
+		});
+		expect(searchMessages(db, { ...EMPTY, text: 'overtime' }, 0).total).toBe(1);
+		indexNewHeaders(db);
+		setMessageIndex(db, later, {
+			subject: 'Rostered days off',
+			sender: 'dave@example.com',
+			recipients: 'ann@example.com',
+			internetMessageId: '<m4@example.com>',
+			receivedAt: new Date('2026-11-12T10:00:00Z')
+		});
+		expect(searchMessages(db, { ...EMPTY, text: 'overtime' }, 0).total).toBe(0);
+		expect(searchMessages(db, { ...EMPTY, text: 'rostered' }, 0).total).toBe(1);
 	});
 });

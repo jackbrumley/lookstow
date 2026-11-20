@@ -137,7 +137,11 @@ export const messages = sqliteTable(
 		uniqueIndex('messages_mailbox_graph').on(table.mailboxId, table.graphId),
 		index('messages_folder').on(table.folderId),
 		index('messages_internet_id').on(table.internetMessageId),
-		index('messages_archive_copy').on(table.archiveCopyId)
+		index('messages_archive_copy').on(table.archiveCopyId),
+		// Search lists newest first, in one mailbox or in all: these give it that order without
+		// sorting every message.
+		index('messages_mailbox_received').on(table.mailboxId, table.receivedAt),
+		index('messages_received').on(table.receivedAt)
 	]
 );
 

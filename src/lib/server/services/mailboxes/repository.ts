@@ -3,6 +3,7 @@ import { and, desc, eq, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm
 import type { Queryable } from '../../database/connection.ts';
 import { mailboxes, mailFolders, messageEvents, messages, runs } from '../../database/schema.ts';
 import type { DiscoveredMailbox } from '../graph/discovery.ts';
+import { refreshHeaders, restartHeaders } from '../search-index/headers.ts';
 import type { RunSummary } from '../../../domain/mailboxes.ts';
 
 /** All SQL for mailboxes, their folders, stored messages and runs. */
@@ -108,6 +109,8 @@ export function setExcluded(db: Queryable, id: string, excluded: boolean): void 
 export function clearMailboxBackup(db: Queryable, id: string): void {
 	db.delete(messageEvents).where(eq(messageEvents.mailboxId, id)).run();
 	db.delete(messages).where(eq(messages.mailboxId, id)).run();
+	// SQLite may give new messages the row numbers just freed: the index walks every message again.
+	restartHeaders(db);
 	db.delete(mailFolders).where(eq(mailFolders.mailboxId, id)).run();
 	db.update(mailboxes)
 		.set({
@@ -467,6 +470,7 @@ export function setMessageIndex(
 		.set({ ...index, indexFailedVersion: null })
 		.where(eq(messages.id, id))
 		.run();
+	refreshHeaders(db, id, index);
 }
 
 /** The ids of a folder's stored messages still in it (not deleted, not left). */
@@ -483,13 +487,16 @@ export function liveMessageIds(db: Queryable, folderId: string): string[] {
 
 // ---- The backup folder as a whole ----
 
-/** One stored file's path (the newest), to show a folder without a marker holds this backup. */
+/**
+ * One stored file's path (the last one stored), to show a folder without a marker holds this
+ * backup. Row order is the order of storing, and needs no sort of every message.
+ */
 export function newestStoredPath(db: Queryable): string | null {
 	return (
 		db
 			.select({ filePath: messages.filePath })
 			.from(messages)
-			.orderBy(desc(messages.storedAt))
+			.orderBy(desc(sql`${messages}.rowid`))
 			.limit(1)
 			.get()?.filePath ?? null
 	);
@@ -504,14 +511,17 @@ export function storedFileHashes(db: Queryable): Map<string, string> {
 	return new Map(rows.map((row) => [row.filePath, row.sha256]));
 }
 
-/** How many files the index holds, and their bytes. */
+/**
+ * How many files the index holds, and their bytes: the sum of each mailbox's count and size,
+ * which are kept with every stored message, instead of counting every message.
+ */
 export function storedTotals(db: Queryable): { files: number; bytes: number } {
 	const row = db
 		.select({
-			files: sql<number>`count(*)`,
-			bytes: sql<number>`coalesce(sum(${messages.byteCount}), 0)`
+			files: sql<number>`coalesce(sum(${mailboxes.itemCount}), 0)`,
+			bytes: sql<number>`coalesce(sum(${mailboxes.byteCount}), 0)`
 		})
-		.from(messages)
+		.from(mailboxes)
 		.get();
 	return { files: row?.files ?? 0, bytes: row?.bytes ?? 0 };
 }

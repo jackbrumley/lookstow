@@ -20,6 +20,29 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.0',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.0 the usual way. The first start adds two indexes to the database, which takes a few seconds longer than usual. Expected: the countdown stays on screen and the console comes back by itself',
+				'Straight after the update, open the Dashboard, Mailboxes, Search and Activity pages a few times while backups run. Expected: each page answers in well under a second, also while the AI sweep is searching',
+				'Open Mailboxes and change the State, Kind, a column sort and the page. Expected: each change shows at once, and the address keeps the choices (a reload shows the same view)',
+				'Search for a word in subjects (for example timesheet), an address, and something common like re:. Expected: results in under a second; a very common text says "More than 5,000 messages"',
+				'After about 15 minutes, open the Log page. Expected: lines saying the search index was built and the AI tools’ content index was moved to lookstow-content.db, and no slow-thread lines for the web thread',
+				'Open http://localhost:8030/api/throughput. Expected: a threads section showing how long each thread was held in the last minute and any slow queries'
+			]
+		},
+		changes: [
+			'The console stays quick however busy Lookstow is. The backup engine, email alerts, the speed monitor, the indexes and the AI tools now run on their own thread, and the console answers from its own. Before, one busy search (like the AI sweep’s) held every page, the health check and the update check for seconds',
+			'Search uses an index over subjects, senders and recipients instead of reading every message. A search answers in milliseconds instead of seconds, and finds exactly what it found before. A very common text (an address’s domain, re:) says "More than 5,000 messages" instead of counting them all',
+			'The AI tools’ copy of each message’s text moved out of the main database into its own file, lookstow-content.db, with a word index. The main database, its daily copy and the copy taken before each update stay small. The text already read is moved over (starting 10 minutes after the update, a batch at a time), not read again; until then the AI tools’ body and attachment filters match nothing',
+			'AI body search: a word also finds words it starts, so timesheet finds timesheets',
+			'The Mailboxes page sends one page of 100 mailboxes instead of every mailbox, and its filters, sort and page are in the address',
+			'Lookstow notes what makes it slow: any query that takes 100 ms or more, any minute a thread is held for a second or more, and any request over 2 seconds go to the log, and /api/throughput shows them for each thread',
+			'If the backup engine’s thread ever stops unexpectedly, it starts again by itself after 5 seconds, and the console says so meanwhile'
+		]
+	},
+	{
 		version: '0.12.4',
 		testing: {
 			kind: 'steps',

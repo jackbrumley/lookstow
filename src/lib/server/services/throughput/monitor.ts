@@ -21,7 +21,7 @@ import { readLearnedPace, saveLearnedPace } from '../settings/settings.ts';
 const SAVE_EVERY_MS = 5 * 60_000;
 const SAMPLE_EVERY_MS = 10_000;
 const HISTORY_DAYS = 7;
-export const HISTORY_FOLDER = 'throughput';
+const HISTORY_FOLDER = 'throughput';
 
 /** Extra numbers the service adds to each sample (the engine's view, memory). */
 export type SampleExtras = () => Record<string, unknown>;

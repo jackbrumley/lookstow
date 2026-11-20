@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Actions, PageServerLoad } from './$types';
 import { checked, done, errorMessage, field, refused } from '#lib/server/actions.ts';
 import { env } from '#lib/server/env.ts';
-import { alertService, database } from '#lib/server/runtime.ts';
+import { backupEngine, database } from '#lib/server/runtime.ts';
 import { recordActivity } from '#lib/server/services/activity/activity.ts';
 import { countEmails, listEmails } from '#lib/server/services/alerts/outbox.ts';
 import {
@@ -122,7 +122,7 @@ export const actions = {
 		if (person === undefined) {
 			return refused('That person is no longer on the list.', 404);
 		}
-		const email = await alertService().sendTest(person, 'Someone using the console');
+		const email = await backupEngine().sendTestAlert(person, 'Someone using the console');
 		if (email === null) {
 			return refused('The test email went missing from the outbox.', 500);
 		}

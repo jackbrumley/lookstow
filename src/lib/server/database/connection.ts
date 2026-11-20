@@ -3,7 +3,9 @@ import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { attachContentFile } from './content-file.ts';
 import * as schema from './schema.ts';
+import { timeQueries } from './slow-queries.ts';
 
 /** Drizzle over better-sqlite3; `$client` is the connection itself. */
 export type AppDatabase = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
@@ -26,10 +28,18 @@ export function openDatabase(path: string): AppDatabase {
 		mkdirSync(dirname(path), { recursive: true });
 	}
 	const client = new Database(path);
+	timeQueries(client);
 	// Write-ahead logging lets the console read while a sync writes.
 	client.pragma('journal_mode = WAL');
 	client.pragma('foreign_keys = ON');
-	client.pragma('busy_timeout = 5000');
+	// Two threads write now (docs/specs/SPEC-SCALE.md): a long delete on one waits rather than fails.
+	client.pragma('busy_timeout = 30000');
+	// A bigger page cache (64 MB; negative means KiB) and memory-mapped reads (256 MB) keep a large
+	// index's busy pages in memory instead of reading them from disk for every query.
+	client.pragma('cache_size = -65536');
+	client.pragma('mmap_size = 268435456');
+	client.pragma('temp_store = MEMORY');
+	attachContentFile(client, path);
 	const database = drizzle(client, { schema, casing: 'snake_case' });
 	migrate(database, { migrationsFolder: MIGRATIONS_FOLDER });
 	return database;

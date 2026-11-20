@@ -157,7 +157,7 @@ Run every step as its own command, never chained with `&&`, so one failure canno
 ```
 server.ts              production entry: data lock, adapter-node handler, ready.json
 src/
-  hooks.server.ts      start-up (engine, update checks, pruning), local-only access, origin check
+  hooks.server.ts      start-up (work thread, update checks), local-only access, origin check, slow requests
   routes/              thin: validate, call a service, reply
     +page              dashboard          mailboxes/        list and one mailbox
     search/            search the index   messages/[id]/    one message, history, download
@@ -169,17 +169,21 @@ src/
   lib/
     server/            server-only (never imported by browser code)
       env.ts           the only reader of process.env
-      runtime.ts       the process's database, data folder and engine
+      runtime.ts       the web thread's database, data folder and the work thread (backupEngine())
+      data-dir.ts      the data folder
+      work/            the work thread (docs/specs/SPEC-SCALE.md): entry, its side, the web side, messages, thread health
       actions.ts       done(), refused() and form helpers for actions
       log.ts           serverLog()
       existing-backup.ts  keep or delete a mailbox's backup (typed confirmation)
-      database/        connection, schema/<area>.ts, migrations/ (generated), readiness, data lock
+      database/        connection, schema/<area>.ts, migrations/ (generated), readiness, data lock,
+                       content file (lookstow-content.db: search index, message text), slow-query log
       crypto/          DER, the Entra certificate, sealed secrets
       services/
         graph/         token, client (paging, throttling, retries), discovery, mail, archive, connection test
         engine/        engine (timer, queue), sync-pass, discovery-pass, startup-tasks, snapshot-task, scheduler, mailbox-sync, archive-sync, scope-change, live-status, backup-move-task, backup-folder-check, run-history
         mailboxes/     repository (all mailbox SQL), views, completeness, delete-backup, item-failures
-        messages/      search
+        messages/      search (the search index when it narrows, else newest first)
+        search-index/  the search index over headers, its keeper, moving the old content table
         storage/       eml-store (safe names, atomic writes), relayout, disk guard, index-snapshot, backup-marker, backup-move
         settings/      the one owner of the settings table
         activity/      recordActivity() and the activity log

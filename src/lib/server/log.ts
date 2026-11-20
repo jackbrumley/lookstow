@@ -12,8 +12,29 @@ const KEEP_LINES = 2000;
 const recent: LogLine[] = [];
 let lastSeq = 0;
 
+/**
+ * On the work thread, lines go to the web thread, which writes them and keeps them for the Log
+ * page (so the page shows both threads' lines, in order).
+ */
+let sink: ((level: LogLevel, area: string, message: string, at: string) => void) | null = null;
+
+export function sendLogTo(
+	send: ((level: LogLevel, area: string, message: string, at: string) => void) | null
+): void {
+	sink = send;
+}
+
 export function serverLog(level: LogLevel, area: string, message: string): void {
 	const at = new Date().toISOString();
+	if (sink !== null) {
+		sink(level, area, message, at);
+		return;
+	}
+	writeLogLine(level, area, message, at);
+}
+
+/** Writes one line and keeps it for the Log page: this thread's own, or one the work thread sent. */
+export function writeLogLine(level: LogLevel, area: string, message: string, at: string): void {
 	const line = `[${at}] ${level.toUpperCase()} ${area}: ${message}\n`;
 	if (level === 'error') {
 		process.stderr.write(line);

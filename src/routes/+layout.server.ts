@@ -1,6 +1,5 @@
 import type { LayoutServerLoad } from './$types';
 import { backupEngine } from '#lib/server/runtime.ts';
-import { liveStatus } from '#lib/server/services/engine/live-status.ts';
 import { APP_VERSION } from '#lib/utils/app-version.ts';
 import { LIVE_STATUS } from '#lib/domain/live-status.ts';
 
@@ -16,6 +15,6 @@ export const load = (({ url, depends }) => {
 		// frame's banners and engine state are never left over from an earlier page.
 		path: url.pathname,
 		version: APP_VERSION,
-		live: liveStatus(backupEngine())
+		live: backupEngine().live()
 	};
 }) satisfies LayoutServerLoad;

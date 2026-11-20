@@ -245,7 +245,7 @@ export function linkArchiveCopy(db: Queryable, archiveMessageId: string): boolea
 
 /**
  * Links every stored archive item not yet linked (the upgrade pass, and a catch-up after the
- * .fts index has read older items). Idempotent; a batch at a time.
+ * .fts index has read older items). Idempotent; a small batch at a time, so the engine and the AI tools get a turn between batches.
  */
 export async function linkAllArchiveCopies(
 	db: Queryable,
@@ -263,25 +263,27 @@ export async function linkAllArchiveCopies(
 		let after = '';
 		for (;;) {
 			if (stopping()) return { checked, linked };
+			// In Graph id order, which the (mailbox, Graph id) index gives without reading the
+			// mailbox's other messages: a batch is a lookup, not a walk.
 			const batch = db
-				.select({ id: messages.id })
+				.select({ id: messages.id, graphId: messages.graphId })
 				.from(messages)
 				.where(
 					and(
 						eq(messages.mailboxId, archiveId),
-						isNotNull(messages.internetMessageId),
-						gt(messages.id, after)
+						gt(messages.graphId, after),
+						isNotNull(messages.internetMessageId)
 					)
 				)
-				.orderBy(asc(messages.id))
-				.limit(100)
+				.orderBy(asc(messages.graphId))
+				.limit(25)
 				.all();
 			if (batch.length === 0) break;
 			for (const row of batch) {
 				checked += 1;
 				if (linkArchiveCopy(db, row.id)) linked += 1;
 			}
-			after = batch.at(-1)?.id ?? after;
+			after = batch.at(-1)?.graphId ?? after;
 			await new Promise((resolve) => {
 				setImmediate(resolve);
 			});

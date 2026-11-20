@@ -86,6 +86,14 @@ function launcherConfig(): LauncherConfig {
 	return { kind, dataDir, target, nonce };
 }
 
+/**
+ * The work thread's entry file (docs/specs/SPEC-SCALE.md), which server.ts sets before the app
+ * loads: app/work.js in a release. Read when the thread starts, not when this module loads.
+ */
+export function workEntryPath(): string | undefined {
+	return optional('LOOKSTOW_WORK_ENTRY');
+}
+
 export const env = {
 	/** Path to the SQLite database file, e.g. ./data/lookstow.db; `:memory:` in tests. */
 	databasePath: required('DATABASE_PATH'),

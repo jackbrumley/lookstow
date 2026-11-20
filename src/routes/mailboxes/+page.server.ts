@@ -7,18 +7,29 @@ import { allMailboxes } from '#lib/server/services/mailboxes/repository.ts';
 import { mailboxSummaries } from '#lib/server/services/mailboxes/views.ts';
 import { readScope, setPicked } from '#lib/server/services/settings/settings.ts';
 import { LIVE_STATUS } from '#lib/domain/live-status.ts';
+import { mailboxList, mailboxListQuery } from '#lib/domain/mailbox-list.ts';
 
-/** Every mailbox discovery has found, with its state. Filtering happens on the page. */
-export const load = (async ({ parent, depends }) => {
+/**
+ * Every mailbox discovery has found, with its state: filtered, sorted and paged here, so the page
+ * gets one page of rows however many mailboxes the tenant has (docs/specs/SPEC-SCALE.md).
+ */
+export const load = (async ({ parent, depends, url }) => {
 	depends(LIVE_STATUS);
 	// Syncing comes from the frame's live status, so a badge never disagrees with the side bar.
 	const { live } = await parent();
 	const syncing = new Set(live.engine.syncing.map((sync) => sync.mailboxId));
 	const scope = readScope(database);
+	const picked = new Set(scope.selectedAddresses);
+	const list = mailboxList(
+		mailboxSummaries(database, (id) => syncing.has(id), Date.parse(live.at)),
+		mailboxListQuery(url.searchParams)
+	);
 	return {
-		mailboxes: mailboxSummaries(database, (id) => syncing.has(id), Date.parse(live.at)),
+		list,
 		picking: scope.mode === 'selected',
-		picked: scope.selectedAddresses
+		pickedCount: picked.size,
+		// Only the rows shown need to know whether they are picked.
+		picked: list.rows.filter((row) => picked.has(row.address)).map((row) => row.address)
 	};
 }) satisfies PageServerLoad;
 

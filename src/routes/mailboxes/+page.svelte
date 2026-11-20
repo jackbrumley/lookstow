@@ -16,6 +16,7 @@
 		type MailboxState,
 		type MailboxSummary
 	} from '#lib/domain/mailboxes.ts';
+	import { mailboxListQuery, sortsDescending, type SortKey } from '#lib/domain/mailbox-list.ts';
 	import { formatBytes, formatCount, formatRelative, plural } from '#lib/utils/format.ts';
 	import { stateTone } from '#lib/utils/mailbox-tone.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
@@ -32,101 +33,27 @@
 	let unpicking = $state<MailboxSummary | null>(null);
 	let unpickOpen = $derived(unpicking !== null);
 
-	let search = $state('');
-	type StateFilter = MailboxState | 'in-backup' | 'all' | 'checking' | 'needs-look';
-	/**
-	 * The state asked for in the link (the dashboard links to ?state=needs-look). Without one, the
-	 * mailboxes in the backup: every state but not in scope and excluded. ?state=all shows all.
-	 */
-	function isStateFilter(value: string): value is StateFilter {
-		return (
-			value === 'in-backup' ||
-			value === 'all' ||
-			value === 'checking' ||
-			value === 'needs-look' ||
-			value in STATE_LABELS
-		);
-	}
-	const asked = currentPage.url.searchParams.get('state') ?? 'in-backup';
-	let stateFilter = $state<StateFilter>(isStateFilter(asked) ? asked : 'in-backup');
-	let kindFilter = $state('all');
-	const incomplete = $derived({
-		checking: data.mailboxes.filter((mailbox) => mailbox.completeness === 'checking').length,
-		'needs-look': data.mailboxes.filter((mailbox) => mailbox.completeness === 'needs-look').length
-	});
+	// The server filters, sorts and pages (docs/specs/SPEC-SCALE.md). The filters are a GET form, so
+	// every choice is in the address: a change sends it at once, typing after a short pause.
+	const query = $derived(mailboxListQuery(currentPage.url.searchParams));
+	const list = $derived(data.list);
+	let filters = $state<HTMLFormElement | null>(null);
+	let typing: ReturnType<typeof setTimeout> | undefined;
 
-	function matchesState(mailbox: MailboxSummary): boolean {
-		if (stateFilter === 'all') return true;
-		if (stateFilter === 'in-backup') {
-			return mailbox.state !== 'out-of-scope' && mailbox.state !== 'excluded';
-		}
-		if (stateFilter === 'checking' || stateFilter === 'needs-look') {
-			return mailbox.completeness === stateFilter;
-		}
-		return mailbox.state === stateFilter;
+	function send(): void {
+		clearTimeout(typing);
+		filters?.requestSubmit();
 	}
 
-	const kinds = $derived([...new Set(data.mailboxes.map((mailbox) => mailbox.kind))].sort());
-	const shown = $derived(
-		data.mailboxes.filter((mailbox) => {
-			const text = search.trim().toLowerCase();
-			return (
-				matchesState(mailbox) &&
-				(kindFilter === 'all' || mailbox.kind === kindFilter) &&
-				(text === '' ||
-					mailbox.address.includes(text) ||
-					mailbox.displayName.toLowerCase().includes(text))
-			);
-		})
-	);
-	type SortKey = 'address' | 'kind' | 'state' | 'itemCount' | 'byteCount' | 'lastSync';
-	const PAGE_SIZE = 100;
-	let sortKey = $state<SortKey>('address');
-	let descending = $state<boolean>(false);
-	let pageIndex = $state(0);
-
-	function sortValue(mailbox: MailboxSummary, key: SortKey): string | number {
-		switch (key) {
-			case 'address':
-				return mailbox.address;
-			case 'kind':
-				return mailbox.kind;
-			case 'state':
-				return STATE_LABELS[mailbox.state];
-			case 'itemCount':
-				return mailbox.itemCount;
-			case 'byteCount':
-				return mailbox.byteCount;
-			case 'lastSync':
-				return mailbox.lastSyncFinishedAt ?? '';
-		}
+	function find(): void {
+		clearTimeout(typing);
+		typing = setTimeout(send, 250);
 	}
 
-	const sorted = $derived(
-		[...shown].sort((a, b) => {
-			const left = sortValue(a, sortKey);
-			const right = sortValue(b, sortKey);
-			const order =
-				typeof left === 'number' && typeof right === 'number'
-					? left - right
-					: String(left).localeCompare(String(right));
-			return descending ? -order : order;
-		})
-	);
-	const pageCount = $derived(Math.max(1, Math.ceil(sorted.length / PAGE_SIZE)));
-	// A narrower filter can leave fewer pages than the one open: show the last there is.
-	const page = $derived(Math.min(pageIndex, pageCount - 1));
-	const pageRows = $derived(sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
-
-	function sortBy(key: SortKey): void {
-		pageIndex = 0;
-		if (sortKey === key) {
-			descending = !descending;
-		} else {
-			sortKey = key;
-			// Numbers and dates read best largest and newest first.
-			descending = key === 'itemCount' || key === 'byteCount' || key === 'lastSync';
-		}
+	/** The order a column's button asks for: the other way round when it is the current one. */
+	function orderFor(key: SortKey): string {
+		const descending = query.sort === key ? !query.descending : sortsDescending(key);
+		return `${key}:${descending ? 'desc' : 'asc'}`;
 	}
 
 	const columns: { key: SortKey; label: string }[] = [
@@ -150,44 +77,57 @@
 
 {#if data.picking}
 	<p class="muted small">
-		Backing up the {plural(picked.size, 'mailbox', 'mailboxes')} you picked. To pick more, choose Every
-		mailbox and use <strong>Pick</strong>; to back up every mailbox, change
+		Backing up the {plural(data.pickedCount, 'mailbox', 'mailboxes')} you picked. To pick more, choose
+		Every mailbox and use <strong>Pick</strong>; to back up every mailbox, change
 		<a href={resolve('/settings')}>Settings</a> &gt; What is backed up.
 	</p>
 {/if}
 
 <Card>
-	<div class="filters">
+	<form
+		method="GET"
+		id="mailbox-filters"
+		class="filters"
+		bind:this={filters}
+		data-sveltekit-replacestate
+		data-sveltekit-keepfocus
+		data-sveltekit-noscroll
+	>
 		<input
 			type="search"
+			name="q"
 			placeholder="Find a mailbox"
 			aria-label="Find a mailbox"
-			bind:value={search}
+			value={query.search}
+			oninput={find}
 		/>
-		<select aria-label="State" bind:value={stateFilter}>
+		<select name="state" aria-label="State" value={query.state} onchange={send}>
 			<option value="in-backup">In the backup</option>
 			<option value="all">Every mailbox</option>
 			{#each states as state (state)}
 				<option value={state}>{STATE_LABELS[state]}</option>
 			{/each}
 			<option value="checking"
-				>{COMPLETENESS_LABELS.checking} ({formatCount(incomplete.checking)})</option
+				>{COMPLETENESS_LABELS.checking} ({formatCount(list.incomplete.checking)})</option
 			>
 			<option value="needs-look"
-				>{COMPLETENESS_LABELS['needs-look']} ({formatCount(incomplete['needs-look'])})</option
+				>{COMPLETENESS_LABELS['needs-look']} ({formatCount(list.incomplete['needs-look'])})</option
 			>
 		</select>
-		<select aria-label="Kind" bind:value={kindFilter}>
+		<select name="kind" aria-label="Kind" value={query.kind} onchange={send}>
 			<option value="all">Every kind</option>
-			{#each kinds as kind (kind)}
+			{#each list.kinds as kind (kind)}
 				<option value={kind}>{KIND_LABELS[kind] ?? kind}</option>
 			{/each}
 		</select>
-		<span class="muted small"
-			>{formatCount(shown.length)} of {formatCount(data.mailboxes.length)}</span
-		>
-	</div>
-	{#if data.mailboxes.length === 0}
+		<input
+			type="hidden"
+			name="order"
+			value={`${query.sort}:${query.descending ? 'desc' : 'asc'}`}
+		/>
+		<span class="muted small">{formatCount(list.matching)} of {formatCount(list.total)}</span>
+	</form>
+	{#if list.total === 0}
 		<p>
 			No mailboxes yet. Discovery finds them once Microsoft 365 is connected on the Settings page.
 		</p>
@@ -198,19 +138,23 @@
 					<tr>
 						{#each columns as column (column.key)}
 							<th
-								aria-sort={sortKey === column.key
-									? descending
+								aria-sort={query.sort === column.key
+									? query.descending
 										? 'descending'
 										: 'ascending'
 									: 'none'}
 							>
 								<button
-									type="button"
+									type="submit"
+									form="mailbox-filters"
+									name="order"
+									value={orderFor(column.key)}
 									class="sort"
-									onclick={() => {
-										sortBy(column.key);
-									}}
-									>{column.label}{sortKey === column.key ? (descending ? ' ↓' : ' ↑') : ''}</button
+									>{column.label}{query.sort === column.key
+										? query.descending
+											? ' ↓'
+											: ' ↑'
+										: ''}</button
 								>
 							</th>
 						{/each}
@@ -218,7 +162,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each pageRows as mailbox (mailbox.id)}
+					{#each list.rows as mailbox (mailbox.id)}
 						<tr>
 							<td>
 								<a href={resolve('/mailboxes/[id]', { id: mailbox.id })}>{mailbox.address}</a>
@@ -259,16 +203,22 @@
 				</tbody>
 			</table>
 		</div>
-		{#if pageCount > 1}
+		{#if list.pageCount > 1}
 			<nav class="pages" aria-label="Pages">
-				<button type="button" disabled={page === 0} onclick={() => (pageIndex = page - 1)}
-					>Previous</button
-				>
-				<span>Page {page + 1} of {pageCount}</span>
 				<button
-					type="button"
-					disabled={page >= pageCount - 1}
-					onclick={() => (pageIndex = page + 1)}>Next</button
+					type="submit"
+					form="mailbox-filters"
+					name="page"
+					value={String(list.page - 1)}
+					disabled={list.page === 0}>Previous</button
+				>
+				<span>Page {list.page + 1} of {list.pageCount}</span>
+				<button
+					type="submit"
+					form="mailbox-filters"
+					name="page"
+					value={String(list.page + 1)}
+					disabled={list.page >= list.pageCount - 1}>Next</button
 				>
 			</nav>
 		{/if}

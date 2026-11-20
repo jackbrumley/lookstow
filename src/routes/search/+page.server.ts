@@ -48,6 +48,8 @@ export const load = (({ url }) => {
 		page,
 		pageSize: SEARCH_PAGE_SIZE,
 		hits: result?.hits ?? [],
-		total: result?.total ?? null
+		total: result?.total ?? null,
+		// More matched than were counted: the page says "more than" and pages through those.
+		more: result?.more ?? false
 	};
 }) satisfies PageServerLoad;

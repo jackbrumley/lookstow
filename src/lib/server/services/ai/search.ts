@@ -1,15 +1,17 @@
-import { and, count, desc, eq, gt, gte, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, sql, type SQL } from 'drizzle-orm';
 import type { Queryable } from '../../database/connection.ts';
-import { mailboxes, mailFolders, messageContent, messages } from '../../database/schema.ts';
+import { contentDocs, contentText } from '../../database/content-schema.ts';
+import { mailboxes, mailFolders, messages } from '../../database/schema.ts';
 import type { MessageHit, MessageQuery } from '../../../domain/messages.ts';
-import { conditions, contains, hitColumns, toHit } from '../messages/search.ts';
-import type { AttachmentSummary } from './content-index.ts';
+import { hitColumns, newestFirst, searchPlan, toHit } from '../messages/search.ts';
+import { contentIndexProgress, type AttachmentSummary } from './content-index.ts';
 
 /**
  * Search for the AI tools: the console's filters (mailbox, words, sender, recipient, subject,
  * folder, dates) plus the content index's (words in the body, photos, PDFs, attachment size).
- * Messages the content index has not read yet match no content filter; the reply says how far
- * the index has got.
+ * Body words are looked up in the full-text index: a word matches words that start with it
+ * ("timesheet" finds "timesheets"). Messages the content index has not read yet match no
+ * content filter; the reply says how far the index has got.
  */
 export type ContentFilters = {
 	body: string;
@@ -27,28 +29,55 @@ export type AiHit = MessageHit & {
 	} | null;
 };
 
+/**
+ * The words as an FTS5 query: every run of letters and digits in them, each of which may run on
+ * ("time*"). The index keeps no positions, so "time-sheet" asks for both parts anywhere.
+ */
+function bodyQuery(body: string): string | null {
+	const words = body.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+	if (words.length === 0) return null;
+	return [...new Set(words)].map((word) => `"${word}"*`).join(' AND ');
+}
+
+/** Whether any content filter is set: they match only messages the content reader has read. */
+function filtersContent(filters: ContentFilters): boolean {
+	return (
+		bodyQuery(filters.body) !== null ||
+		filters.hasAttachments !== null ||
+		filters.hasPhotos !== null ||
+		filters.hasPdf !== null ||
+		filters.minAttachmentKb !== null
+	);
+}
+
 function contentConditions(filters: ContentFilters): SQL[] {
 	const all: SQL[] = [];
-	for (const word of filters.body.split(/\s+/).filter((part) => part !== '')) {
-		all.push(contains(messageContent.text, word));
+	// A message not read yet has a waiting row (version 0) with nothing in it.
+	if (filtersContent(filters)) all.push(gt(contentText.version, 0));
+	const body = bodyQuery(filters.body);
+	if (body !== null) {
+		// Row numbers, so SQLite fetches the matches directly instead of testing every message.
+		all.push(
+			sql`${messages}.rowid in (select m.rowid from content_body b
+				join content_docs d on d.doc = b.rowid join messages m on m.id = d.message_id
+				where content_body match ${body})`
+		);
 	}
 	if (filters.hasAttachments !== null) {
 		all.push(
 			filters.hasAttachments
-				? gt(messageContent.attachmentCount, 0)
-				: eq(messageContent.attachmentCount, 0)
+				? gt(contentText.attachmentCount, 0)
+				: eq(contentText.attachmentCount, 0)
 		);
 	}
 	if (filters.hasPhotos !== null) {
-		all.push(
-			filters.hasPhotos ? gt(messageContent.imageCount, 0) : eq(messageContent.imageCount, 0)
-		);
+		all.push(filters.hasPhotos ? gt(contentText.imageCount, 0) : eq(contentText.imageCount, 0));
 	}
 	if (filters.hasPdf !== null) {
-		all.push(filters.hasPdf ? gt(messageContent.pdfCount, 0) : eq(messageContent.pdfCount, 0));
+		all.push(filters.hasPdf ? gt(contentText.pdfCount, 0) : eq(contentText.pdfCount, 0));
 	}
 	if (filters.minAttachmentKb !== null) {
-		all.push(gte(messageContent.largestAttachmentBytes, filters.minAttachmentKb * 1024));
+		all.push(gte(contentText.largestAttachmentBytes, filters.minAttachmentKb * 1024));
 	}
 	return all;
 }
@@ -73,36 +102,36 @@ export function aiSearch(
 	page: number,
 	pageSize: number
 ): { hits: AiHit[]; total: number; notIndexed: number } {
-	const where = and(...conditions(query), ...contentConditions(filters));
-	const base = db
-		.select({ total: count() })
-		.from(messages)
-		.innerJoin(mailFolders, eq(messages.folderId, mailFolders.id))
-		.leftJoin(messageContent, eq(messageContent.messageId, messages.id));
-	const total = base.where(where).get()?.total ?? 0;
-	// Of the messages the console's filters match, how many the content index has not read.
-	const notIndexed =
+	const plan = searchPlan(db, query);
+	const found = plan.where;
+	const where = and(...found, ...contentConditions(filters));
+	const total =
 		db
 			.select({ total: count() })
 			.from(messages)
 			.innerJoin(mailFolders, eq(messages.folderId, mailFolders.id))
-			.leftJoin(messageContent, eq(messageContent.messageId, messages.id))
-			.where(and(...conditions(query), isNull(messageContent.messageId)))
+			.leftJoin(contentDocs, eq(contentDocs.messageId, messages.id))
+			.leftJoin(contentText, eq(contentText.doc, contentDocs.doc))
+			.where(where)
 			.get()?.total ?? 0;
+	// What content filters may still miss: the messages the content reader has not read yet.
+	const progress = contentIndexProgress(db);
+	const notIndexed = filtersContent(filters) ? Math.max(0, progress.total - progress.indexed) : 0;
 	const rows = db
 		.select({
 			...hitColumns,
-			text: messageContent.text,
-			attachments: messageContent.attachments,
-			problem: messageContent.problem,
-			indexed: sql<number>`${messageContent.messageId} is not null`
+			text: contentText.text,
+			attachments: contentText.attachments,
+			problem: contentText.problem,
+			indexed: sql<number>`coalesce(${contentText.version}, 0) > 0`
 		})
 		.from(messages)
 		.innerJoin(mailboxes, eq(messages.mailboxId, mailboxes.id))
 		.innerJoin(mailFolders, eq(messages.folderId, mailFolders.id))
-		.leftJoin(messageContent, eq(messageContent.messageId, messages.id))
+		.leftJoin(contentDocs, eq(contentDocs.messageId, messages.id))
+		.leftJoin(contentText, eq(contentText.doc, contentDocs.doc))
 		.where(where)
-		.orderBy(desc(messages.receivedAt))
+		.orderBy(newestFirst(plan.indexed || bodyQuery(filters.body) !== null))
 		.limit(pageSize)
 		.offset(Math.max(0, page) * pageSize)
 		.all();
@@ -136,8 +165,9 @@ export function topSenders(
 		})
 		.from(messages)
 		.innerJoin(mailFolders, eq(messages.folderId, mailFolders.id))
-		.leftJoin(messageContent, eq(messageContent.messageId, messages.id))
-		.where(and(...conditions(query), ...contentConditions(filters)))
+		.leftJoin(contentDocs, eq(contentDocs.messageId, messages.id))
+		.leftJoin(contentText, eq(contentText.doc, contentDocs.doc))
+		.where(and(...searchPlan(db, query).where, ...contentConditions(filters)))
 		.groupBy(messages.sender)
 		.orderBy(desc(count()))
 		.limit(limit)

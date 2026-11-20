@@ -43,6 +43,14 @@ export function recordActivity(db: Queryable, entry: NewActivity, now = Date.now
 		.run();
 	const detail = entry.detail === undefined || entry.detail === null ? '' : ` (${entry.detail})`;
 	serverLog(entry.level, entry.kind, `${entry.summary}${detail}`);
+	notifyActivity(db, entry, now);
+}
+
+/**
+ * Tells the listeners about an entry already recorded: on the work thread, also about entries
+ * the web thread recorded (email alerts run there).
+ */
+export function notifyActivity(db: Queryable, entry: NewActivity, now: number): void {
 	for (const listener of listeners) {
 		// A listener's failure never stops what recorded the entry.
 		try {
