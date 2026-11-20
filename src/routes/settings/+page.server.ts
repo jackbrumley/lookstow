@@ -28,6 +28,7 @@ import { snapshotSummary } from '#lib/server/services/storage/index-snapshot.ts'
 import { storedTotals } from '#lib/server/services/mailboxes/repository.ts';
 import { newAiToken, setAiEnabled } from '#lib/server/services/ai/access.ts';
 import { hostname } from 'node:os';
+import { indexingText } from '#lib/domain/indexing.ts';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
 export const load = (() => ({
@@ -36,7 +37,11 @@ export const load = (() => ({
 	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir()),
 	learnedPace: backupEngine().learnedPace(),
 	storedFiles: storedTotals(database).files,
-	ai: aiView()
+	ai: aiView(),
+	// The AI tools' content index (docs/specs/SPEC-SCALE.md): how far it has got, and any long
+	// work after an update, so empty AI results are explained here.
+	contentIndex: backupEngine().snapshot().contentIndex,
+	indexing: indexingText(backupEngine().indexing())
 })) satisfies PageServerLoad;
 
 function aiView() {

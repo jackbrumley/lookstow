@@ -9,20 +9,37 @@
 //! - Windows: a protected DACL (nothing inherited from `C:\ProgramData`):
 //!   SYSTEM and Administrators full control, `LocalService` (the service
 //!   account) modify, and everything already inside reset to inherit just
-//!   that. Install applies it (Administrator); every upgrade (SYSTEM)
-//!   checks the folder's own rules and resets the tree only when they
-//!   changed, because the backup inside can hold tens of thousands of files;
+//!   that. Install (Administrator) and every upgrade (SYSTEM) check the
+//!   folder's own rules and reset the tree only when they differ, because
+//!   the backup inside can hold hundreds of thousands of files; install says
+//!   so and counts as it goes;
 //!   the service itself runs as `LocalService`, which may not change rules,
 //!   so a start cannot.
 
 use anyhow::Result;
 use std::path::Path;
 
-/// Install and upgrade: the full lockdown, as an administrator.
+/// Install: the lockdown, as an administrator, saying what it does. On Windows a data folder
+/// whose own rules are already Lookstow's was reset by an earlier install, and everything added
+/// since inherits those rules, so its files are left alone. Otherwise every file is reset, which
+/// for a large backup takes minutes: the installer says so and counts as it goes, so nobody
+/// closes a window that looks stuck.
 pub fn lock(data: &Path) -> Result<()> {
     #[cfg(windows)]
     {
-        lookstow_service::windows::restrict_dir(data, &crate::service_windows::data_grants())
+        use lookstow_service::windows::{dir_restricted, restrict_dir_reporting};
+        let grants = crate::service_windows::data_grants();
+        if dir_restricted(data, &grants)? {
+            println!("The data folder already has Lookstow's permissions; its files are left as they are.");
+            return Ok(());
+        }
+        println!("Securing the data folder: every file in it, the backup included, gets Lookstow's permissions.");
+        println!("On a large backup this takes several minutes. Do not close this window.");
+        let count = restrict_dir_reporting(data, &grants, &|done| {
+            println!("  {} files and folders so far...", thousands(done));
+        })?;
+        println!("Secured {} files and folders.", thousands(count));
+        Ok(())
     }
     #[cfg(unix)]
     {
@@ -50,6 +67,20 @@ pub fn lock_if_changed(data: &Path) -> Result<()> {
     {
         lock(data)
     }
+}
+
+/// 1234567 as "1,234,567".
+#[cfg(windows)]
+fn thousands(count: u64) -> String {
+    let digits = count.to_string();
+    let mut out = String::new();
+    for (at, digit) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 /// The mode to set when `mode` lets anyone but the owner in, else `None`.
@@ -89,6 +120,15 @@ pub fn repair(data: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn counts_read_with_thousands_separators() {
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(20_000), "20,000");
+        assert_eq!(thousands(1_234_567), "1,234,567");
+    }
 
     #[test]
     fn only_modes_open_to_others_are_tightened() {

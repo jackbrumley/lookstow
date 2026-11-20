@@ -106,7 +106,15 @@ is looked up exactly.
 - The Mailboxes page is filtered, sorted and paged on the server, through a GET form (every choice is
   in the address). It sends one page of 100 rows, not every mailbox (540 KB for 1,817 mailboxes).
 
-### 5. Seeing the next slowdown
+### 5. Long work says how far it has got (0.13.1)
+
+The first build of the search index after an update, a walk after a deleted backup, and the move of
+the old content table show a banner on every page ("Building the search index after the update:
+230,000 of 545,592 messages (42%)") and write a Log line every tenth of the way. The 10-minute wait
+before the move is said once. The installer says what it is doing, counts while it resets the data
+folder's permissions (now only when they are not already Lookstow's), and waits for the console.
+
+### 6. Seeing the next slowdown
 
 - Every query that holds its thread for 100 ms or more is noted, with its SQL and no values. It is
   logged once per statement every 10 minutes (`slow-query`) and listed at `/api/throughput` under

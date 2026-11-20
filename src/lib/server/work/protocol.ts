@@ -1,4 +1,5 @@
 import type { AlertRecipient, EmailView } from '../../domain/alerts.ts';
+import type { IndexingProgress } from '../../domain/indexing.ts';
 import type { LiveStatus } from '../../domain/live-status.ts';
 import type { LearnedPace } from '../services/graph/governor.ts';
 import type { McpReply } from '../services/ai/mcp.ts';
@@ -22,6 +23,10 @@ export type WorkSnapshot = {
 	lockdown: string | null;
 	slowQueries: SlowQuery[];
 	health: ThreadHealth;
+	/** The search index's long work after an update, or null (docs/specs/SPEC-SCALE.md). */
+	indexing: IndexingProgress | null;
+	/** How many messages the AI tools' content reader has read, of all stored (counted every 30 s). */
+	contentIndex: { indexed: number; total: number };
 };
 
 export type AttachmentReply =

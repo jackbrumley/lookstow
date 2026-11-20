@@ -1,6 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import type { AlertRecipient, EmailView } from '../../domain/alerts.ts';
 import type { EngineStatus } from '../../domain/engine.ts';
+import type { IndexingProgress } from '../../domain/indexing.ts';
 import type { LiveStatus } from '../../domain/live-status.ts';
 import { errorText, serverLog, writeLogLine } from '../log.ts';
 import { onActivity } from '../services/activity/activity.ts';
@@ -171,6 +172,11 @@ export class WorkThread {
 
 	snapshot(): WorkSnapshot {
 		return this.#latest();
+	}
+
+	/** The search index's long work after an update, for the banner on every page. */
+	indexing(): IndexingProgress | null {
+		return this.#latest().indexing;
 	}
 
 	learnedPace(): LearnedPace {

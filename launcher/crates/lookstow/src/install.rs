@@ -9,7 +9,10 @@ use crate::updater::files;
 use crate::{config, data_privacy, platform};
 use anyhow::{bail, Context as _, Result};
 use std::fs;
+use std::io::{Read as _, Write as _};
+use std::net::{TcpStream, ToSocketAddrs as _};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 /// What is in the program folder before an install.
 #[derive(Debug, PartialEq, Eq)]
@@ -126,10 +129,81 @@ pub fn install(target: &Layout, port: Option<u16>, no_service: bool) -> Result<(
             target.data.display()
         );
     } else {
+        println!("Starting the service...");
         platform::install_service(target)?;
+        wait_for_console(target);
     }
     println!("Console: {}", address(target));
     Ok(())
+}
+
+/// How long the installer waits for the console after starting the service.
+const CONSOLE_WAIT: Duration = Duration::from_secs(300);
+
+/// Waits for the console to answer, saying every 15 seconds that it is still starting: the first
+/// start after an update upgrades the database, and a silent window looks stuck.
+fn wait_for_console(target: &Layout) {
+    let Ok(listen) = config::read_listen(&target.env_file()) else {
+        return;
+    };
+    let host = match listen.host.as_str() {
+        "0.0.0.0" | "" => "127.0.0.1".to_owned(),
+        "::" | "[::]" => "::1".to_owned(),
+        host => host.trim_matches(['[', ']']).to_owned(),
+    };
+    println!(
+        "Waiting for Lookstow to answer (the first start after an update can take a minute)..."
+    );
+    let started = Instant::now();
+    let mut told = 0;
+    while started.elapsed() < CONSOLE_WAIT {
+        if console_answers(&host, listen.port) {
+            println!("Lookstow is running.");
+            return;
+        }
+        let seconds = started.elapsed().as_secs();
+        if seconds / 15 > told {
+            told = seconds / 15;
+            println!("  still starting ({seconds} s)...");
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    println!(
+        "Lookstow has not answered after {} minutes; it keeps starting in the background. See {}.",
+        CONSOLE_WAIT.as_secs() / 60,
+        platform::log_hint(target)
+    );
+}
+
+/// Whether `/healthz` answers 200 on this computer.
+fn console_answers(host: &str, port: u16) -> bool {
+    let Ok(mut addresses) = (host, port).to_socket_addrs() else {
+        return false;
+    };
+    let Some(address) = addresses.next() else {
+        return false;
+    };
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_secs(2)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    if stream
+        .write_all(
+            b"GET /healthz HTTP/1.0
+Host: localhost
+
+",
+        )
+        .is_err()
+    {
+        return false;
+    }
+    let mut reply = [0_u8; 16];
+    let Ok(read) = stream.read(&mut reply) else {
+        return false;
+    };
+    let status = String::from_utf8_lossy(&reply[..read]);
+    status.starts_with("HTTP/1.1 200") || status.starts_with("HTTP/1.0 200")
 }
 
 /// The console's address from `server.env`, or why it is not known.

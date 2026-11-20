@@ -2,6 +2,7 @@ import type { LayoutServerLoad } from './$types';
 import { backupEngine } from '#lib/server/runtime.ts';
 import { APP_VERSION } from '#lib/utils/app-version.ts';
 import { LIVE_STATUS } from '#lib/domain/live-status.ts';
+import { indexingText } from '#lib/domain/indexing.ts';
 
 /**
  * What every page's frame shows, and the one live status every page reads
@@ -15,6 +16,7 @@ export const load = (({ url, depends }) => {
 		// frame's banners and engine state are never left over from an earlier page.
 		path: url.pathname,
 		version: APP_VERSION,
-		live: backupEngine().live()
+		live: backupEngine().live(),
+		indexing: indexingText(backupEngine().indexing())
 	};
 }) satisfies LayoutServerLoad;

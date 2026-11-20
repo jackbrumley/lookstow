@@ -11,7 +11,13 @@
 	import BackupFolderCard from './backup-folder-card.svelte';
 	import { SCHEDULE_LIMITS } from '#lib/domain/settings.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
-	import { formatBytes, formatDateTime, plural } from '#lib/utils/format.ts';
+	import {
+		formatBytes,
+		formatCount,
+		formatDateTime,
+		formatPercent,
+		plural
+	} from '#lib/utils/format.ts';
 
 	let { data, form }: PageProps = $props();
 
@@ -269,6 +275,20 @@
 		{/if}
 		Every message and attachment an agent opens is written to the ai-audit folder in the data folder.
 	</p>
+	<p>
+		Content index: {formatCount(data.contentIndex.indexed)} of {formatCount(
+			data.contentIndex.total
+		)}
+		messages read ({formatPercent(
+			data.contentIndex.total === 0
+				? 100
+				: (data.contentIndex.indexed / data.contentIndex.total) * 100
+		)}). Searches by words in the message, photos, PDFs and attachments find only messages it has
+		read; the rest are read in the background while AI tools are on.
+	</p>
+	{#if data.indexing !== null}
+		<p class="muted small">{data.indexing}</p>
+	{/if}
 	{#if newToken !== null}
 		<p><strong>New access token (shown once):</strong></p>
 		<pre class="token">{newToken}</pre>

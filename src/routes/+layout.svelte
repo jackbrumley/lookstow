@@ -173,6 +173,9 @@
 				{disk.pausePercent}%.
 			</div>
 		{/if}
+		{#if data.indexing !== null}
+			<div class="banner" role="status">{data.indexing}</div>
+		{/if}
 		{#if live.engine.problem !== null}
 			<div class="banner" role="status">
 				{live.engine.problem}

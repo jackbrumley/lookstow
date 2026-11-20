@@ -274,10 +274,52 @@ pub fn restricted_dir_sddl(extra: &[Grant]) -> String {
 ///
 /// Fails when the rules cannot be built or applied to the folder or anything inside it.
 pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
+    restrict_dir_reporting(dir, extra, &|_| ()).map(|_| ())
+}
+
+/// How often [`restrict_dir_reporting`] reports: every this many files and folders.
+pub const REPORT_EVERY: u64 = 20_000;
+
+/// What the tree reset's callback counts, and whom it tells.
+struct TreeProgress<'a> {
+    done: std::cell::Cell<u64>,
+    report: &'a dyn Fn(u64),
+}
+
+/// Called by `TreeResetNamedSecurityInfoW` for every file and folder it resets.
+unsafe extern "system" fn count_object(
+    _name: ::windows::core::PCWSTR,
+    _status: u32,
+    invoke: *mut ::windows::Win32::Security::Authorization::PROG_INVOKE_SETTING,
+    args: *const core::ffi::c_void,
+    _security_set: ::windows::core::BOOL,
+) {
+    // SAFETY: `args` is the TreeProgress handed to TreeResetNamedSecurityInfoW
+    // in restrict_dir_reporting, which outlives the call; `invoke` is Windows' own.
+    unsafe {
+        let progress = &*args.cast::<TreeProgress<'_>>();
+        let done = progress.done.get() + 1;
+        progress.done.set(done);
+        if done % REPORT_EVERY == 0 {
+            (progress.report)(done);
+        }
+        if !invoke.is_null() {
+            *invoke = ::windows::Win32::Security::Authorization::ProgressInvokeEveryObject;
+        }
+    }
+}
+
+/// [`restrict_dir`], telling `report` how many files and folders are done every
+/// [`REPORT_EVERY`] (a large backup takes minutes). Returns how many there were.
+///
+/// # Errors
+///
+/// Fails when the rules cannot be built or applied to the folder or anything inside it.
+pub fn restrict_dir_reporting(dir: &Path, extra: &[Grant], report: &dyn Fn(u64)) -> Result<u64> {
     use ::windows::core::{BOOL, PCWSTR};
     use ::windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
     use ::windows::Win32::Security::Authorization::{
-        ConvertStringSecurityDescriptorToSecurityDescriptorW, ProgressInvokeNever,
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, ProgressInvokeEveryObject,
         TreeResetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT,
     };
     use ::windows::Win32::Security::{
@@ -291,6 +333,10 @@ pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
         .chain(Some(0))
         .collect();
     let path: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    let progress = TreeProgress {
+        done: std::cell::Cell::new(0),
+        report,
+    };
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     // SAFETY: both strings are NUL-terminated and outlive the calls; the
     // descriptor is allocated by Windows, the DACL points into it, and it is
@@ -322,9 +368,9 @@ pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
                 Some(dacl.cast_const()),
                 None,
                 false,
-                None,
-                ProgressInvokeNever,
-                None,
+                Some(count_object),
+                ProgressInvokeEveryObject,
+                Some(std::ptr::from_ref(&progress).cast()),
             )
         });
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
@@ -337,7 +383,18 @@ pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
             );
         }
     }
-    Ok(())
+    Ok(progress.done.get())
+}
+
+/// Whether `dir`'s own rules are already [`restricted_dir_sddl`]: then an earlier
+/// lockdown reset everything inside, and what was added since inherits them.
+///
+/// # Errors
+///
+/// Fails when the wanted rules cannot be built.
+pub fn dir_restricted(dir: &Path, extra: &[Grant]) -> Result<bool> {
+    let wanted = canonical_dacl(&restricted_dir_sddl(extra))?;
+    Ok(dir_dacl(dir).is_ok_and(|current| same_rules(&current, &wanted)))
 }
 
 /// [`restrict_dir`], but only when `dir`'s own rules differ from
@@ -350,11 +407,10 @@ pub fn restrict_dir(dir: &Path, extra: &[Grant]) -> Result<()> {
 ///
 /// Fails when the wanted rules cannot be built, or the reset fails.
 pub fn restrict_dir_if_changed(dir: &Path, extra: &[Grant]) -> Result<bool> {
-    let wanted = canonical_dacl(&restricted_dir_sddl(extra))?;
-    match dir_dacl(dir) {
-        Ok(current) if same_rules(&current, &wanted) => Ok(false),
-        _ => restrict_dir(dir, extra).map(|()| true),
+    if dir_restricted(dir, extra)? {
+        return Ok(false);
     }
+    restrict_dir(dir, extra).map(|()| true)
 }
 
 /// Whether two DACLs in SDDL are protected alike and hold the same rules.

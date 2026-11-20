@@ -20,6 +20,24 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.1',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.1 from the Updates page. Expected: it installs in about the usual time',
+				'Or install over the top with the one-line command in an administrator PowerShell. Expected: it says "The data folder already has Lookstow’s permissions; its files are left as they are" instead of sitting silent for many minutes, then "Starting the service...", "Waiting for Lookstow to answer...", "Lookstow is running." and the console address',
+				'Open Settings and look at the AI tools card. Expected: a line saying how many messages the content index has read, of all stored (about 545,000 of 545,000)',
+				'After a later update that rebuilds the search index (not this one), every page shows a banner with the count and percentage while it runs, and the Log has a line every tenth of the way'
+			]
+		},
+		changes: [
+			'Installing over the top no longer resets the permissions of every backed-up file when the data folder already has Lookstow’s permissions, which took tens of minutes with no sign of life. When it does have to (a first install over an older backup), it says why, asks you not to close the window and counts the files as it goes',
+			'The installer says when it starts the service and waits for Lookstow to answer, saying every 15 seconds that it is still starting, instead of ending while Lookstow is still upgrading its database',
+			'Long work after an update is shown on every page: a banner while the search index is built or the AI tools’ text index moves, with how many messages are done and the percentage, and what does not work meanwhile. The Log has a line every tenth of the way',
+			'Settings, AI tools shows how many messages the content index has read of all stored, so empty photo, PDF or body searches are explained'
+		]
+	},
+	{
 		version: '0.13.0',
 		testing: {
 			kind: 'steps',

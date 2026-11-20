@@ -5,7 +5,7 @@ import { dataDir } from '../data-dir.ts';
 import { env } from '../env.ts';
 import { errorText, sendLogTo, serverLog } from '../log.ts';
 import { notifyActivity, pruneActivity } from '../services/activity/activity.ts';
-import { startContentIndexer } from '../services/ai/content-index.ts';
+import { contentIndexProgress, startContentIndexer } from '../services/ai/content-index.ts';
 import { downloadAttachment, handleMcp } from '../services/ai/mcp.ts';
 import { Alerts } from '../services/alerts/alerts.ts';
 import { Engine } from '../services/engine/engine.ts';
@@ -70,13 +70,24 @@ const prune = (): void => {
 prune();
 const pruning = setInterval(prune, 24 * 60 * 60_000);
 
+/** The content index's count for the snapshot, taken at most every 30 seconds. */
+let counted: { value: WorkSnapshot['contentIndex']; at: number } | null = null;
+function contentCount(): WorkSnapshot['contentIndex'] {
+	if (counted === null || Date.now() - counted.at >= 30_000) {
+		counted = { value: contentIndexProgress(db), at: Date.now() };
+	}
+	return counted.value;
+}
+
 function snapshot(): WorkSnapshot {
 	return {
 		live: liveStatus(engine),
 		learnedPace: learnedPace(),
 		lockdown: engine.lockdown(),
 		slowQueries: slowQueries(),
-		health: threadHealth()
+		health: threadHealth(),
+		indexing: searchIndex.progress(),
+		contentIndex: contentCount()
 	};
 }
 
