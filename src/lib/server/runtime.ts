@@ -2,7 +2,8 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { database } from './database/app-database.ts';
 import { dataDir } from './data-dir.ts';
-import { workEntryPath } from './env.ts';
+import { aiEntryPath, workEntryPath } from './env.ts';
+import { AiThread } from './work/ai-client.ts';
 import { WorkThread } from './work/work-client.ts';
 import { APP_VERSION } from '../utils/app-version.ts';
 
@@ -20,6 +21,19 @@ let work: WorkThread | null = null;
  */
 function workEntry(): URL {
 	return pathToFileURL(workEntryPath() ?? resolve('src/lib/server/work/work-thread.ts'));
+}
+
+let ai: AiThread | null = null;
+
+/** The AI tools' entry: app/ai.js in a release (server.ts says where), or the source file. */
+function aiEntry(): URL {
+	return pathToFileURL(aiEntryPath() ?? resolve('src/lib/server/work/ai-thread.ts'));
+}
+
+/** The AI tools (MCP), on their own thread, started with the first call. */
+export function aiTools(): AiThread {
+	ai ??= new AiThread(aiEntry(), APP_VERSION);
+	return ai;
 }
 
 /** Starts the work thread and waits for its first snapshot. */

@@ -20,6 +20,29 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.2',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.2 when the AI sweep has a gap (straight from 0.13.0 is fine). Expected: the usual countdown, and the console back by itself',
+				'Open the Dashboard. Expected: tiles for In the backup (5 mailboxes, of 1,817 found), Fully copied (X of 5), First copy in progress (only while one is), Needs attention and Stored. A mailbox that is syncing still counts as fully copied, so the numbers stay put between sync rounds',
+				'Look at First copies in progress. Expected: each mailbox still on its first copy (the online archives) with folders copied out of its total and whether it is copying now',
+				'Look at Right now. Expected: one sentence (syncing N mailboxes, receiving X/s, next sync due), and archive rows in the table marked (online archive)',
+				'Open the Details and Speed details sections, and Earlier problems if shown. Expected: discovery, index copy, completeness, drive, queue and throttling under Details; the speed figures under Speed details; old failures that have since cleared under Earlier problems',
+				'Let the AI sweep run. Expected: the Dashboard and Mailboxes stay quick, syncing carries on, and the sweep’s searches answer faster than before'
+			]
+		},
+		changes: [
+			'The Dashboard shows lasting facts apart from what is happening now. "Waiting for first copy" counted the mailboxes syncing at that moment too, so it rose every sync round; the tiles are now In the backup (of the mailboxes found), Fully copied, First copy in progress (with folders copied), Needs attention and Stored, and a copied mailbox stays counted while it syncs',
+			'A First copies in progress list shows each mailbox still on its first copy, how many of its folders are copied, and whether it is copying now',
+			'Right now says in one sentence what is syncing, how fast, and when the next sync is due; online archives are marked in the table',
+			'Needs attention lists each mailbox whose last sync failed or whose folder still differs from Microsoft, with what happens next. Earlier problems that have since cleared are collapsed, so old failures no longer read as current',
+			'Discovery, the index copy, completeness checks, the drive, the queue, throttling and the Speed card are under collapsed Details sections',
+			'The AI tools run on their own thread, so an AI agent searching all day never slows the backup engine or the console',
+			'AI searches no longer count every match through the content tables when no content filter is used, and stop counting at 10,000 when one is (the reply says totalIsAtLeast). The content reader finds unread messages through its index instead of walking every row, which once took 18 s'
+		]
+	},
+	{
 		version: '0.13.1',
 		testing: {
 			kind: 'steps',

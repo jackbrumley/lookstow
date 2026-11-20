@@ -6,7 +6,6 @@ import { env } from '../env.ts';
 import { errorText, sendLogTo, serverLog } from '../log.ts';
 import { notifyActivity, pruneActivity } from '../services/activity/activity.ts';
 import { contentIndexProgress, startContentIndexer } from '../services/ai/content-index.ts';
-import { downloadAttachment, handleMcp } from '../services/ai/mcp.ts';
 import { Alerts } from '../services/alerts/alerts.ts';
 import { Engine } from '../services/engine/engine.ts';
 import { liveStatus } from '../services/engine/live-status.ts';
@@ -112,34 +111,6 @@ function sendSnapshot(): void {
 
 const ticking = setInterval(sendSnapshot, SNAPSHOT_EVERY_MS);
 
-/** AI tool calls run one at a time, with a turn for the engine before each. */
-let aiTurn: Promise<void> = Promise.resolve();
-function inTurn<T>(work: () => Promise<T>): Promise<T> {
-	const result = aiTurn
-		.then(
-			() =>
-				new Promise<void>((resolve) => {
-					setImmediate(resolve);
-				})
-		)
-		.then(work);
-	aiTurn = result.then(
-		() => undefined,
-		() => undefined
-	);
-	return result;
-}
-
-function aiContext(baseUrl: string) {
-	return {
-		db,
-		backupRoot: effectiveBackupRoot(db, folder),
-		baseUrl,
-		dataDir: folder,
-		now: Date.now
-	};
-}
-
 async function answer(call: WorkCall): Promise<WorkAnswer> {
 	switch (call.name) {
 		case 'requestDiscovery':
@@ -173,25 +144,6 @@ async function answer(call: WorkCall): Promise<WorkAnswer> {
 		case 'forgetPace':
 			forgetLearnedPace(db);
 			return { name: 'done' };
-		case 'mcp': {
-			const { message, baseUrl } = call;
-			return { name: 'mcp', value: await inTurn(() => handleMcp(aiContext(baseUrl), message)) };
-		}
-		case 'attachment': {
-			const { messageId, index, baseUrl } = call;
-			const found = await inTurn(() => downloadAttachment(aiContext(baseUrl), messageId, index));
-			return {
-				name: 'attachment',
-				value:
-					'error' in found
-						? found
-						: {
-								filename: found.filename,
-								contentType: found.contentType,
-								data: new Uint8Array(found.data)
-							}
-			};
-		}
 	}
 }
 
@@ -239,4 +191,4 @@ sendSnapshot();
 // Started even if the snapshot failed (a broken setting): the console then starts and shows the
 // error, instead of never answering.
 post({ type: 'started' });
-serverLog('info', 'work', 'The work thread started: backup engine, alerts, indexes and AI tools');
+serverLog('info', 'work', 'The work thread started: backup engine, alerts and indexes');

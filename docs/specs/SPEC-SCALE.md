@@ -37,11 +37,15 @@ status says so. Start-up waits until the work thread says it has started, so a r
 thread cannot start never reports ready, and the updater rolls it back. A work thread that starts
 but cannot take its snapshot (a broken setting) still lets the console start and show the error.
 
+- **The AI tools' thread** (0.13.2, `work/ai-main.ts`) answers `/mcp` and its attachment downloads,
+  one call at a time, on its own connection. It starts with the first AI call. Before, the tools ran
+  on the work thread, and an agent searching all day held the backup engine for seconds a call.
+
 A second thread, not a second service: one service to install, update and roll back, both halves
 always the same version, and they stop together.
 
-A release bundles the work thread as `app/work.js` beside `app/server.js`. `server.ts` tells the app
-where it is (`LOOKSTOW_WORK_ENTRY`). A source run uses the TypeScript file, with the version passed in.
+A release bundles the work thread as `app/work.js` and the AI tools' as `app/ai.js` beside
+`app/server.js`. `server.ts` tells the app where they are (`LOOKSTOW_WORK_ENTRY`, `LOOKSTOW_AI_ENTRY`). A source run uses the TypeScript file, with the version passed in.
 
 ### 2. The content file
 

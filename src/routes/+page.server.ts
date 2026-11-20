@@ -2,8 +2,9 @@ import type { Actions, PageServerLoad } from './$types';
 import { done } from '#lib/server/actions.ts';
 import { backupEngine, database } from '#lib/server/runtime.ts';
 import { listActivity, recordActivity } from '#lib/server/services/activity/activity.ts';
-import { recentRuns } from '#lib/server/services/mailboxes/repository.ts';
-import { mailboxSummaries, mailboxTotals } from '#lib/server/services/mailboxes/views.ts';
+import { firstCopyProgress, recentRuns } from '#lib/server/services/mailboxes/repository.ts';
+import { mailboxSummaries } from '#lib/server/services/mailboxes/views.ts';
+import { dashboardOverview, splitProblems } from '#lib/domain/dashboard.ts';
 import { readConnection } from '#lib/server/services/settings/settings.ts';
 import { LIVE_STATUS } from '#lib/domain/live-status.ts';
 
@@ -15,16 +16,26 @@ export const load = (async ({ parent, depends }) => {
 	const syncing = new Set(live.engine.syncing.map((sync) => sync.mailboxId));
 	const summaries = mailboxSummaries(database, (id) => syncing.has(id), Date.parse(live.at));
 	const connection = readConnection(database);
+	const overview = dashboardOverview(summaries, firstCopyProgress(database));
 	return {
-		totals: mailboxTotals(summaries),
-		needsAttention: summaries.filter((mailbox) => mailbox.state === 'failed').slice(0, 20),
+		overview,
+		problems: splitProblems(
+			listActivity(database, { limit: 8, level: 'error' }),
+			overview.attention
+		),
+		// Which syncing mailboxes are online archives, so Now can tell a mailbox from its archive.
+		archives: summaries
+			.filter((mailbox) => mailbox.kind === 'archive' && syncing.has(mailbox.id))
+			.map((mailbox) => mailbox.id),
+		completeness: {
+			checking: summaries.filter((mailbox) => mailbox.completeness === 'checking').length
+		},
 		setup: {
 			ids: connection.tenantId !== '' && connection.clientId !== '',
 			credential: connection.auth.kind !== 'none',
 			discovered: summaries.length > 0
 		},
-		lastDiscovery: recentRuns(database, { limit: 1, kind: 'discovery' })[0] ?? null,
-		problems: listActivity(database, { limit: 8, level: 'error' })
+		lastDiscovery: recentRuns(database, { limit: 1, kind: 'discovery' })[0] ?? null
 	};
 }) satisfies PageServerLoad;
 

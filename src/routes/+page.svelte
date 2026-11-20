@@ -7,7 +7,6 @@
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import SpeedCard from './speed-card.svelte';
-	import { failureSummary } from '#lib/domain/failure-kind.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 	import {
 		formatBytes,
@@ -22,11 +21,16 @@
 
 	// The frame refreshes the live status on a timer; this page's load depends on it too.
 	const engine = $derived(data.live.engine);
+	const overview = $derived(data.overview);
+	const archives = $derived(new Set(data.archives));
 
-	const failingTotal = $derived(
-		Object.values(engine.failing).reduce((sum, count) => sum + count, 0)
+	/** Folders copied across every first copy under way, for the tile. */
+	const firstCopyFolders = $derived(
+		overview.firstCopies.reduce(
+			(sum, copy) => ({ done: sum.done + copy.foldersDone, total: sum.total + copy.foldersTotal }),
+			{ done: 0, total: 0 }
+		)
 	);
-	const failingText = $derived(failureSummary(engine.failing));
 
 	$effect(() => {
 		toastFormResult(form);
@@ -35,7 +39,7 @@
 	const setupDone = $derived(data.setup.ids && data.setup.credential && data.setup.discovered);
 </script>
 
-<PageHeader title="Dashboard" lede="Whether every mailbox is backed up, and what is running now.">
+<PageHeader title="Dashboard" lede="Whether every mailbox is backed up, and what is happening now.">
 	{#snippet actions()}
 		<form method="POST" action="?/discover" use:enhance>
 			<Button type="submit" variant="secondary">Discover now</Button>
@@ -61,31 +65,97 @@
 	</Card>
 {/if}
 
+<!-- Lasting facts: they change when a mailbox is added, finishes its first copy or stops being
+	backed up, not with every sync. -->
 <div class="tiles">
+	<a class="tile" href={resolve('/mailboxes')}>
+		<span class="label">In the backup</span>
+		<strong>{formatCount(overview.inBackup)}</strong>
+		<span class="muted small"
+			>{plural(overview.inBackup, 'mailbox', 'mailboxes')}, of {formatCount(overview.found)} found in
+			Microsoft 365</span
+		>
+	</a>
 	<div class="tile">
-		<span class="label">Backed up</span>
-		<strong>{formatCount(data.totals.backedUp)}</strong>
-		<span class="muted small">of {plural(data.totals.mailboxes, 'mailbox', 'mailboxes')}</span>
+		<span class="label">Fully copied</span>
+		<strong>{formatCount(overview.fullyCopied)} of {formatCount(overview.inBackup)}</strong>
+		<span class="muted small">first copy finished; kept up to date from then on</span>
 	</div>
-	<div class="tile">
-		<span class="label">Waiting for first copy</span>
-		<strong>{formatCount(data.totals.waiting + data.totals.syncing)}</strong>
-	</div>
-	<div class="tile" class:bad={data.totals.failed > 0}>
-		<span class="label">Failing</span>
-		<strong>{formatCount(data.totals.failed)}</strong>
+	{#if overview.firstCopies.length > 0}
+		<div class="tile">
+			<span class="label">First copy in progress</span>
+			<strong>{formatCount(overview.firstCopies.length)}</strong>
+			<span class="muted small"
+				>{formatCount(firstCopyFolders.done)} of {plural(firstCopyFolders.total, 'folder')} copied</span
+			>
+		</div>
+	{/if}
+	<div class="tile" class:bad={overview.attention.length > 0}>
+		<span class="label">Needs attention</span>
+		<strong>{formatCount(overview.attention.length)}</strong>
+		<span class="muted small"
+			>{overview.attention.length === 0 ? 'nothing to do' : 'see below'}</span
+		>
 	</div>
 	<div class="tile">
 		<span class="label">Stored</span>
-		<strong>{formatBytes(data.totals.bytes)}</strong>
-		<span class="muted small">{plural(data.totals.items, 'message')}</span>
+		<strong>{formatBytes(overview.storedBytes)}</strong>
+		<span class="muted small">{plural(overview.storedItems, 'message')}</span>
 	</div>
 </div>
 
-<Card title="Now">
-	{#if engine.pause.paused}
-		<p><Badge tone="warn">Paused</Badge> Nothing syncs until you press Resume.</p>
-	{/if}
+{#if overview.attention.length > 0}
+	<Card title="Needs attention" tone="bad">
+		<table>
+			<thead><tr><th>Mailbox</th><th>What is wrong</th><th>What happens next</th></tr></thead>
+			<tbody>
+				{#each overview.attention as item (item.id)}
+					<tr>
+						<td>
+							<a href={resolve('/mailboxes/[id]', { id: item.id })}>{item.address}</a>
+							{#if item.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
+						</td>
+						<td>{item.problem}</td>
+						<td>{item.what}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+		{#if data.problems.open.length > 0}
+			<ul class="problems">
+				{#each data.problems.open as entry (entry.id)}
+					<li>
+						<span class="muted small">{formatDateTime(entry.at)}</span>
+						{entry.summary}{entry.detail === null ? '' : `: ${entry.detail}`}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</Card>
+{/if}
+
+<Card title="Right now">
+	<p>
+		{#if engine.pause.paused}
+			<Badge tone="warn">Paused</Badge> Nothing syncs until you press Resume.
+		{:else if engine.syncing.length > 0}
+			Syncing {plural(engine.syncing.length, 'mailbox', 'mailboxes')}, receiving
+			{formatBytes(data.live.speed.rates.lastMinute.bytes / 60)}/s.
+			{#if engine.waiting.nextDueAt !== null}
+				The next routine sync is due {formatRelative(engine.waiting.nextDueAt)}.
+			{/if}
+		{:else}
+			Nothing is syncing; every mailbox is up to date.
+			{#if engine.waiting.nextDueAt !== null}
+				The next sync is due {formatRelative(engine.waiting.nextDueAt)}.
+			{/if}
+		{/if}
+		{#if overview.paused > 0}
+			<span class="muted small"
+				>{plural(overview.paused, 'mailbox is', 'mailboxes are')} paused by choice.</span
+			>
+		{/if}
+	</p>
 	{#if engine.syncing.length > 0}
 		<table>
 			<thead>
@@ -96,6 +166,8 @@
 					<tr>
 						<td>
 							<a href={resolve('/mailboxes/[id]', { id: live.mailboxId })}>{live.address}</a>
+							{#if archives.has(live.mailboxId)}<span class="muted small">(online archive)</span
+								>{/if}
 							{#if live.firstCopy}<Badge tone="info">First copy</Badge>{/if}
 						</td>
 						<td>{live.folder === '' ? 'Listing folders' : live.folder}</td>
@@ -105,58 +177,50 @@
 				{/each}
 			</tbody>
 		</table>
-	{:else if !engine.pause.paused}
-		<p>No mailbox is syncing right now.</p>
 	{/if}
+</Card>
+
+{#if overview.firstCopies.length > 0}
+	<Card title="First copies in progress">
+		<p class="muted small">
+			A mailbox's first copy reads every folder once. After that, each sync fetches only what
+			changed. Items Microsoft will not send are listed on the mailbox's page and do not hold the
+			first copy up.
+		</p>
+		<table>
+			<thead><tr><th>Mailbox</th><th>Folders copied</th><th></th></tr></thead>
+			<tbody>
+				{#each overview.firstCopies as copy (copy.id)}
+					<tr>
+						<td>
+							<a href={resolve('/mailboxes/[id]', { id: copy.id })}>{copy.address}</a>
+							{#if copy.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
+						</td>
+						<td>
+							{#if copy.foldersTotal === 0}
+								Listing folders
+							{:else}
+								{formatCount(copy.foldersDone)} of {formatCount(copy.foldersTotal)}
+								<span class="muted small"
+									>({formatPercent((copy.foldersDone / copy.foldersTotal) * 100)})</span
+								>
+							{/if}
+						</td>
+						<td>
+							{#if copy.syncing}<Badge tone="info">Copying now</Badge>{:else}<span
+									class="muted small">Waiting for its turn</span
+								>{/if}
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</Card>
+{/if}
+
+<details class="more">
+	<summary>Details: discovery, index copy, completeness checks, backup drive and the queue</summary>
 	<dl class="facts">
-		<dt>Download rate</dt>
-		<dd>
-			{formatBytes(engine.rates.lastMinute.bytesPerSecond)}/s,
-			{engine.rates.lastMinute.messagesPerSecond.toFixed(1)} messages/s over the last minute
-			<span class="muted small"
-				>({formatBytes(engine.rates.last15Minutes.bytesPerSecond)}/s over 15 minutes)</span
-			>
-		</dd>
-		<dt>Syncing</dt>
-		<dd>
-			{plural(engine.syncing.length, 'mailbox', 'mailboxes')} now. Lookstow runs up to {engine.slots
-				.current} at a time (at most {engine.slots.maximum}).
-		</dd>
-		{#if failingText !== ''}
-			<dt>Failing</dt>
-			<dd>
-				<Badge tone="warn">{plural(failingTotal, 'mailbox', 'mailboxes')}</Badge>
-				{failingText}. Each is tried again after 30 seconds, then less often, up to every 15
-				minutes.
-			</dd>
-		{/if}
-		<dt>Microsoft throttling</dt>
-		<dd>
-			{#if engine.throttled.lastMinute > 0}
-				<Badge tone="warn">{engine.throttled.lastMinute} in the last minute</Badge> Lookstow slows down
-				by itself.
-			{:else}
-				None in the last minute{engine.throttled.last15Minutes > 0
-					? ` (${engine.throttled.last15Minutes} in 15 minutes)`
-					: ''}
-			{/if}
-		</dd>
-		<dt>Waiting</dt>
-		<dd>
-			{#if engine.waiting.requested + engine.waiting.due + engine.waiting.firstCopy === 0}
-				Nothing is waiting for a free slot.
-			{:else}
-				{plural(engine.waiting.requested, 'mailbox', 'mailboxes')} asked for,
-				{plural(engine.waiting.firstCopy, 'first copy', 'first copies')} and
-				{plural(engine.waiting.due, 'routine sync')} waiting for a free slot.
-			{/if}
-			{#if engine.waiting.later > 0}
-				{plural(engine.waiting.later, 'mailbox', 'mailboxes')} up to date{engine.waiting
-					.nextDueAt === null
-					? ''
-					: `; the next sync is due ${formatRelative(engine.waiting.nextDueAt)}`}.
-			{/if}
-		</dd>
 		<dt>Discovery</dt>
 		<dd>
 			{#if engine.discovery.running}
@@ -191,28 +255,18 @@
 			{:else if engine.indexSnapshot.lastAt === null}
 				<Badge tone="warn">None yet</Badge>
 			{:else}
-				Last {formatDateTime(engine.indexSnapshot.lastAt)}
+				Last {formatDateTime(engine.indexSnapshot.lastAt)} (a daily copy of the index on the backup drive)
 			{/if}
 		</dd>
 		<dt>Completeness</dt>
 		<dd>
-			{#if data.totals.completenessNeedsLook === 0 && data.totals.completenessChecking === 0}
+			{#if data.completeness.checking === 0}
 				Every checked folder matches Microsoft's count, or the difference is explained
 			{:else}
-				{#if data.totals.completenessNeedsLook > 0}
-					<Badge tone="warn">Needs a look</Badge>
-					<a href={resolve('/mailboxes/show/[state]', { state: 'needs-look' })}
-						>{plural(data.totals.completenessNeedsLook, 'mailbox', 'mailboxes')}</a
-					>
-					still {data.totals.completenessNeedsLook === 1 ? 'differs' : 'differ'} from Microsoft a day
-					after Lookstow read the folder again.
-				{/if}
-				{#if data.totals.completenessChecking > 0}
-					<a href={resolve('/mailboxes/show/[state]', { state: 'checking' })}
-						>{plural(data.totals.completenessChecking, 'mailbox', 'mailboxes')}</a
-					>
-					being checked: Lookstow is reading the folder again. Nothing to do.
-				{/if}
+				<a href={resolve('/mailboxes/show/[state]', { state: 'checking' })}
+					>{plural(data.completeness.checking, 'mailbox', 'mailboxes')}</a
+				>
+				being checked: Lookstow is reading a folder again to compare it with Microsoft. Nothing to do.
 			{/if}
 		</dd>
 		<dt>Backup drive</dt>
@@ -227,35 +281,41 @@
 				{formatBytes(engine.disk.freeBytes ?? 0)} free · pauses at {engine.disk.pausePercent}%
 			{/if}
 		</dd>
+		<dt>Mailboxes at once</dt>
+		<dd>
+			Up to {engine.slots.current} now, at most {engine.slots.maximum}. Lookstow adds more while
+			Microsoft is not holding it back.
+		</dd>
+		<dt>Queue</dt>
+		<dd>
+			{#if engine.waiting.requested + engine.waiting.due + engine.waiting.firstCopy === 0}
+				No mailbox is waiting for a free slot.
+			{:else}
+				Waiting for a free slot: {plural(engine.waiting.requested, 'asked for', 'asked for')},
+				{plural(engine.waiting.firstCopy, 'first copy', 'first copies')},
+				{plural(engine.waiting.due, 'routine sync')}.
+			{/if}
+		</dd>
+		<dt>Microsoft throttling</dt>
+		<dd>
+			{engine.throttled.lastMinute} in the last minute, {engine.throttled.last15Minutes} in 15 minutes.
+			Lookstow slows down by itself when Microsoft asks it to.
+		</dd>
 	</dl>
-</Card>
+</details>
 
-<SpeedCard speed={data.live.speed} />
+<details class="more">
+	<summary>Speed details, for looking into a slow backup</summary>
+	<SpeedCard speed={data.live.speed} />
+</details>
 
-{#if data.needsAttention.length > 0}
-	<Card title="Needs attention" tone="bad">
-		<table>
-			<thead><tr><th>Mailbox</th><th>Problem</th><th>Last tried</th></tr></thead>
-			<tbody>
-				{#each data.needsAttention as mailbox (mailbox.id)}
-					<tr>
-						<td>
-							<a href={resolve('/mailboxes/[id]', { id: mailbox.id })}>{mailbox.address}</a>
-							{#if mailbox.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
-						</td>
-						<td>{mailbox.lastSyncError}</td>
-						<td>{formatRelative(mailbox.lastSyncFinishedAt)}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</Card>
-{/if}
-
-{#if data.problems.length > 0}
-	<Card title="Recent problems">
+{#if data.problems.cleared.length > 0}
+	<details class="more">
+		<summary
+			>Earlier problems ({data.problems.cleared.length}), since cleared or not about a mailbox</summary
+		>
 		<ul class="problems">
-			{#each data.problems as entry (entry.id)}
+			{#each data.problems.cleared as entry (entry.id)}
 				<li>
 					<span class="muted small">{formatDateTime(entry.at)}</span>
 					{entry.summary}{entry.detail === null ? '' : `: ${entry.detail}`}
@@ -263,7 +323,7 @@
 			{/each}
 		</ul>
 		<p><a href={resolve('/activity')}>All activity</a></p>
-	</Card>
+	</details>
 {/if}
 
 <style>
@@ -280,6 +340,8 @@
 		background: var(--colour-surface);
 		border: 1px solid var(--colour-border);
 		border-radius: var(--radius-lg);
+		color: inherit;
+		text-decoration: none;
 	}
 
 	.tile strong {
@@ -307,6 +369,18 @@
 		text-decoration: line-through;
 	}
 
+	.more {
+		background: var(--colour-surface);
+		border: 1px solid var(--colour-border);
+		border-radius: var(--radius-lg);
+		padding: var(--space-3) var(--space-4);
+	}
+
+	.more summary {
+		cursor: pointer;
+		font-weight: var(--font-weight-medium);
+	}
+
 	.facts {
 		display: grid;
 		grid-template-columns: max-content 1fr;
@@ -324,7 +398,7 @@
 
 	.problems {
 		list-style: none;
-		margin: 0 0 var(--space-3);
+		margin: var(--space-3) 0;
 		padding: 0;
 		display: grid;
 		gap: var(--space-2);

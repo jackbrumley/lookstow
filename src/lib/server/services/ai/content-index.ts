@@ -100,19 +100,23 @@ function unindexed(
 	limit: number,
 	before: number | null
 ): { id: string; doc: number }[] {
-	return db
-		.select({ id: contentDocs.messageId, doc: contentText.doc })
-		.from(contentText)
-		.innerJoin(contentDocs, eq(contentDocs.doc, contentText.doc))
-		.where(
-			and(
-				lt(contentText.version, CONTENT_VERSION),
-				before === null ? undefined : lt(contentText.doc, before)
+	return (
+		db
+			.select({ id: contentDocs.messageId, doc: contentText.doc })
+			.from(contentText)
+			.innerJoin(contentDocs, eq(contentDocs.doc, contentText.doc))
+			.where(
+				and(
+					lt(contentText.version, CONTENT_VERSION),
+					before === null ? undefined : lt(contentText.doc, before)
+				)
 			)
-		)
-		.orderBy(desc(contentText.doc))
-		.limit(limit)
-		.all();
+			// "+" keeps SQLite on the version index (then sorting the few waiting rows) instead of
+			// walking every row newest first to find them, which took 18 s on a large index.
+			.orderBy(desc(sql`+${contentText.doc}`))
+			.limit(limit)
+			.all()
+	);
 }
 
 /** Counted at most every PROGRESS_MS: every AI search reports it. */

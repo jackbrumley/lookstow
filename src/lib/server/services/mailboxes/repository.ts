@@ -331,6 +331,21 @@ export function moveMessage(
 	});
 }
 
+/** Each mailbox's folders, and how many of them have finished their first copy (the dashboard). */
+export function firstCopyProgress(db: Queryable): Map<string, { done: number; total: number }> {
+	const rows = db
+		.select({
+			mailboxId: mailFolders.mailboxId,
+			total: sql<number>`count(*)`,
+			done: sql<number>`coalesce(sum(${mailFolders.firstCopyDone}), 0)`
+		})
+		.from(mailFolders)
+		.where(isNull(mailFolders.goneAt))
+		.groupBy(mailFolders.mailboxId)
+		.all();
+	return new Map(rows.map((row) => [row.mailboxId, { done: row.done, total: row.total }]));
+}
+
 export function folderItemCounts(db: Queryable, mailboxId: string): Map<string, number> {
 	const rows = db
 		.select({ folderId: messages.folderId, count: sql<number>`count(*)` })

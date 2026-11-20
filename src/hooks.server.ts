@@ -1,6 +1,6 @@
 import { building } from '$app/env';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
-import { database, startWork } from '#lib/server/runtime.ts';
+import { aiTools, database, startWork } from '#lib/server/runtime.ts';
 import { startAutomaticUpdates } from '#lib/server/services/engine/auto-update.ts';
 import { errorText, serverLog } from '#lib/server/log.ts';
 import { serverUpdates, startUpdateChecks } from '#lib/server/services/server-updates/live.ts';
@@ -27,7 +27,7 @@ export const init: ServerInit = async () => {
 	startAutomaticUpdates(database, serverUpdates);
 	for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 		process.once(signal, () => {
-			void work.stop();
+			void Promise.all([work.stop(), aiTools().stop()]);
 		});
 	}
 	serverLog('info', 'startup', `Lookstow ${__LOOKSTOW_VERSION__} started`);

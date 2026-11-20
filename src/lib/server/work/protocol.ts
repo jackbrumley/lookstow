@@ -2,7 +2,6 @@ import type { AlertRecipient, EmailView } from '../../domain/alerts.ts';
 import type { IndexingProgress } from '../../domain/indexing.ts';
 import type { LiveStatus } from '../../domain/live-status.ts';
 import type { LearnedPace } from '../services/graph/governor.ts';
-import type { McpReply } from '../services/ai/mcp.ts';
 import type { NewActivity } from '../services/activity/activity.ts';
 import type { LogLevel } from '../log.ts';
 import type { SlowQuery } from '../database/slow-queries.ts';
@@ -11,7 +10,8 @@ import type { ThreadHealth } from './thread-health.ts';
 /**
  * What the web thread and the work thread say to each other (docs/specs/SPEC-SCALE.md). The work
  * thread runs everything that reads or writes a lot: the backup engine, email alerts, the
- * throughput monitor, the search and content indexes, and the AI tools. The web thread answers
+ * throughput monitor and the search and content indexes (the AI tools have their own thread,
+ * ai-main.ts). The web thread answers
  * the console from its own connection and a snapshot of the engine the work thread sends every
  * second, so a busy engine never makes a page wait.
  *
@@ -43,17 +43,13 @@ export type WorkCall =
 	| { name: 'cancelMove'; actor: string }
 	| { name: 'removeOldCopy'; actor: string }
 	| { name: 'forgetPace' }
-	| { name: 'sendTestAlert'; recipient: AlertRecipient; by: string }
-	| { name: 'mcp'; message: unknown; baseUrl: string }
-	| { name: 'attachment'; messageId: string; index: number; baseUrl: string };
+	| { name: 'sendTestAlert'; recipient: AlertRecipient; by: string };
 
 /** What each call answers; calls with nothing to say answer `done`. */
 export type WorkAnswer =
 	| { name: 'done' }
 	| { name: 'idle'; value: boolean }
-	| { name: 'testAlert'; value: EmailView | null }
-	| { name: 'mcp'; value: McpReply }
-	| { name: 'attachment'; value: AttachmentReply };
+	| { name: 'testAlert'; value: EmailView | null };
 
 export type ToWork =
 	| { type: 'call'; id: number; call: WorkCall }

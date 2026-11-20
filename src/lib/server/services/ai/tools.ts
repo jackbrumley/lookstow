@@ -216,7 +216,7 @@ async function search(
 ): Promise<ToolResult> {
 	const page = input.page ?? 0;
 	const pageSize = input.pageSize ?? DEFAULT_PAGE_SIZE;
-	const { hits, total, notIndexed } = aiSearch(
+	const { hits, total, more, notIndexed } = aiSearch(
 		context.db,
 		queryOf(input),
 		filtersOf(input),
@@ -253,7 +253,9 @@ async function search(
 		total,
 		page,
 		pageSize,
-		morePages: (page + 1) * pageSize < total,
+		morePages: more || (page + 1) * pageSize < total,
+		// More matched than were counted (content filters count up to 10,000).
+		...(more ? { totalIsAtLeast: true } : {}),
 		contentIndex: contentIndexProgress(context.db),
 		notIndexed,
 		messages: results

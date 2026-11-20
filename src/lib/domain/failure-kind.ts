@@ -5,7 +5,7 @@
  */
 export type FailureKind = 'throttled' | 'network' | 'permission' | 'disk' | 'microsoft' | 'other';
 
-export const FAILURE_KIND_LABEL: Record<FailureKind, string> = {
+const FAILURE_KIND_LABEL: Record<FailureKind, string> = {
 	throttled: 'slowed down by Microsoft',
 	network: 'network',
 	permission: 'permission',

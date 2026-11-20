@@ -5,11 +5,9 @@ import type { IndexingProgress } from '../../domain/indexing.ts';
 import type { LiveStatus } from '../../domain/live-status.ts';
 import { errorText, serverLog, writeLogLine } from '../log.ts';
 import { onActivity } from '../services/activity/activity.ts';
-import type { McpReply } from '../services/ai/mcp.ts';
 import type { LearnedPace } from '../services/graph/governor.ts';
 import {
 	isFromWork,
-	type AttachmentReply,
 	type ToWork,
 	type WorkAnswer,
 	type WorkCall,
@@ -242,18 +240,6 @@ export class WorkThread {
 
 	async forgetPace(): Promise<void> {
 		await this.#call({ name: 'forgetPace' });
-	}
-
-	async mcp(message: unknown, baseUrl: string): Promise<McpReply> {
-		const answer = await this.#call({ name: 'mcp', message, baseUrl });
-		if (answer.name !== 'mcp') throw new Error('The work thread answered the wrong call.');
-		return answer.value;
-	}
-
-	async attachment(messageId: string, index: number, baseUrl: string): Promise<AttachmentReply> {
-		const answer = await this.#call({ name: 'attachment', messageId, index, baseUrl });
-		if (answer.name !== 'attachment') throw new Error('The work thread answered the wrong call.');
-		return answer.value;
 	}
 
 	/** Lets the engine finish its pages and the indexes their batches, then ends the thread. */

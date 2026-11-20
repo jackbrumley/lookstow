@@ -39,6 +39,9 @@ function bodyQuery(body: string): string | null {
 	return [...new Set(words)].map((word) => `"${word}"*`).join(' AND ');
 }
 
+/** A search with content filters counts its matches up to this many. */
+const COUNT_LIMIT = 10_000;
+
 /** Whether any content filter is set: they match only messages the content reader has read. */
 function filtersContent(filters: ContentFilters): boolean {
 	return (
@@ -101,19 +104,28 @@ export function aiSearch(
 	filters: ContentFilters,
 	page: number,
 	pageSize: number
-): { hits: AiHit[]; total: number; notIndexed: number } {
+): { hits: AiHit[]; total: number; more: boolean; notIndexed: number } {
 	const plan = searchPlan(db, query);
 	const found = plan.where;
 	const where = and(...found, ...contentConditions(filters));
-	const total =
-		db
-			.select({ total: count() })
-			.from(messages)
-			.innerJoin(mailFolders, eq(messages.folderId, mailFolders.id))
-			.leftJoin(contentDocs, eq(contentDocs.messageId, messages.id))
-			.leftJoin(contentText, eq(contentText.doc, contentDocs.doc))
-			.where(where)
-			.get()?.total ?? 0;
+	// The count joins the content tables only when a content filter needs them, and with a content
+	// filter it stops past COUNT_LIMIT: counting every photo in an archive held the engine's
+	// thread for seconds a call.
+	const content = filtersContent(filters);
+	const base = db
+		.select({ one: sql`1` })
+		.from(messages)
+		.innerJoin(mailFolders, eq(messages.folderId, mailFolders.id));
+	const matching = content
+		? base
+				.leftJoin(contentDocs, eq(contentDocs.messageId, messages.id))
+				.leftJoin(contentText, eq(contentText.doc, contentDocs.doc))
+				.where(where)
+				.limit(COUNT_LIMIT + 1)
+		: base.where(where);
+	const counted = db.select({ total: count() }).from(matching.as('matching')).get()?.total ?? 0;
+	const more = content && counted > COUNT_LIMIT;
+	const total = more ? COUNT_LIMIT : counted;
 	// What content filters may still miss: the messages the content reader has not read yet.
 	const progress = contentIndexProgress(db);
 	const notIndexed = filtersContent(filters) ? Math.max(0, progress.total - progress.indexed) : 0;
@@ -146,7 +158,7 @@ export function aiSearch(
 					}
 				: null
 	}));
-	return { hits, total, notIndexed };
+	return { hits, total, more, notIndexed };
 }
 
 /** Who sent the most messages matching the filters: for finding farm managers and farms. */

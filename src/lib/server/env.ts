@@ -94,6 +94,11 @@ export function workEntryPath(): string | undefined {
 	return optional('LOOKSTOW_WORK_ENTRY');
 }
 
+/** The AI tools' thread's entry file, which server.ts sets beside the work thread's. */
+export function aiEntryPath(): string | undefined {
+	return optional('LOOKSTOW_AI_ENTRY');
+}
+
 export const env = {
 	/** Path to the SQLite database file, e.g. ./data/lookstow.db; `:memory:` in tests. */
 	databasePath: required('DATABASE_PATH'),

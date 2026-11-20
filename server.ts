@@ -42,13 +42,17 @@ const dataLock =
 const PROTOCOL_HEADER = 'x-lookstow-protocol';
 process.env['PROTOCOL_HEADER'] = PROTOCOL_HEADER;
 
-// The work thread's entry (docs/specs/SPEC-SCALE.md): app/work.js beside a release's server.js,
-// or the source file in a source run.
+// The work thread's and the AI tools' entries (docs/specs/SPEC-SCALE.md): app/work.js and
+// app/ai.js beside a release's server.js, or the source files in a source run.
 const bundledWork = new URL('./work.js', import.meta.url);
+const bundled = existsSync(bundledWork);
 process.env['LOOKSTOW_WORK_ENTRY'] = fileURLToPath(
-	existsSync(bundledWork)
-		? bundledWork
-		: new URL('./src/lib/server/work/work-thread.ts', import.meta.url)
+	bundled ? bundledWork : new URL('./src/lib/server/work/work-thread.ts', import.meta.url)
+);
+process.env['LOOKSTOW_AI_ENTRY'] = fileURLToPath(
+	bundled
+		? new URL('./ai.js', import.meta.url)
+		: new URL('./src/lib/server/work/ai-thread.ts', import.meta.url)
 );
 
 // Importing the handler runs the app's `init` hook (migrations, the backup engine, update checks).
