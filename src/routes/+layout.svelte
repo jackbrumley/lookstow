@@ -15,6 +15,7 @@
 	import IconBook from '@tabler/icons-svelte-runes/icons/book';
 	import IconPackageExport from '@tabler/icons-svelte-runes/icons/package-export';
 	import ToastHost from '#lib/ui/toast-host.svelte';
+	import ConfirmationHost from '#lib/ui/confirmation-host.svelte';
 	import Modal from '#lib/ui/modal.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import IconPlayerPause from '@tabler/icons-svelte-runes/icons/player-pause';
@@ -198,12 +199,6 @@
 				disabled={switching}
 				onclick={() => void togglePause()}
 			>
-				{#if live.engine.backupMove.kind === 'moving'}
-					<div class="banner" role="status">
-						The backup is moving to {live.engine.backupMove.to}. Backups and changes wait until
-						every file is copied and checked. Settings, Backup folder shows how far it is.
-					</div>
-				{/if}
 				{#if pause.paused}<IconPlayerPlay size={18} /> Resume{:else}<IconPlayerPause size={18} /> Pause{/if}
 			</button>
 		{/if}
@@ -241,13 +236,25 @@
 				to use the new version.
 			</div>
 		{/if}
+		{#if live.engine.backupMove.kind === 'moving'}
+			<div class="banner" role="status">
+				The backup is moving to {remote === null ? live.engine.backupMove.to : 'a new folder'}.
+				Backups and changes wait until every file is copied and checked.
+				{#if remote === null}<a href={resolve('/settings')}>Settings</a>, Backup folder shows how
+					far it is.{/if}
+			</div>
+		{/if}
 		{#if pause.paused}
+			<!-- Only this computer can press Resume, so remote people are told only that it waits. -->
 			<div class="banner" class:bad={pause.reason === 'disk'} role="status">
 				{#if pause.reason === 'disk'}
 					Backups are paused: the backup drive is {formatPercent(disk.usedPercent)} full (the limit is
-					{disk.pausePercent}%). Free some space, then press Resume.
-				{:else}
+					{disk.pausePercent}%).{#if remote === null}
+						Free some space, then press Resume.{/if}
+				{:else if remote === null}
 					Backups are paused. Nothing syncs until you press Resume.
+				{:else}
+					Backups are paused for now, so the newest mail may not be here yet.
 				{/if}
 			</div>
 		{:else if disk.level === 'warn'}
@@ -269,6 +276,7 @@
 	</main>
 </div>
 <ToastHost />
+<ConfirmationHost />
 
 {#if update !== null}
 	<Modal open={reminding} title={`Lookstow ${update.version} is available`} locked>

@@ -8,6 +8,7 @@
 	import Card from '#lib/ui/card.svelte';
 	import DataTable from '#lib/ui/data-table.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
+	import ConfirmForm from '#lib/ui/confirm-form.svelte';
 	import ExistingBackupChoice from '#lib/ui/existing-backup-choice.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { KIND_LABELS, STATE_LABELS } from '#lib/domain/mailboxes.ts';
@@ -33,7 +34,6 @@
 	});
 
 	let excludeOpen = $state(false);
-	let deleteOpen = $state(false);
 	const mailbox = $derived(data.mailbox);
 
 	type Folder = (typeof data.mailbox.folders)[number];
@@ -115,7 +115,17 @@
 				<Button type="submit" variant="secondary">Search this mailbox</Button>
 			</form>
 			{#if data.remote === null}
-				<Button variant="ghost" onclick={() => (deleteOpen = true)}>Delete backup…</Button>
+				<ConfirmForm
+					action="?/deleteBackup"
+					variant="ghost"
+					question={{
+						title: "Delete this mailbox's backup?",
+						message: `Every stored message of ${mailbox.address} is deleted from the backup drive (${plural(mailbox.itemCount, 'message')}, ${formatBytes(mailbox.byteCount)}). The files cannot be brought back. If the mailbox is still backed up, its next sync starts a new first copy.`,
+						confirmText: 'Delete the backup',
+						tone: 'danger',
+						match: mailbox.address
+					}}>Delete backup…</ConfirmForm
+				>
 			{/if}
 		{/if}
 	{/snippet}
@@ -351,33 +361,7 @@
 	/>
 </FormModal>
 
-<FormModal
-	bind:open={deleteOpen}
-	title="Delete this mailbox's backup?"
-	action="?/deleteBackup"
-	submitLabel="Delete the backup"
-	variant="danger"
->
-	<p>
-		Every stored message of <strong>{mailbox.address}</strong> is deleted from the backup drive ({plural(
-			mailbox.itemCount,
-			'message'
-		)}, {formatBytes(mailbox.byteCount)}). The files cannot be brought back. If the mailbox is still
-		backed up, its next sync starts a new first copy.
-	</p>
-	<label class="confirm">
-		Type <strong>{mailbox.address}</strong> to confirm.
-		<input name="confirm" autocomplete="off" required />
-	</label>
-</FormModal>
-
 <style>
-	.confirm {
-		display: grid;
-		gap: var(--space-1);
-		margin-top: var(--space-3);
-	}
-
 	.error {
 		color: var(--colour-bad);
 	}

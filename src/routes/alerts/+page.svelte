@@ -7,7 +7,8 @@
 	import Card from '#lib/ui/card.svelte';
 	import DataTable from '#lib/ui/data-table.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
-	import Modal from '#lib/ui/modal.svelte';
+	import ConfirmForm from '#lib/ui/confirm-form.svelte';
+	import RecordModals from '#lib/ui/record-modals.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import {
 		ALERT_LABELS,
@@ -28,11 +29,8 @@
 	});
 
 	let mailgunOpen = $state(false);
-	let clearOpen = $state(false);
 	let addOpen = $state(false);
-	let editOpen = $state(false);
-	let removeOpen = $state(false);
-	/** The person the edit or remove form is for. */
+	/** The person opened from the list. */
 	let chosen = $state<AlertRecipient | null>(null);
 	let testing = $state<string | null>(null);
 
@@ -43,15 +41,13 @@
 		'not-sent': { label: 'Not sent', tone: 'warn' }
 	};
 
-	// A person opened from the list, as they stand now.
-	let viewOpen = $state(false);
+	// The person opened from the list, as they stand now.
 	const viewed = $derived(
 		chosen === null ? undefined : data.recipients.find((each) => each.id === chosen?.id)
 	);
 
 	function open(person: AlertRecipient): void {
 		chosen = person;
-		viewOpen = true;
 	}
 </script>
 
@@ -66,7 +62,17 @@
 			>{data.mailgun.kind === 'none' ? 'Set up…' : 'Change…'}</Button
 		>
 		{#if data.mailgun.kind === 'set'}
-			<Button variant="ghost" onclick={() => (clearOpen = true)}>Remove…</Button>
+			<ConfirmForm
+				action="?/clearMailgun"
+				variant="ghost"
+				question={{
+					title: 'Remove the Mailgun setup?',
+					message:
+						'Lookstow stops sending alert emails. Alerts are still recorded on this page, as not sent. The list of people stays.',
+					confirmText: 'Remove',
+					tone: 'danger'
+				}}>Remove…</ConfirmForm
+			>
 		{/if}
 	{/snippet}
 	{#if data.mailgun.kind === 'none'}
@@ -192,19 +198,6 @@
 	>
 </FormModal>
 
-<FormModal
-	bind:open={clearOpen}
-	title="Remove the Mailgun setup?"
-	action="?/clearMailgun"
-	submitLabel="Remove"
-	variant="danger"
->
-	<p>
-		Lookstow stops sending alert emails. Alerts are still recorded on this page, as not sent. The
-		list of people stays.
-	</p>
-</FormModal>
-
 {#snippet personFields(person: AlertRecipient | null)}
 	<label>Name <input name="name" required maxlength="100" value={person?.name ?? ''} /></label>
 	<label
@@ -237,80 +230,71 @@
 	</fieldset>
 {/snippet}
 
-<Modal bind:open={viewOpen} title={viewed === undefined ? 'Person' : viewed.name}>
-	{#if viewed !== undefined}
+<RecordModals
+	record={viewed ?? null}
+	onclose={() => (chosen = null)}
+	title={(person: RowPerson) => person.name}
+	size="lg"
+	editAction="?/edit"
+	editLabel="Change…"
+	editTitle={(person: RowPerson) => `Change alerts: ${person.name}`}
+	deleteAction="?/remove"
+	deleteLabel="Remove…"
+	deleteFields={(person: RowPerson) => ({ id: person.id })}
+	deleteQuestion={(person: RowPerson) => ({
+		title: `Remove ${person.name}?`,
+		message: `${person.name} (${person.email}) gets no more alert emails. Emails already sent stay in the list.`,
+		confirmText: 'Remove'
+	})}
+>
+	{#snippet details(person: RowPerson)}
 		<DetailView>
 			<dt>Email</dt>
-			<dd>{viewed.email}</dd>
+			<dd>{person.email}</dd>
 			<dt>Sending</dt>
 			<dd>
-				{#if viewed.enabled}<Badge tone="ok">On</Badge>{:else}<Badge tone="warn">Paused</Badge>{/if}
+				{#if person.enabled}<Badge tone="ok">On</Badge>{:else}<Badge tone="warn">Paused</Badge>{/if}
 			</dd>
 			<dt>Alerts</dt>
 			<dd>
-				{#if viewed.alerts.length === 0}
+				{#if person.alerts.length === 0}
 					<span class="muted">None ticked</span>
 				{:else}
 					<ul class="alerts">
-						{#each viewed.alerts as alert (alert)}
+						{#each person.alerts as alert (alert)}
 							<li>{ALERT_LABELS[alert].label}</li>
 						{/each}
 					</ul>
 				{/if}
 			</dd>
 		</DetailView>
-	{/if}
-	{#snippet footer()}
-		{#if viewed !== undefined}
-			<div class="view-footer">
-				<div class="left">
-					<Button onclick={() => (editOpen = true)}>Change…</Button>
-					<form
-						method="POST"
-						action="?/test"
-						use:enhance={() => {
-							testing = viewed.id;
-							return async ({ update }) => {
-								await update();
-								testing = null;
-							};
-						}}
-					>
-						<input type="hidden" name="id" value={viewed.id} />
-						<Button type="submit" variant="secondary" disabled={testing !== null}
-							>{testing === viewed.id ? 'Sending…' : 'Send a test'}</Button
-						>
-					</form>
-				</div>
-				<Button variant="danger" onclick={() => (removeOpen = true)}>Remove…</Button>
-			</div>
-		{/if}
 	{/snippet}
-</Modal>
+	{#snippet actions(person: RowPerson)}
+		<form
+			method="POST"
+			action="?/test"
+			use:enhance={() => {
+				testing = person.id;
+				return async ({ update }) => {
+					await update();
+					testing = null;
+				};
+			}}
+		>
+			<input type="hidden" name="id" value={person.id} />
+			<Button type="submit" variant="secondary" disabled={testing !== null}
+				>{testing === person.id ? 'Sending…' : 'Send a test'}</Button
+			>
+		</form>
+	{/snippet}
+	{#snippet form(person: RowPerson)}
+		<input type="hidden" name="id" value={person.id} />
+		{@render personFields(person)}
+	{/snippet}
+</RecordModals>
 
 <FormModal bind:open={addOpen} title="Add a person" action="?/add" submitLabel="Add" size="lg">
 	{@render personFields(null)}
-</FormModal>
-
-<FormModal bind:open={editOpen} title="Change alerts" action="?/edit" size="lg">
-	{#if viewed !== undefined}
-		<input type="hidden" name="id" value={viewed.id} />
-		{@render personFields(viewed)}
-	{/if}
-</FormModal>
-
-<FormModal
-	bind:open={removeOpen}
-	title="Remove this person?"
-	action="?/remove"
-	submitLabel="Remove"
-	variant="danger"
-	onsuccess={() => (viewOpen = false)}
->
-	{#if chosen !== null}
-		<input type="hidden" name="id" value={chosen.id} />
-		<p><strong>{chosen.name}</strong> ({chosen.email}) gets no more alert emails.</p>
-	{/if}
 </FormModal>
 
 <style>
@@ -340,20 +324,6 @@
 	.alerts {
 		margin: 0;
 		padding-left: var(--space-4);
-	}
-
-	.view-footer {
-		display: flex;
-		flex: 1;
-		flex-wrap: wrap;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-
-	.view-footer .left {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
 	}
 
 	.nowrap {

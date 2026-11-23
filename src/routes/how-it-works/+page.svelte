@@ -31,8 +31,11 @@
 <Card title="What it copies, and when">
 	<p>
 		Every mailbox discovery finds, or only the ones you pick: see
-		<a href={resolve('/settings')}>Settings</a>, What is backed up. Lookstow looks for new and
-		removed mailboxes every {plural(data.discoverEveryHours, 'hour')}.
+		{#if data.remote === null}<a href={resolve('/settings')}>Settings</a>{:else}Settings{/if}, What
+		is backed up. Lookstow looks for new and removed mailboxes every {plural(
+			data.discoverEveryHours,
+			'hour'
+		)}.
 	</p>
 	<p>
 		Every {plural(data.syncEveryMinutes, 'minute')}, it asks Microsoft what changed in each folder
@@ -146,8 +149,9 @@
 
 <Card title="Updates">
 	<p>
-		Lookstow checks for signed releases once a day: see <a href={resolve('/updates')}>Updates</a>.
-		An update copies the index first, and goes back to the old version by itself if the new one does
+		Lookstow checks for signed releases once a day: see
+		{#if data.remote === null}<a href={resolve('/updates')}>Updates</a>{:else}Updates{/if}. An
+		update copies the index first, and goes back to the old version by itself if the new one does
 		not start.
 	</p>
 </Card>

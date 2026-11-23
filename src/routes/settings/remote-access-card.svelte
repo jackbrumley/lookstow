@@ -8,7 +8,6 @@
 	show once, in a window of their own, never inline.
 -->
 <script lang="ts">
-	import { enhance } from '$app/forms';
 	import Callout from '#lib/ui/callout.svelte';
 	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
@@ -17,6 +16,8 @@
 	import DataTable from '#lib/ui/data-table.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
 	import Modal from '#lib/ui/modal.svelte';
+	import ConfirmForm from '#lib/ui/confirm-form.svelte';
+	import RecordModals from '#lib/ui/record-modals.svelte';
 	import Switch from '#lib/ui/switch.svelte';
 	import { formatDateTime } from '#lib/utils/format.ts';
 	import type { RemoteView } from '#lib/domain/remote.ts';
@@ -38,11 +39,7 @@
 
 	let accessOpen = $state(false);
 	let addOpen = $state(false);
-	let certificateOpen = $state(false);
-	let viewOpen = $state(false);
-	let editOpen = $state(false);
 	let passwordOpen = $state(false);
-	let deleteOpen = $state(false);
 	let viewing = $state<string | null>(null);
 	// Lookstow makes the password unless someone wants to type their own.
 	let makeForAdd = $state(true);
@@ -57,7 +54,6 @@
 
 	function open(row: Account): void {
 		viewing = row.username;
-		viewOpen = true;
 	}
 
 	// The details to send, until the window is closed; each new set shows again.
@@ -225,91 +221,99 @@
 		</DataTable>
 		<p class="muted small">The full trail is in the remote-audit folder in the data folder.</p>
 	{/if}
-	<Button variant="secondary" onclick={() => (certificateOpen = true)}
-		>Make a new certificate…</Button
+	<ConfirmForm
+		action="?/remoteCertificate"
+		question={{
+			title: 'Make a new certificate?',
+			message:
+				"Use this if the computer's name or address changed, or the certificate is close to its two-year end. Every browser warns once more until the person accepts the new one.",
+			confirmText: 'Make it'
+		}}>Make a new certificate…</ConfirmForm
 	>
 </Card>
 
-<Modal bind:open={viewOpen} title={`Account: ${account?.username ?? ''}`}>
-	{#if account !== undefined}
+<RecordModals
+	record={account ?? null}
+	onclose={() => (viewing = null)}
+	title={(row: Account) => `Account: ${row.username}`}
+	editAction="?/remoteAccount"
+	editTitle={(row: Account) => `Edit account: ${row.username}`}
+	deleteAction="?/remoteDelete"
+	deleteFields={(row: Account) => ({ username: row.username })}
+	deleteQuestion={(row: Account) => ({
+		title: `Delete ${row.username}?`,
+		message: `${row.username} is signed out and can no longer sign in, and their AI token stops working. Their lines in the audit trail are kept.`
+	})}
+>
+	{#snippet details(row: Account)}
 		<DetailView>
 			<dt>Username</dt>
-			<dd>{account.username}</dd>
+			<dd>{row.username}</dd>
 			<dt>Status</dt>
 			<dd>
-				{#if account.disabled}<Badge tone="neutral">Disabled</Badge> cannot sign in{:else}<Badge
+				{#if row.disabled}<Badge tone="neutral">Disabled</Badge> cannot sign in{:else}<Badge
 						tone="ok">Active</Badge
 					>
 					{remote.enabled ? 'can sign in' : 'can sign in once remote access is on'}{/if}
 			</dd>
 			<dt>Evidence packs</dt>
 			<dd>
-				{#if account.evidencePacks}<Badge tone="info">Allowed</Badge> can make and download packs{:else}Not
+				{#if row.evidencePacks}<Badge tone="info">Allowed</Badge> can make and download packs{:else}Not
 					allowed{/if}
 			</dd>
 			<dt>AI tools</dt>
 			<dd>
-				{#if account.aiTools}<Badge tone="info">Allowed</Badge>
-					{account.aiTokenHint === null ? '' : `token ends …${account.aiTokenHint}`}{:else}Not
-					allowed{/if}
+				{#if row.aiTools}<Badge tone="info">Allowed</Badge>
+					{row.aiTokenHint === null ? '' : `token ends …${row.aiTokenHint}`}{:else}Not allowed{/if}
 			</dd>
 			<dt>Added</dt>
-			<dd>{formatDateTime(account.createdAt)}</dd>
+			<dd>{formatDateTime(row.createdAt)}</dd>
 			<dt>Last signed in</dt>
-			<dd>{account.lastSignInAt === null ? 'Never' : formatDateTime(account.lastSignInAt)}</dd>
+			<dd>{row.lastSignInAt === null ? 'Never' : formatDateTime(row.lastSignInAt)}</dd>
 		</DetailView>
-	{/if}
-	{#snippet footer()}
-		<div class="footer">
-			<div class="left">
-				<Button onclick={() => (editOpen = true)}>Edit</Button>
-				<Button
-					variant="secondary"
-					onclick={() => {
-						makeForNew = true;
-						passwordOpen = true;
-					}}>New password…</Button
-				>
-				{#if account?.aiTools === true}
-					<form method="POST" action="?/remoteAiToken" use:enhance>
-						<input type="hidden" name="username" value={account.username} />
-						<Button type="submit" variant="secondary" title="Make a new token and stop the old one"
-							>New AI token</Button
-						>
-					</form>
-				{/if}
-			</div>
-			<Button variant="danger" onclick={() => (deleteOpen = true)}>Delete…</Button>
-		</div>
 	{/snippet}
-</Modal>
-
-<FormModal
-	bind:open={editOpen}
-	title={`Edit account: ${account?.username ?? ''}`}
-	action="?/remoteAccount"
->
-	{#if account !== undefined}
-		<input type="hidden" name="username" value={account.username} />
+	{#snippet actions(row: Account)}
+		<Button
+			variant="secondary"
+			onclick={() => {
+				makeForNew = true;
+				passwordOpen = true;
+			}}>New password…</Button
+		>
+		{#if row.aiTools}
+			<ConfirmForm
+				action="?/remoteAiToken"
+				fields={{ username: row.username }}
+				question={{
+					title: `New AI token for ${row.username}?`,
+					message:
+						'Lookstow makes a new token and the old one stops working at once. The new setup then shows in a window to send.',
+					confirmText: 'Make a new token'
+				}}>New AI token…</ConfirmForm
+			>
+		{/if}
+	{/snippet}
+	{#snippet form(row: Account)}
+		<input type="hidden" name="username" value={row.username} />
 		<Switch
 			name="canSignIn"
-			checked={!account.disabled}
+			checked={!row.disabled}
 			hint="Off stops sign-in and the AI token at once and signs them out; nothing is deleted."
 			>Can sign in</Switch
 		>
 		<Switch
 			name="evidencePacks"
-			checked={account.evidencePacks}
+			checked={row.evidencePacks}
 			hint="Can make evidence packs (bulk copies of mail) and download them.">Evidence packs</Switch
 		>
 		<Switch
 			name="aiTools"
-			checked={account.aiTools}
+			checked={row.aiTools}
 			hint="Claude Code on their computer can search, read and make packs, with a token of its own. Turning it on shows the token and setup to send."
 			>AI tools</Switch
 		>
-	{/if}
-</FormModal>
+	{/snippet}
+</RecordModals>
 
 <FormModal
 	bind:open={passwordOpen}
@@ -318,7 +322,7 @@
 >
 	<input type="hidden" name="username" value={account?.username ?? ''} />
 	<label class="check">
-		<input type="checkbox" name="generate" bind:checked={makeForNew} />
+		<input type="checkbox" name="generate" bind:checked={makeForNew} data-dirty-ignore />
 		Make a password for me
 	</label>
 	{#if !makeForNew}
@@ -333,21 +337,6 @@
 	{/if}
 	<p class="muted small">
 		They are signed out everywhere. The new details then show in a window to copy and send.
-	</p>
-</FormModal>
-
-<FormModal
-	bind:open={deleteOpen}
-	title={`Delete ${account?.username ?? ''}`}
-	action="?/remoteDelete"
-	submitLabel="Delete"
-	variant="danger"
-	onsuccess={() => (viewOpen = false)}
->
-	<input type="hidden" name="username" value={account?.username ?? ''} />
-	<p>
-		{account?.username} is signed out and can no longer sign in, and their AI token stops working. Their
-		lines in the audit trail are kept.
 	</p>
 </FormModal>
 
@@ -400,7 +389,7 @@
 		<input name="username" required maxlength="40" autocomplete="off" />
 	</label>
 	<label class="check">
-		<input type="checkbox" name="generate" bind:checked={makeForAdd} />
+		<input type="checkbox" name="generate" bind:checked={makeForAdd} data-dirty-ignore />
 		Make a password for me
 	</label>
 	{#if !makeForAdd}
@@ -416,18 +405,6 @@
 	<p class="muted small">
 		Once added, a window shows the address, username and password to copy and send to the person.
 		Five wrong passwords lock the username for 15 minutes.
-	</p>
-</FormModal>
-
-<FormModal
-	bind:open={certificateOpen}
-	title="Make a new certificate"
-	action="?/remoteCertificate"
-	submitLabel="Make it"
->
-	<p>
-		Use this if the computer's name or address changed, or the certificate is close to its two-year
-		end. Every browser warns once more until the person accepts the new one.
 	</p>
 </FormModal>
 
@@ -491,20 +468,6 @@
 		padding: var(--space-3);
 		border-radius: var(--radius-md);
 		font-size: var(--font-size-sm);
-	}
-
-	.footer {
-		display: flex;
-		flex: 1;
-		flex-wrap: wrap;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-
-	.footer .left {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
 	}
 
 	textarea[readonly] {

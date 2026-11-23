@@ -398,7 +398,7 @@
 			>Earlier problems ({data.problems.cleared.length}), since cleared or not about a mailbox</summary
 		>
 		{@render problemList(data.problems.cleared)}
-		<p><a href={resolve('/activity')}>All activity</a></p>
+		{#if data.remote === null}<p><a href={resolve('/activity')}>All activity</a></p>{/if}
 	</details>
 {/if}
 

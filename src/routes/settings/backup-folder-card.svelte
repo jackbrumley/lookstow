@@ -9,6 +9,7 @@
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
+	import ConfirmForm from '#lib/ui/confirm-form.svelte';
 	import type { BackupMoveStatus } from '#lib/domain/engine.ts';
 	import { formatBytes, formatCount, formatDateTime, plural } from '#lib/utils/format.ts';
 
@@ -34,8 +35,6 @@
 
 	let changeOpen = $state(false);
 	let moveOpen = $state(false);
-	let removeOpen = $state(false);
-	let removeTyped = $state('');
 	const percent = $derived(
 		move.kind === 'moving' && move.totalBytes > 0
 			? Math.min(100, Math.round((move.bytes / move.totalBytes) * 100))
@@ -56,7 +55,17 @@
 				<Button type="submit" variant="secondary">Stop the move</Button>
 			</form>
 		{:else if move.removing === null}
-			<Button variant="danger" onclick={() => (removeOpen = true)}>Remove the old copy…</Button>
+			<ConfirmForm
+				action="?/removeOld"
+				variant="danger"
+				question={{
+					title: 'Remove the old copy?',
+					message: `This deletes the old copy in ${move.from}. Each file is deleted only when its copy in ${move.to} has the same contents; any other is kept and named in the activity log.`,
+					confirmText: 'Remove the old copy',
+					tone: 'danger',
+					match: 'REMOVE'
+				}}>Remove the old copy…</ConfirmForm
+			>
 		{/if}
 	{/snippet}
 	<p>
@@ -174,24 +183,4 @@
 		and start backups again. The old copy stays until you remove it. If the service restarts during the
 		move, it carries on from where it was.
 	</p>
-</FormModal>
-
-<FormModal
-	bind:open={removeOpen}
-	title="Remove the old copy"
-	action="?/removeOld"
-	submitLabel="Remove the old copy"
-	variant="danger"
-	canSubmit={removeTyped.trim() === 'REMOVE'}
->
-	{#if move.kind === 'moved'}
-		<p>
-			This deletes the old copy in <code>{move.from}</code>. Each file is deleted only when its copy
-			in <code>{move.to}</code> has the same contents; any other is kept and named in the activity log.
-		</p>
-	{/if}
-	<label>
-		Type REMOVE to confirm
-		<input name="confirm" bind:value={removeTyped} autocomplete="off" />
-	</label>
 </FormModal>

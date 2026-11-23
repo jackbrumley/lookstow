@@ -8,6 +8,7 @@
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
+	import ConfirmForm from '#lib/ui/confirm-form.svelte';
 	import Modal from '#lib/ui/modal.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import BackupFolderCard from './backup-folder-card.svelte';
@@ -34,12 +35,10 @@
 
 	let idsOpen = $state(false);
 	let secretOpen = $state(false);
-	let certificateOpen = $state(false);
 	let scopeOpen = $state(false);
 	let scheduleOpen = $state(false);
 	let updatesOpen = $state(false);
 	let diskOpen = $state(false);
-	let forgetOpen = $state(false);
 	let aiOpen = $state(false);
 	const ai = $derived(data.ai);
 	const newToken = $derived(form !== null && 'token' in form ? form.token : null);
@@ -119,14 +118,27 @@
 		</dd>
 	</DetailView>
 	<div class="row">
-		<Button
+		<ConfirmForm
+			action="?/certificate"
 			variant={connection.auth.kind === 'certificate' ? 'secondary' : 'primary'}
-			onclick={() => (certificateOpen = true)}
+			question={{
+				title:
+					connection.auth.kind === 'certificate'
+						? 'Replace the sign-in certificate?'
+						: 'Create a sign-in certificate?',
+				message:
+					'Lookstow makes a new certificate and keeps its private key, sealed, on this server. Download the certificate afterwards and upload it to the app registration.' +
+					(connection.auth.kind === 'none'
+						? ''
+						: ' This replaces how Lookstow signs in now. Backups stop until the new certificate is uploaded.'),
+				confirmText: 'Create',
+				tone: connection.auth.kind === 'none' ? 'primary' : 'danger'
+			}}
 		>
 			{connection.auth.kind === 'certificate'
 				? 'Replace the certificate…'
 				: 'Create a certificate…'}
-		</Button>
+		</ConfirmForm>
 		<Button variant="ghost" onclick={() => (secretOpen = true)}>Use a client secret instead…</Button
 		>
 	</div>
@@ -244,7 +256,14 @@
 
 <Card title="Speed">
 	{#snippet actions()}
-		<Button variant="secondary" onclick={() => (forgetOpen = true)}>Forget what was learned…</Button
+		<ConfirmForm
+			action="?/forgetPace"
+			question={{
+				title: 'Forget what was learned?',
+				message:
+					'Lookstow goes back to its first-run pace and finds Microsoft’s limit again over the next hour or so. Use this after Microsoft’s limits change, or if copying stays slow for no clear reason.',
+				confirmText: 'Forget'
+			}}>Forget what was learned…</ConfirmForm
 		>
 	{/snippet}
 	<p>
@@ -263,18 +282,6 @@
 		Mailboxes are added while Microsoft has room for them, up to the schedule's maximum.
 	</p>
 </Card>
-
-<FormModal
-	bind:open={forgetOpen}
-	title="Forget what was learned?"
-	action="?/forgetPace"
-	submitLabel="Forget"
->
-	<p>
-		Lookstow goes back to its first-run pace and finds Microsoft’s limit again over the next hour or
-		so. Use this after Microsoft’s limits change, or if copying stays slow for no clear reason.
-	</p>
-</FormModal>
 
 <Card title="AI tools">
 	{#snippet actions()}
@@ -437,24 +444,6 @@
 			autocomplete="off"
 		/></label
 	>
-</FormModal>
-
-<FormModal
-	bind:open={certificateOpen}
-	title="Create a sign-in certificate"
-	action="?/certificate"
-	submitLabel="Create"
->
-	<p>
-		Lookstow makes a new certificate and keeps its private key, sealed, on this server. Download the
-		certificate afterwards and upload it to the app registration.
-	</p>
-	{#if connection.auth.kind !== 'none'}
-		<p>
-			<strong>This replaces how Lookstow signs in now.</strong> Backups stop until the new certificate
-			is uploaded.
-		</p>
-	{/if}
 </FormModal>
 
 <FormModal bind:open={secretOpen} title="Use a client secret" action="?/secret">

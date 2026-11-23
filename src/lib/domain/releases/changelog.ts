@@ -20,6 +20,31 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.8',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.8 from the Updates page. Expected: the countdown, then the console back by itself',
+				'In Settings, Remote access, click an account, then Edit; change a switch and press Esc. Expected: “Discard your changes?”; Keep editing returns to the form as you left it, Discard changes returns to the account',
+				'Open Edit again and press Cancel without changing anything. Expected: it closes at once, with no question',
+				"In the account's window press Delete…, then Cancel. Expected: a small window asks first; Cancel leaves the account as it was",
+				'Open a mailbox and press Delete backup…, then Cancel. Expected: the window asks you to type the address, and its button stays off until it matches',
+				"In Alerts, open a person. Expected: Change…, Send a test and Remove… in the window's footer; Remove… asks first",
+				'In Evidence packs, open a pack and press Remove…. Expected: it asks first',
+				'Press Settings, Make a new certificate… and Forget what was learned…, then Cancel. Expected: each asks in the same small window',
+				'On another allowed computer, signed in remotely, open the Dashboard and How it works. Expected: no links to Settings, Activity or Updates, which only this computer can open'
+			]
+		},
+		changes: [
+			'Every record opens the same way: a window with its details, and Edit, its other buttons and Delete in the footer (remote accounts, alert recipients, evidence packs)',
+			"Removing or deleting anything asks first in the same small window. What cannot be undone (deleting a mailbox's backup, removing the old backup copy) asks you to type the name first",
+			'Closing an edit window after changing something asks before throwing the changes away',
+			'New AI token now asks first, since the old token stops working at once; removing an evidence pack asks too',
+			'The “backup is moving” notice shows at the top of the page instead of inside the Pause button',
+			'People signed in remotely no longer see links or instructions for what only this computer can do (Settings, Activity, Updates, pressing Resume)'
+		]
+	},
+	{
 		version: '0.13.7',
 		testing: {
 			kind: 'steps',

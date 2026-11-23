@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance, type SubmitFunction } from '$app/forms';
+	import { enhance } from '$app/forms';
 	import { refreshAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
@@ -11,6 +11,7 @@
 	import Card from '#lib/ui/card.svelte';
 	import DataTable from '#lib/ui/data-table.svelte';
 	import Modal from '#lib/ui/modal.svelte';
+	import RecordModals from '#lib/ui/record-modals.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 	import { formatBytes, formatCount, formatDateTime } from '#lib/utils/format.ts';
@@ -63,15 +64,8 @@
 
 	// The pack opened from the list, as it stands now (the list follows a pack being made).
 	let viewing = $state<string | null>(null);
-	let viewOpen = $state(false);
 	const pack = $derived(data.packs.find((each) => each.id === viewing));
-
-	function closeOnSuccess(): ReturnType<SubmitFunction> {
-		return async ({ result, update }) => {
-			await update();
-			if (result.type === 'success') viewOpen = false;
-		};
-	}
+	const finished = (row: RowRow): boolean => row.status === 'ready' || row.status === 'failed';
 </script>
 
 <svelte:head><title>Evidence packs · Lookstow</title></svelte:head>
@@ -139,7 +133,6 @@
 			label={(row: RowRow) => row.name}
 			onopen={(row: RowRow) => {
 				viewing = row.id;
-				viewOpen = true;
 			}}
 		>
 			{#snippet first(row: RowRow)}
@@ -203,77 +196,87 @@
 	{/snippet}
 </Modal>
 
-<Modal bind:open={viewOpen} title={pack === undefined ? 'Evidence pack' : pack.name}>
-	{#if pack !== undefined}
+<RecordModals
+	record={pack ?? null}
+	onclose={() => (viewing = null)}
+	title={(row: RowRow) => row.name}
+	deleteAction={pack !== undefined && mine(pack.createdBy) ? '?/remove' : undefined}
+	deleteLabel={pack !== undefined && finished(pack) ? 'Remove…' : 'Stop…'}
+	deleteFields={(row: RowRow) => ({ id: row.id })}
+	deleteQuestion={(row: RowRow) =>
+		finished(row)
+			? {
+					title: `Remove ${row.name}?`,
+					message:
+						'Its zip file is deleted from this computer. The messages themselves stay in the backup.',
+					confirmText: 'Remove'
+				}
+			: {
+					title: `Stop making ${row.name}?`,
+					message: 'Lookstow stops making it and deletes what it has made so far.',
+					confirmText: 'Stop'
+				}}
+>
+	{#snippet details(row: RowRow)}
 		<DetailView>
 			<dt>State</dt>
 			<dd>
-				<Badge tone={tone(pack.status)}>{LABELS[pack.status]}</Badge>
-				{packProgress(pack)}
-				{#if pack.status === 'building' && pack.total > 0}
-					<progress max={pack.total} value={pack.done}></progress>
+				<Badge tone={tone(row.status)}>{LABELS[row.status]}</Badge>
+				{packProgress(row)}
+				{#if row.status === 'building' && row.total > 0}
+					<progress max={row.total} value={row.done}></progress>
 				{/if}
 			</dd>
 			<dt>Made by</dt>
-			<dd>{pack.createdBy}, {formatDateTime(pack.createdAt)}</dd>
+			<dd>{row.createdBy}, {formatDateTime(row.createdAt)}</dd>
 			<dt>Messages</dt>
 			<dd>
-				{formatCount(pack.total)}{pack.withAttachments ? ', attachments as their own files' : ''}
+				{formatCount(row.total)}{row.withAttachments ? ', attachments as their own files' : ''}
 			</dd>
-			{#if pack.zipBytes !== null}
+			{#if row.zipBytes !== null}
 				<dt>Size</dt>
-				<dd>{formatBytes(pack.zipBytes)}</dd>
+				<dd>{formatBytes(row.zipBytes)}</dd>
 			{/if}
-			{#if pack.sha256 !== null}
+			{#if row.sha256 !== null}
 				<dt>SHA-256</dt>
-				<dd><code class="sha">{pack.sha256}</code></dd>
+				<dd><code class="sha">{row.sha256}</code></dd>
 			{/if}
-			{#if pack.expiresAt !== null}
+			{#if row.expiresAt !== null}
 				<dt>Kept until</dt>
-				<dd>{formatDateTime(pack.expiresAt)}</dd>
+				<dd>{formatDateTime(row.expiresAt)}</dd>
 			{/if}
-			{#if pack.missing.length > 0}
+			{#if row.missing.length > 0}
 				<dt>Not in the backup</dt>
-				<dd>{formatCount(pack.missing.length)} ids (the README lists them)</dd>
+				<dd>{formatCount(row.missing.length)} ids (the README lists them)</dd>
 			{/if}
-			{#if pack.mismatched > 0}
+			{#if row.mismatched > 0}
 				<dt>No longer match</dt>
 				<dd class="problem">
-					{formatCount(pack.mismatched)} stored files no longer match their SHA-256 (see the README)
+					{formatCount(row.mismatched)} stored files no longer match their SHA-256 (see the README)
 				</dd>
 			{/if}
-			{#if pack.unreadable > 0}
+			{#if row.unreadable > 0}
 				<dt>Could not be read</dt>
-				<dd class="problem">{formatCount(pack.unreadable)}</dd>
+				<dd class="problem">{formatCount(row.unreadable)}</dd>
 			{/if}
-			{#if pack.problem !== null}
+			{#if row.problem !== null}
 				<dt>Problem</dt>
-				<dd class="problem">{pack.problem}</dd>
+				<dd class="problem">{row.problem}</dd>
 			{/if}
 		</DetailView>
-	{/if}
-	{#snippet footer()}
-		{#if pack !== undefined}
-			{#if mine(pack.createdBy)}
-				<form method="POST" action="?/remove" use:enhance={closeOnSuccess}>
-					<input type="hidden" name="id" value={pack.id} />
-					<Button type="submit" variant="danger"
-						>{pack.status === 'ready' || pack.status === 'failed' ? 'Remove' : 'Stop'}</Button
-					>
-				</form>
-				{#if pack.status === 'failed'}
-					<form method="POST" action="?/again" use:enhance>
-						<input type="hidden" name="id" value={pack.id} />
-						<Button type="submit" variant="secondary">Make again</Button>
-					</form>
-				{/if}
-			{/if}
-			{#if pack.status === 'ready'}
-				<Button href={resolve('/evidence-packs/[id]/download', { id: pack.id })}>Download</Button>
-			{/if}
+	{/snippet}
+	{#snippet actions(row: RowRow)}
+		{#if row.status === 'ready'}
+			<Button href={resolve('/evidence-packs/[id]/download', { id: row.id })}>Download</Button>
+		{/if}
+		{#if row.status === 'failed' && mine(row.createdBy)}
+			<form method="POST" action="?/again" use:enhance>
+				<input type="hidden" name="id" value={row.id} />
+				<Button type="submit" variant="secondary">Make again</Button>
+			</form>
 		{/if}
 	{/snippet}
-</Modal>
+</RecordModals>
 
 <style>
 	.make {

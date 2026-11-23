@@ -1,7 +1,8 @@
 <!--
 	Modal: a dialog over the page (the browser's own <dialog>, so focus stays
 	inside and Esc closes it). Clicking outside doesn't close it, so nothing
-	typed is lost by accident. Bind `open` to show and hide it.
+	typed is lost by accident. Bind `open` to show and hide it. `beforeclose` may refuse a close
+	(an edit window with unsaved changes asks first).
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -12,12 +13,14 @@
 	interface Props {
 		open: boolean;
 		title: string;
-		size?: 'md' | 'lg';
+		size?: 'sm' | 'md' | 'lg';
 		/** While true, Esc and the close button do nothing (e.g. while saving) */
 		locked?: boolean;
 		children: Snippet;
 		footer?: Snippet | undefined;
 		onclose?: (() => void) | undefined;
+		/** Asked before Esc or the close button closes it; false keeps it open. */
+		beforeclose?: (() => boolean | Promise<boolean>) | undefined;
 	}
 
 	let {
@@ -27,7 +30,8 @@
 		locked = false,
 		children,
 		footer,
-		onclose
+		onclose,
+		beforeclose
 	}: Props = $props();
 
 	let dialog = $state<HTMLDialogElement | null>(null);
@@ -43,10 +47,31 @@
 		return open ? toast.modalOpened() : undefined;
 	});
 
-	function close(): void {
-		if (locked) return;
+	let asking = false;
+
+	async function close(): Promise<void> {
+		if (locked || asking) return;
+		asking = true;
+		try {
+			if (beforeclose !== undefined && !(await beforeclose())) {
+				// Kept open: show it again if the browser closed it meanwhile (below).
+				if (open && dialog !== null && !dialog.open) dialog.showModal();
+				return;
+			}
+		} finally {
+			asking = false;
+		}
 		open = false;
 		onclose?.();
+	}
+
+	// A browser may close a dialog on Esc even though its cancel was refused (Chromium does when
+	// nothing was clicked since it opened). Treat that as a request to close: a locked window or
+	// one whose question is answered "keep" comes back.
+	function closedByBrowser(): void {
+		if (!open || dialog === null || dialog.open) return;
+		if (locked) dialog.showModal();
+		else void close();
 	}
 </script>
 
@@ -56,13 +81,20 @@
 	aria-labelledby="modal-title"
 	oncancel={(e) => {
 		e.preventDefault();
-		close();
+		void close();
 	}}
+	onclose={closedByBrowser}
 >
 	{#if open}
 		<header>
 			<h2 id="modal-title">{title}</h2>
-			<button type="button" class="x" aria-label="Close" disabled={locked} onclick={close}>
+			<button
+				type="button"
+				class="x"
+				aria-label="Close"
+				disabled={locked}
+				onclick={() => void close()}
+			>
 				<IconX size={20} />
 			</button>
 		</header>
@@ -82,6 +114,10 @@
 		max-height: calc(100vh - 4rem);
 		color: var(--colour-text);
 		background: var(--colour-surface);
+	}
+
+	dialog.sm {
+		width: min(28rem, calc(100vw - 2rem));
 	}
 
 	dialog.lg {
