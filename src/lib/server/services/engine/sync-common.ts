@@ -57,9 +57,9 @@ export function applyRemovals(
  * Storage paths for Graph's folders. Two folders whose names only differ in characters Windows
  * forbids would map to the same path, so the later one gets a numbered suffix.
  */
-export function withUniqueStoragePaths(
-	folders: readonly { graphId: string; path: string }[]
-): { graphId: string; path: string; storagePath: string }[] {
+export function withUniqueStoragePaths<T extends { graphId: string; path: string }>(
+	folders: readonly T[]
+): (T & { storagePath: string })[] {
 	const used = new Set<string>();
 	return folders.map((folder) => {
 		const base = folderStoragePath(folder.path);

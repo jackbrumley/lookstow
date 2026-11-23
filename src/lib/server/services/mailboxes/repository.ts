@@ -63,7 +63,8 @@ export function applyDiscovery(
 				lastSyncError: null,
 				firstCopyDone: false,
 				itemCount: 0,
-				byteCount: 0
+				byteCount: 0,
+				archiveParts: null
 			};
 			db.insert(mailboxes).values(row).run();
 			added.push(row);
@@ -181,7 +182,7 @@ export function foldersOf(db: Queryable, mailboxId: string): FolderRow[] {
 export function syncFolderList(
 	db: Queryable,
 	mailboxId: string,
-	current: readonly { graphId: string; path: string; storagePath: string }[],
+	current: readonly { graphId: string; path: string; storagePath: string; optional?: boolean }[],
 	now: number
 ): FolderRow[] {
 	const known = new Map(foldersOf(db, mailboxId).map((row) => [row.graphId, row]));
@@ -200,13 +201,18 @@ export function syncFolderList(
 					deltaLink: null,
 					firstCopyDone: false,
 					lastSyncedAt: null,
-					goneAt: null
+					goneAt: null,
+					optional: folder.optional === true
 				})
 				.run();
-		} else if (row.path !== folder.path || row.goneAt !== null) {
+		} else if (
+			row.path !== folder.path ||
+			row.goneAt !== null ||
+			row.optional !== (folder.optional === true)
+		) {
 			// A renamed folder keeps its storage path, so files already written stay where they are.
 			db.update(mailFolders)
-				.set({ path: folder.path, goneAt: null })
+				.set({ path: folder.path, goneAt: null, optional: folder.optional === true })
 				.where(eq(mailFolders.id, row.id))
 				.run();
 		}
@@ -220,6 +226,11 @@ export function syncFolderList(
 		}
 	}
 	return foldersOf(db, mailboxId).filter((row) => row.goneAt === null);
+}
+
+/** How many parts an online archive's folders were listed in (auto-expanding archives). */
+export function setArchiveParts(db: Queryable, mailboxId: string, parts: number): void {
+	db.update(mailboxes).set({ archiveParts: parts }).where(eq(mailboxes.id, mailboxId)).run();
 }
 
 export function saveFolderProgress(
@@ -347,11 +358,16 @@ export function firstCopyProgress(db: Queryable): Map<string, { done: number; to
 }
 
 export function folderItemCounts(db: Queryable, mailboxId: string): Map<string, number> {
+	// By folder, so each count is read from the folder index alone (a mailbox's messages are not).
 	const rows = db
 		.select({ folderId: messages.folderId, count: sql<number>`count(*)` })
 		.from(messages)
 		.where(
-			and(eq(messages.mailboxId, mailboxId), isNull(messages.deletedAt), isNull(messages.leftAt))
+			and(
+				sql`${messages.folderId} in (select ${mailFolders.id} from ${mailFolders} where ${mailFolders.mailboxId} = ${mailboxId})`,
+				isNull(messages.deletedAt),
+				isNull(messages.leftAt)
+			)
 		)
 		.groupBy(messages.folderId)
 		.all();

@@ -137,12 +137,32 @@ export function recordFolderCounts(
 	db: Queryable,
 	mailboxId: string,
 	counts: readonly { folderId: string; count: number | null; listed: number | null }[],
-	now: number
+	now: number,
+	archive = false
 ): void {
 	const failures = folderFailures(db, mailboxId);
 	for (const { folderId, count: source, listed } of counts) {
 		const folder = db.select().from(mailFolders).where(eq(mailFolders.id, folderId)).get();
 		if (folder === undefined) continue;
+		if (listed !== null) {
+			db.update(mailFolders)
+				.set({ listedCount: listed, listedAt: new Date(now) })
+				.where(eq(mailFolders.id, folderId))
+				.run();
+		}
+		if (archive && source !== null) {
+			const fromListing = archiveCountFromListing(folder.countFromListing, source, listed);
+			if (fromListing) {
+				recordListingCheck(db, folder, source, listed, now);
+				continue;
+			}
+			if (folder.countFromListing) {
+				db.update(mailFolders)
+					.set({ countFromListing: false })
+					.where(eq(mailFolders.id, folderId))
+					.run();
+			}
+		}
 		if (source === null) {
 			// Not compared (hidden, or not mail): no count, so no difference.
 			db.update(mailFolders)
@@ -180,14 +200,69 @@ export function recordFolderCounts(
 
 /** Whether this folder's difference has lasted long enough to read it again from the start. */
 export function recheckDue(
-	folder: { differsSince: Date | null; recheckedAt: Date | null },
+	folder: {
+		differsSince: Date | null;
+		recheckedAt: Date | null;
+		countFromListing?: boolean;
+		listedAt?: Date | null;
+	},
 	now: number
 ): boolean {
+	// A folder Microsoft's count does not cover is verified by a full listing every week.
+	if (folder.countFromListing === true) {
+		return (
+			folder.listedAt === undefined ||
+			folder.listedAt === null ||
+			now - folder.listedAt.getTime() >= LISTING_EVERY_MS
+		);
+	}
 	return (
 		folder.differsSince !== null &&
 		now - folder.differsSince.getTime() >= RECHECK_AFTER_MS &&
 		(folder.recheckedAt === null || now - folder.recheckedAt.getTime() >= RECHECK_EVERY_MS)
 	);
+}
+
+/** A folder checked against its own full listing is listed again this often. */
+const LISTING_EVERY_MS = 7 * 24 * 3_600_000;
+
+/**
+ * Whether an online archive folder is checked against its full listing instead of Microsoft's
+ * count. In an auto-expanding archive (past 100 GB, spread over several parts) Microsoft counts
+ * only the part a folder is listed in, often 0, while the full listing returns all its mail; a
+ * listing that returns more than the count says so. A count that matches the listing again
+ * ends it.
+ */
+function archiveCountFromListing(already: boolean, source: number, listed: number | null): boolean {
+	if (listed === null) return already;
+	return listed > source;
+}
+
+/**
+ * Checks such a folder: at a full listing, the stored count against it (a difference starts or
+ * continues, and the re-read rules apply as usual); between listings, nothing to compare, so
+ * no difference. Microsoft's own count is still kept, for the mailbox page.
+ */
+function recordListingCheck(
+	db: Queryable,
+	folder: typeof mailFolders.$inferSelect,
+	source: number,
+	listed: number | null,
+	now: number
+): void {
+	const stored = storedCount(db, folder.id);
+	const differs = listed !== null && stored !== listed;
+	db.update(mailFolders)
+		.set({
+			countFromListing: true,
+			sourceCount: source,
+			sourceCountAt: new Date(now),
+			otherItemCount: null,
+			differsSince: differs ? (folder.differsSince ?? new Date(now)) : null,
+			differenceAlertedAt: differs ? folder.differenceAlertedAt : null
+		})
+		.where(eq(mailFolders.id, folder.id))
+		.run();
 }
 
 /** Records that the folder is being read again from the start, and says so in the activity log. */

@@ -12,7 +12,8 @@ import {
 import { ftsFile, int, recipient, str, time } from '#tests/support/fts-builder.ts';
 import { openDatabase } from '../../database/connection.ts';
 import { PROP } from '../fts/fts-properties.ts';
-import { messages } from '../../database/schema.ts';
+import { eq } from 'drizzle-orm';
+import { mailboxes, mailFolders, messages } from '../../database/schema.ts';
 import { GraphClient } from '../graph/client.ts';
 import { unpacedGovernor } from '../graph/governor.ts';
 import { TokenSource } from '../graph/token.ts';
@@ -297,5 +298,86 @@ describe('archive items stored before Lookstow could read them', () => {
 				.find((message) => message.graphId === 'bad')?.indexFailedVersion
 		).toBe('0.7.0');
 		expect((await indexArchiveItems(db, backupRoot, () => false, '0.7.1')).total).toBe(1);
+	});
+});
+
+/** One folder, Inbox, whose count Microsoft gives as `count`, listing `ids` in one page. */
+function oneFolderArchive(count: number, ids: string[]): FakeGraph {
+	return new FakeGraph()
+		.withToken()
+		.on(/^\/beta\/admin\/exchange\/mailboxes\/MBX:arc@t\/folders\?/, () =>
+			json({
+				value: [
+					{
+						id: 'inbox',
+						displayName: 'Inbox',
+						childFolderCount: 0,
+						totalItemCount: count,
+						parentMailboxUrl: MAIN
+					}
+				]
+			})
+		)
+		.on(/MBX:arc@t\/folders\/inbox\/items\/delta/, () =>
+			json({
+				value: ids.map((id) => item(id, '2020-02-03T04:05:06Z')),
+				'@odata.deltaLink': `${MAIN}/folders/inbox/items/delta?$deltatoken=a`
+			})
+		)
+		.on(/MBX:arc@t\/exportItems$/, () => json({ value: ids.map(exported) }));
+}
+
+function contextFor(db: SyncContext['db'], backupRoot: string, graph: FakeGraph): SyncContext {
+	return {
+		db,
+		client: new GraphClient(new TokenSource(TEST_CREDENTIALS, graph.fetch), {
+			governor: unpacedGovernor(),
+			fetch: graph.fetch,
+			sleep: noSleep
+		}),
+		backupRoot,
+		now: () => 1000,
+		stopping: () => false,
+		progress: () => undefined
+	};
+}
+
+/** Makes the folder's next sync list it from the start (as the weekly listing check does). */
+function listAgainNext(db: SyncContext['db'], mailboxId: string): void {
+	const inbox = foldersOf(db, mailboxId).find((folder) => folder.graphId === 'inbox');
+	if (inbox === undefined) throw new Error('no inbox');
+	db.update(mailFolders)
+		.set({ countFromListing: true, listedAt: null })
+		.where(eq(mailFolders.id, inbox.id))
+		.run();
+}
+
+describe('an auto-expanding archive', () => {
+	it('records how many parts its folders are listed in', async () => {
+		const { db, row, context } = await setup(archive());
+		await syncMailbox(context, row);
+		expect(db.select().from(mailboxes).where(eq(mailboxes.id, row.id)).get()?.archiveParts).toBe(2);
+	});
+
+	it('checks a folder Microsoft counts as empty against its full listing instead', async () => {
+		const { db, row, backupRoot } = await setup(archive());
+		await syncMailbox(contextFor(db, backupRoot, oneFolderArchive(0, ['i1', 'i2'])), row);
+		listAgainNext(db, row.id);
+		await syncMailbox(contextFor(db, backupRoot, oneFolderArchive(0, ['i1', 'i2'])), row);
+		const inbox = foldersOf(db, row.id).find((folder) => folder.graphId === 'inbox');
+		expect(inbox).toMatchObject({ countFromListing: true, listedCount: 2, differsSince: null });
+		expect(inbox?.sourceCount).toBe(0);
+	});
+
+	it('records items a full listing no longer returns as deleted at the source, keeping them', async () => {
+		const { db, row, backupRoot } = await setup(archive());
+		await syncMailbox(contextFor(db, backupRoot, oneFolderArchive(2, ['i1', 'i2'])), row);
+		listAgainNext(db, row.id);
+		await syncMailbox(contextFor(db, backupRoot, oneFolderArchive(1, ['i1'])), row);
+		const stored = db.select().from(messages).all();
+		expect(stored.map((message) => [message.graphId, message.deletedAt !== null]).sort()).toEqual([
+			['i1', false],
+			['i2', true]
+		]);
 	});
 });

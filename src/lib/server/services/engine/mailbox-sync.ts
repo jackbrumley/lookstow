@@ -1,4 +1,6 @@
 import { syncArchive } from './archive-sync.ts';
+import { errorText, serverLog } from '../../log.ts';
+import { readScope } from '../settings/settings.ts';
 import {
 	applyRemovals,
 	countsFor,
@@ -13,7 +15,9 @@ import {
 	folderChanges,
 	isGone,
 	listFolders,
+	listOptionalFolders,
 	messageNow,
+	type GraphFolder,
 	streamMessageMime,
 	type MessageChange
 } from '../graph/mail.ts';
@@ -73,7 +77,12 @@ export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Pr
 	if (mailbox.kind === 'archive') {
 		return syncArchive(context, mailbox);
 	}
-	const graphFolders = await listFolders(context.client, mailbox.userId);
+	const graphFolders: GraphFolder[] = await listFolders(context.client, mailbox.userId);
+	if (readScope(context.db).includeRecoverable) {
+		const optional = await listOptionalFolders(context.client, mailbox.userId);
+		graphFolders.push(...optional.folders);
+		reportRefusals(mailbox, optional.refused);
+	}
 	const folders = syncFolderList(
 		context.db,
 		mailbox.id,
@@ -94,6 +103,16 @@ export async function syncMailbox(context: SyncContext, mailbox: MailboxRow): Pr
 		if (context.stopping()) {
 			run.totals.stoppedEarly = true;
 			run.totals.firstCopyDone = false;
+			return;
+		}
+		if (folder.optional) {
+			// Recoverable Items or the root: a refusal is logged, never fails the sync, and its
+			// copy never holds up the mailbox's first copy.
+			try {
+				if (await syncFolder(run, folder)) upToDate.push(folder);
+			} catch (error) {
+				reportOptionalFailure(mailbox, folder, error);
+			}
 			return;
 		}
 		if (await syncFolder(run, folder)) {
@@ -348,8 +367,40 @@ async function checkUnseen(run: MailboxRun, folder: FolderRow, seen: Set<string>
 	const unseen = liveMessageIds(context.db, folder.id).filter((graphId) => !seen.has(graphId));
 	await forEachLimited(unseen, DOWNLOADS_AT_ONCE, async (graphId) => {
 		if (context.stopping()) return;
-		if ((await messageNow(context.client, mailbox.userId, graphId)) === null) {
+		const now = await messageNow(context.client, mailbox.userId, graphId);
+		// Gone, or now in a folder Lookstow does not copy (Shift+Delete puts it in the hidden
+		// Recoverable Items, where Microsoft still finds it by id): deleted at the source. In
+		// another folder Lookstow copies, that folder's sync records the move.
+		if (
+			now === null ||
+			(now.folderGraphId !== null &&
+				now.folderGraphId !== folder.graphId &&
+				!run.foldersByGraphId.has(now.folderGraphId))
+		) {
 			run.pending.push({ folderId: folder.id, graphId });
 		}
 	});
+}
+
+/** Each mailbox's refused opt-in folders, logged once while the service runs. */
+const refusalsLogged = new Set<string>();
+
+function reportRefusals(mailbox: MailboxRow, refused: readonly string[]): void {
+	if (refused.length === 0 || refusalsLogged.has(mailbox.id)) return;
+	refusalsLogged.add(mailbox.id);
+	serverLog(
+		'warn',
+		'recoverable',
+		`${mailbox.address}: Microsoft did not allow copying ${refused.join(' and ')}. The rest of the mailbox syncs as usual.`
+	);
+}
+
+function reportOptionalFailure(mailbox: MailboxRow, folder: FolderRow, error: unknown): void {
+	if (refusalsLogged.has(folder.id)) return;
+	refusalsLogged.add(folder.id);
+	serverLog(
+		'warn',
+		'recoverable',
+		`${mailbox.address}: ${folder.path} could not be copied (${errorText(error)}). The rest of the mailbox syncs as usual.`
+	);
 }

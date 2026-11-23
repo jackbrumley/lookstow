@@ -152,6 +152,7 @@ export const actions = {
 				includeShared: checked(data, 'includeShared'),
 				includeResources: checked(data, 'includeResources'),
 				includeArchives: checked(data, 'includeArchives'),
+				includeRecoverable: checked(data, 'includeRecoverable'),
 				excludedAddresses: addresses(field(data, 'excluded'))
 			},
 			field(data, 'existing') === 'delete'

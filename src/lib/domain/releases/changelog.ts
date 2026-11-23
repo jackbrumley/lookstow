@@ -20,6 +20,28 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.3',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.3 from the Updates page. The first start adds three indexes, so it takes a little longer than usual. Expected: the countdown, then the console back by itself',
+				'Open the Dashboard. Expected: Needs attention no longer lists Sarah Croft’s online archive once its folders have had their weekly full listing (the first ones within a sync or two; all within a day), and payroll@ clears after its Inbox is next read again',
+				'Open Sarah Croft’s online archive in Mailboxes. Expected: it opens in about a second (it took about 10), an Auto-expanding line says Microsoft spread it over several parts, and folders Microsoft counts short show "(one part only; its full listing … found N)"',
+				'In Settings, What is backed up, tick Recoverable Items and root items and save. Expected: within a sync, folders named Recoverable Items/… and Top of Information Store appear on each mailbox’s page; where Microsoft refuses them, the Log says so once and everything else syncs as usual',
+				'When a newer release comes out (after this one), open any page. Expected: a window saying it is available, with Update now, Remind me tomorrow and Skip this version, that only those buttons close; Updates in the side bar is marked New'
+			]
+		},
+		changes: [
+			'Lookstow tells you about a new release: it looks every 6 hours and at every start, and every page shows it front and centre until you choose Update now, Remind me tomorrow or Skip this version (remembered on the server, so every browser follows it). Updates in the side bar is marked New meanwhile',
+			'Online archives past 100 GB (auto-expanding: Microsoft spreads them over several parts) no longer show as needing a look. Microsoft’s folder count covers only one part, so a folder it counts short is checked against its own full listing instead, every week. Exchange’s own statistics confirmed every folder of the archive that raised this was complete',
+			'A full listing of an online archive folder now records items no longer in it as deleted at the source (their files stay), as mail folders already did',
+			'A message deleted with Shift+Delete (moved to the hidden Recoverable Items, where Microsoft still finds it) is now recorded as deleted, instead of making the folder look one message over',
+			'New option in Settings, What is backed up: Recoverable Items (deletions, purges, earlier versions and items kept for a hold) and the items in a mailbox’s or archive’s top folder. Where Microsoft refuses them for a mailbox, the Log says so once and the rest syncs as usual',
+			'Faster with large mailboxes: the check after every sync for messages that left a week ago, an archive’s mailbox page, and its unreadable-items count now use indexes (each took seconds on a 330,000-item archive)',
+			'Each folder on a mailbox’s page shows what its last full listing found where that differs from Microsoft’s count, and an archive’s page says how many parts it has'
+		]
+	},
+	{
 		version: '0.13.2',
 		testing: {
 			kind: 'steps',

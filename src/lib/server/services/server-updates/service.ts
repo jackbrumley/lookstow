@@ -17,7 +17,8 @@ import { errorText, serverLog } from '../../log.ts';
 import { isMissing, readBounded } from './files.ts';
 import { download, newestRelease, RELEASE_PUBLIC_KEY, type OfferedRelease } from './release.ts';
 
-const DAY = 24 * 60 * 60 * 1000;
+/** How often a running server looks for a new release (and at every start). */
+const CHECK_EVERY = 6 * 60 * 60 * 1000;
 const FAILED_CHECK_RETRY = 5 * 60 * 1000;
 /**
  * The request for the launcher's updater, which runs as root or SYSTEM. It is always empty: the
@@ -268,12 +269,13 @@ export class ServerUpdates {
 		}
 	}
 
-	/** Whether the daily check is due: a day after the last one, or 5 minutes after a failed one. */
+	/** Whether a check is due: 6 hours after the last one, or 5 minutes after a failed one. */
 	due(now: number): boolean {
 		const checkedAt = this.#cache.checkedAtIso;
 		return (
 			checkedAt === null ||
-			now - Date.parse(checkedAt) >= (this.#cache.problem === null ? DAY : FAILED_CHECK_RETRY)
+			now - Date.parse(checkedAt) >=
+				(this.#cache.problem === null ? CHECK_EVERY : FAILED_CHECK_RETRY)
 		);
 	}
 }

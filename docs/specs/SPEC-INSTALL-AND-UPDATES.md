@@ -220,3 +220,7 @@ App-side criteria (Update now, the progress view, readiness) and installer and w
 1. **Backup storage outside the data folder.** The Linux unit lets the service write only `<data>` (`ProtectSystem=strict`, `ReadWritePaths=<data>`), and on Windows LocalService can write only folders it is granted. If Lookstow stores mailbox backups elsewhere (another disk or a share), the unit needs that path in `ReadWritePaths` and the folder needs the service account's rights. Today backups must live under the data folder.
 2. **`CAP_NET_BIND_SERVICE`** is kept from BMuster so a port below 1024 works; the console is on 8030 by default, so it could be dropped.
 3. **Console address after install** is read from `server.env`; a wildcard `HOST` is shown as the loopback address.
+
+## Update reminders (0.13.3)
+
+The running server looks for a new signed release at every start and every 6 hours (5 minutes after a failed check). While one is offered and nothing is installing it, the sidebar marks Updates as New, and every page but Updates shows it in a modal that only an answer closes: Update now (to the Updates page), Remind me tomorrow (24 hours) or Skip this version (until a newer one). The answer is kept in the settings table (`updateReminder`), so every browser follows it. No reminder shows while the backup folder moves.

@@ -69,3 +69,7 @@ A mailbox's completeness is the worst of its folders: complete, `checking` or `n
 | 10  | It needs a look only when still there a day after a re-read                                          | `views.test.ts` "it needs a look only when still there a day after a re-read"                 |
 | 11  | A hidden or non-mail folder is not compared; its old count and difference are cleared                | `views.test.ts` "a hidden or non-mail folder is not compared"; `completeness-folders.test.ts` |
 | 8   | Only the lasting-gap entry emails                                                                    | `alerts.test.ts` "alertFor"                                                                   |
+
+## Online archives that expand (0.13.3)
+
+Past 100 GB an online archive can be auto-expanding: Exchange spreads it over auxiliary parts, and Graph's `totalItemCount` for a folder covers only the part it is listed in (often 0). When a folder's full listing returns more than that count, the folder is checked against its listing instead (`count_from_listing`, `listed_count`, `listed_at`): at each listing the stored count must equal what was listed, and the folder is listed again every week. Graph's count stays on the mailbox page for reference, which also says how many parts the archive has. A full listing of an archive folder records the stored items it did not return as deleted at the source, unless it returned fewer than half of them and more than 100 are missing, which is logged and left for the next listing.

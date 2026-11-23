@@ -1,4 +1,5 @@
 import { asRecord, GraphError, stringField, type GraphClient } from './client.ts';
+import { errorText } from '../../log.ts';
 
 /**
  * Reading an online (In-Place) archive through Microsoft Graph's mailbox import/export API
@@ -30,6 +31,8 @@ export type ArchiveFolder = {
 	 * folders such as PersonMetadata, nor folders inside one.
 	 */
 	compared: boolean;
+	/** One of the opt-in folders: never compared, refusals do not fail. */
+	optional?: boolean;
 };
 
 /** A folder class that holds mail: IPF.Note and its kinds (IPF.Note.OutlookHomepage), or none. */
@@ -116,6 +119,53 @@ export async function listArchiveFolders(
 		}
 	}
 	return folders;
+}
+
+/**
+ * The archive's opt-in folders (as listOptionalFolders does for a mailbox): its root's own items
+ * and Recoverable Items, where Microsoft allows them. Each refusal comes back in words.
+ */
+export async function listArchiveOptionalFolders(
+	client: GraphClient,
+	mailboxUrl: string
+): Promise<{ folders: ArchiveFolder[]; refused: string[] }> {
+	const folders: ArchiveFolder[] = [];
+	const refused: string[] = [];
+	const add = (graphId: string | null, path: string, own: string | null): void => {
+		if (graphId !== null) {
+			folders.push({
+				graphId,
+				path,
+				mailboxUrl: own ?? mailboxUrl,
+				totalItemCount: null,
+				compared: false,
+				optional: true
+			});
+		}
+	};
+	try {
+		const root = asRecord(await client.getJson(`${mailboxUrl}/folders/msgfolderroot`));
+		add(stringField(root, 'id'), 'Top of Information Store', stringField(root, 'parentMailboxUrl'));
+	} catch (error) {
+		refused.push(`the archive root (${errorText(error)})`);
+	}
+	try {
+		for await (const page of client.pages(
+			`${mailboxUrl}/folders/recoverableitemsroot/childFolders?includeHiddenFolders=true&$top=100`
+		)) {
+			for (const item of page.items) {
+				const folder = asRecord(item);
+				add(
+					stringField(folder, 'id'),
+					`Recoverable Items/${stringField(folder, 'displayName') ?? 'Folder'}`,
+					stringField(folder, 'parentMailboxUrl')
+				);
+			}
+		}
+	} catch (error) {
+		refused.push(`Recoverable Items (${errorText(error)})`);
+	}
+	return { folders, refused };
 }
 
 /** One round of a folder's item delta, page by page (as `folderChanges` does for mail). */

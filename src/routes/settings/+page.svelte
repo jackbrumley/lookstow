@@ -161,6 +161,7 @@
 		{/if}
 		<p class="muted small">
 			Online archives of picked mailboxes: {settings.scope.includeArchives ? 'yes' : 'no'}.
+			Recoverable Items: {settings.scope.includeRecoverable ? 'yes' : 'no'}.
 		</p>
 	{:else}
 		<ul class="plain">
@@ -172,6 +173,10 @@
 			</li>
 			<li>
 				Online archives: <strong>{settings.scope.includeArchives ? 'yes' : 'no'}</strong>
+			</li>
+			<li>
+				Recoverable Items and root items:
+				<strong>{settings.scope.includeRecoverable ? 'yes' : 'no'}</strong>
 			</li>
 			<li>
 				Never backed up:
@@ -452,6 +457,12 @@
 	<label class="check"
 		><input type="checkbox" name="includeArchives" checked={settings.scope.includeArchives} /> Online
 		archives</label
+	>
+	<label class="check"
+		><input type="checkbox" name="includeRecoverable" checked={settings.scope.includeRecoverable} /> Recoverable
+		Items and root items: deleted items Microsoft keeps for a hold (deletions, purges, earlier versions),
+		and items in a mailbox's or archive's top folder. Where Microsoft refuses them for a mailbox, the
+		Log says so and the rest syncs as usual.</label
 	>
 	<label>
 		Never back up these addresses (one per line)

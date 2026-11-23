@@ -1,3 +1,4 @@
+import { errorText } from '../../log.ts';
 import { asRecord, GraphError, stringField, type GraphClient } from './client.ts';
 
 /**
@@ -15,6 +16,8 @@ export type GraphFolder = {
 	 * folders (Outlook's own, such as PersonMetadata) or folders inside one.
 	 */
 	compared: boolean;
+	/** One of the opt-in folders (listOptionalFolders): never compared, refusals do not fail. */
+	optional?: boolean;
 };
 
 /** The fields of a message the delta query asks for. */
@@ -77,6 +80,59 @@ export async function listFolders(client: GraphClient, userId: string): Promise<
 		}
 	}
 	return folders;
+}
+
+/**
+ * The opt-in folders (Settings, What is backed up): the mailbox root's own items, and
+ * Recoverable Items (deletions, purges, versions and items kept for a hold), which the folder
+ * tree leaves out. Microsoft may refuse either for a mailbox; each refusal comes back in words,
+ * and the rest of the mailbox syncs as usual.
+ */
+export async function listOptionalFolders(
+	client: GraphClient,
+	userId: string
+): Promise<{ folders: GraphFolder[]; refused: string[] }> {
+	const user = encodeURIComponent(userId);
+	const select = '$select=id,displayName';
+	const folders: GraphFolder[] = [];
+	const refused: string[] = [];
+	const add = (graphId: string | null, path: string): void => {
+		if (graphId !== null) {
+			folders.push({ graphId, path, totalItemCount: null, compared: false, optional: true });
+		}
+	};
+	try {
+		const root = asRecord(
+			await client.getJson(`/v1.0/users/${user}/mailFolders/msgfolderroot?${select}`)
+		);
+		add(stringField(root, 'id'), 'Top of Information Store');
+	} catch (error) {
+		refused.push(`the mailbox root (${errorText(error)})`);
+	}
+	try {
+		for await (const page of client.pages(
+			`/beta/users/${user}/mailFolders/recoverableitemsroot/childFolders?${select}&includeHiddenFolders=true&$top=100`
+		)) {
+			for (const item of page.items) {
+				const folder = asRecord(item);
+				add(
+					stringField(folder, 'id'),
+					`Recoverable Items/${stringField(folder, 'displayName') ?? 'Folder'}`
+				);
+			}
+		}
+	} catch (error) {
+		// Without the root, Deletions alone (a name Graph v1.0 knows).
+		try {
+			const deletions = asRecord(
+				await client.getJson(`/v1.0/users/${user}/mailFolders/recoverableitemsdeletions?${select}`)
+			);
+			add(stringField(deletions, 'id'), 'Recoverable Items/Deletions');
+		} catch {
+			refused.push(`Recoverable Items (${errorText(error)})`);
+		}
+	}
+	return { folders, refused };
 }
 
 /**

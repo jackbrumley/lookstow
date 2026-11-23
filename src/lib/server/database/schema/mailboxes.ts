@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
 	index,
 	integer,
@@ -41,7 +42,12 @@ export const mailboxes = sqliteTable(
 		/** True once every folder has been copied in full at least once. */
 		firstCopyDone: integer({ mode: 'boolean' }).notNull().default(false),
 		itemCount: integer().notNull().default(0),
-		byteCount: integer().notNull().default(0)
+		byteCount: integer().notNull().default(0),
+		/**
+		 * An online archive's parts as Microsoft lists its folders: more than one once an
+		 * auto-expanding archive has grown past 100 GB (null: not an archive, or not read yet).
+		 */
+		archiveParts: integer()
 	},
 	(table) => [
 		uniqueIndex('mailboxes_user_kind').on(table.userId, table.kind),
@@ -84,7 +90,20 @@ export const mailFolders = sqliteTable(
 		 * Items Microsoft counts in the folder that its message listing does not return (contacts
 		 * or calendar items in Deleted Items), measured by the last full listing of the folder.
 		 */
-		otherItemCount: integer()
+		otherItemCount: integer(),
+		/** How many items the folder's last full listing returned, and when. */
+		listedCount: integer(),
+		listedAt: integer({ mode: 'timestamp_ms' }),
+		/**
+		 * Microsoft's count does not cover this folder (an auto-expanding archive's folder whose
+		 * mail is in another part): it is checked against its full listing instead, every week.
+		 */
+		countFromListing: integer({ mode: 'boolean' }).notNull().default(false),
+		/**
+		 * One of the opt-in folders (Recoverable Items, the mailbox root): Microsoft may refuse
+		 * them, and a refusal never fails the mailbox's sync or holds up its first copy.
+		 */
+		optional: integer({ mode: 'boolean' }).notNull().default(false)
 	},
 	(table) => [uniqueIndex('mail_folders_mailbox_graph').on(table.mailboxId, table.graphId)]
 );
@@ -135,13 +154,23 @@ export const messages = sqliteTable(
 	},
 	(table) => [
 		uniqueIndex('messages_mailbox_graph').on(table.mailboxId, table.graphId),
-		index('messages_folder').on(table.folderId),
+		// A folder's messages still in it, read from the index alone: counts and the full re-read's
+		// "what is gone" check never read the messages themselves.
+		index('messages_folder_live').on(table.folderId, table.deletedAt, table.leftAt, table.graphId),
 		index('messages_internet_id').on(table.internetMessageId),
 		index('messages_archive_copy').on(table.archiveCopyId),
 		// Search lists newest first, in one mailbox or in all: these give it that order without
 		// sorting every message.
 		index('messages_mailbox_received').on(table.mailboxId, table.receivedAt),
-		index('messages_received').on(table.receivedAt)
+		index('messages_received').on(table.receivedAt),
+		// The few messages that left a mailbox and are not settled yet: checked after every sync.
+		index('messages_left_pending')
+			.on(table.mailboxId, table.leftAt)
+			.where(sql`${table.leftAt} is not null and ${table.deletedAt} is null`),
+		// The few archive items Lookstow could not read, counted on the mailbox page.
+		index('messages_unreadable')
+			.on(table.mailboxId)
+			.where(sql`${table.indexFailedVersion} is not null`)
 	]
 );
 

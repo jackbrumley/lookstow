@@ -8,6 +8,7 @@ import {
 	exportArchiveItems,
 	isArchivePermissionError,
 	listArchiveFolders,
+	listArchiveOptionalFolders,
 	type ArchiveFolder,
 	type ArchiveItemChange
 } from '../graph/archive.ts';
@@ -20,8 +21,10 @@ import {
 import { recheckDue, recordFolderCounts, startRecheck } from '../mailboxes/completeness.ts';
 import {
 	insertMessage,
+	liveMessageIds,
 	moveMessage,
 	saveFolderProgress,
+	setArchiveParts,
 	storedMessage,
 	syncFolderList,
 	type FolderRow,
@@ -42,6 +45,8 @@ import {
 	type SyncOutcome
 } from './sync-common.ts';
 import { APP_VERSION } from '../../../utils/app-version.ts';
+import { errorText, serverLog } from '../../log.ts';
+import { readScope } from '../settings/settings.ts';
 
 /**
  * One sync of one online archive: the same shape as a mailbox sync (folder list, then each
@@ -78,6 +83,17 @@ export async function syncArchive(context: SyncContext, mailbox: MailboxRow): Pr
 	} catch (error) {
 		throw explain(error);
 	}
+	// An auto-expanding archive lists its folders across several parts (docs/specs/SPEC-SCALE.md).
+	setArchiveParts(
+		context.db,
+		mailbox.id,
+		new Set(graphFolders.map((folder) => folder.mailboxUrl)).size
+	);
+	if (readScope(context.db).includeRecoverable) {
+		const optional = await listArchiveOptionalFolders(context.client, mailboxUrl);
+		graphFolders = [...graphFolders, ...optional.folders];
+		reportRefusals(mailbox, optional.refused);
+	}
 	const folders = syncFolderList(
 		context.db,
 		mailbox.id,
@@ -100,7 +116,18 @@ export async function syncArchive(context: SyncContext, mailbox: MailboxRow): Pr
 			run.totals.firstCopyDone = false;
 			return;
 		}
-		if (await syncArchiveFolder(run, folder, where.get(folder.graphId) ?? mailboxUrl)) {
+		const own = where.get(folder.graphId) ?? mailboxUrl;
+		if (folder.optional) {
+			// Recoverable Items or the root: a refusal is logged, never fails the sync, and its
+			// copy never holds up the archive's first copy.
+			try {
+				if (await syncArchiveFolder(run, folder, own)) upToDate.push(folder);
+			} catch (error) {
+				reportOptionalFailure(mailbox, folder, error);
+			}
+			return;
+		}
+		if (await syncArchiveFolder(run, folder, own)) {
 			upToDate.push(folder);
 		} else {
 			run.totals.firstCopyDone = false;
@@ -119,7 +146,8 @@ export async function syncArchive(context: SyncContext, mailbox: MailboxRow): Pr
 			context.db,
 			mailbox.id,
 			countsFor(upToDate, after, run.fullListings),
-			context.now()
+			context.now(),
+			true
 		);
 	}
 	return run.totals;
@@ -171,7 +199,10 @@ async function syncArchiveFolder(
 					return false;
 				}
 			}
-			if (seen !== null) run.fullListings.set(folder.id, seen.size);
+			if (seen !== null) {
+				run.fullListings.set(folder.id, seen.size);
+				markUnlisted(run, folder, seen);
+			}
 			return firstCopyDone;
 		} catch (error) {
 			// An expired sync state (410, or Microsoft's code for it), as mail sync handles it.
@@ -185,6 +216,52 @@ async function syncArchiveFolder(
 		}
 	}
 	return firstCopyDone;
+}
+
+/**
+ * After a full listing of a folder: the stored items it did not return are no longer in the
+ * folder at the source, so they are recorded as deleted there (their files stay), as a mail
+ * folder's re-read does. A listing that returns far fewer items than are stored is not trusted
+ * with that: it is logged instead, so a short or broken reply never marks a folder's mail gone.
+ */
+function markUnlisted(run: ArchiveRun, folder: FolderRow, seen: ReadonlySet<string>): void {
+	const unlisted = liveMessageIds(run.context.db, folder.id).filter((id) => !seen.has(id));
+	if (unlisted.length === 0) return;
+	if (unlisted.length > UNLISTED_TRUSTED && unlisted.length * 2 > unlisted.length + seen.size) {
+		serverLog(
+			'warn',
+			'archive',
+			`${run.mailbox.address} (online archive): a full listing of ${folder.path} returned ${String(seen.size)} items but ${String(unlisted.length)} stored items were not in it. Not recording them as deleted; the next listing checks again.`
+		);
+		return;
+	}
+	for (const graphId of unlisted) run.pending.push({ folderId: folder.id, graphId });
+}
+
+/** Up to this many unlisted items are always recorded as deleted. */
+const UNLISTED_TRUSTED = 100;
+
+/** Each archive's refused opt-in folders, logged once while the service runs. */
+const refusalsLogged = new Set<string>();
+
+function reportRefusals(mailbox: MailboxRow, refused: readonly string[]): void {
+	if (refused.length === 0 || refusalsLogged.has(mailbox.id)) return;
+	refusalsLogged.add(mailbox.id);
+	serverLog(
+		'warn',
+		'recoverable',
+		`${mailbox.address} (online archive): Microsoft did not allow copying ${refused.join(' and ')}. The rest of the archive syncs as usual.`
+	);
+}
+
+function reportOptionalFailure(mailbox: MailboxRow, folder: FolderRow, error: unknown): void {
+	if (refusalsLogged.has(folder.id)) return;
+	refusalsLogged.add(folder.id);
+	serverLog(
+		'warn',
+		'recoverable',
+		`${mailbox.address} (online archive): ${folder.path} could not be copied (${errorText(error)}). The rest of the archive syncs as usual.`
+	);
 }
 
 function isExpiredSyncState(error: unknown): boolean {

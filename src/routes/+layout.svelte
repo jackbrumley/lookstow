@@ -14,6 +14,8 @@
 	import IconCloudDownload from '@tabler/icons-svelte-runes/icons/cloud-download';
 	import IconBook from '@tabler/icons-svelte-runes/icons/book';
 	import ToastHost from '#lib/ui/toast-host.svelte';
+	import Modal from '#lib/ui/modal.svelte';
+	import Button from '#lib/ui/button.svelte';
 	import IconPlayerPause from '@tabler/icons-svelte-runes/icons/player-pause';
 	import IconPlayerPlay from '@tabler/icons-svelte-runes/icons/player-play';
 	import { invalidate, refreshAll } from '$app/navigation';
@@ -74,6 +76,34 @@
 		};
 	});
 
+	// The update reminder (domain/releases/update-reminder.ts): front and centre on every page
+	// until someone answers it. Update now goes to the Updates page; the other two answers are
+	// kept on the server.
+	const update = $derived(data.update);
+	// Shown while the server says to remind; an answer hides it at once.
+	let reminding = $derived(update?.remind === true);
+	let answering = $state(false);
+
+	async function answerReminder(answer: 'later' | 'skip'): Promise<void> {
+		if (update === null) return;
+		answering = true;
+		try {
+			const response = await fetch('/api/updates/reminder', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ answer, version: update.version })
+			});
+			if (!response.ok) {
+				toast.error(`Lookstow answered ${String(response.status)}`);
+				return;
+			}
+			reminding = false;
+			await invalidate(LIVE_STATUS);
+		} finally {
+			answering = false;
+		}
+	}
+
 	let switching = $state(false);
 
 	/** Pause or Resume everything, from any page. */
@@ -120,6 +150,10 @@
 					<a href={item.href} class:active={active(item.path)}>
 						<item.icon size={18} />
 						{item.label}
+						{#if item.path === '/updates' && update !== null}<span
+								class="new"
+								title={`Lookstow ${update.version} is available`}>New</span
+							>{/if}
 					</a>
 				</li>
 			{/each}
@@ -186,6 +220,33 @@
 	</main>
 </div>
 <ToastHost />
+
+{#if update !== null}
+	<Modal open={reminding} title={`Lookstow ${update.version} is available`} locked>
+		<p>
+			You have {update.installed}. Updating takes about three minutes; backups pause meanwhile and
+			carry on where they were.
+		</p>
+		{#if update.highlights.length > 0}
+			<ul class="highlights">
+				{#each update.highlights as line, index (index)}
+					<li>{line}</li>
+				{/each}
+			</ul>
+		{/if}
+		{#snippet footer()}
+			<Button variant="secondary" disabled={answering} onclick={() => void answerReminder('skip')}
+				>Skip this version</Button
+			>
+			<Button variant="secondary" disabled={answering} onclick={() => void answerReminder('later')}
+				>Remind me tomorrow</Button
+			>
+			<a class="update-now" href={resolve('/updates')} onclick={() => (reminding = false)}
+				>Update now</a
+			>
+		{/snippet}
+	</Modal>
+{/if}
 
 <style>
 	.shell {
@@ -311,6 +372,33 @@
 	.banner.bad {
 		background: var(--colour-bad-soft);
 		color: var(--colour-bad-text);
+	}
+
+	.new {
+		margin-left: auto;
+		padding: 0 var(--space-2);
+		border-radius: 999px;
+		background: var(--colour-brand);
+		color: var(--colour-text-inverse);
+		font-size: var(--font-size-sm);
+	}
+
+	.highlights {
+		margin: var(--space-3) 0 0;
+		padding-left: var(--space-5);
+		display: grid;
+		gap: var(--space-1);
+	}
+
+	.update-now {
+		display: inline-flex;
+		align-items: center;
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-md);
+		background: var(--colour-brand);
+		color: var(--colour-text-inverse);
+		font-weight: var(--font-weight-medium);
+		text-decoration: none;
 	}
 
 	.phase.busy {

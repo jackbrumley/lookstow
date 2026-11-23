@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import type { UpdateReminderState } from '../../../domain/releases/update-reminder.ts';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { Queryable } from '../../database/connection.ts';
@@ -65,6 +66,8 @@ const scopeSchema = z.object({
 	includeShared: z.boolean(),
 	includeResources: z.boolean(),
 	includeArchives: z.boolean(),
+	// Added in 0.13.3: Recoverable Items and the mailbox root, off unless chosen.
+	includeRecoverable: z.boolean().default(false),
 	excludedAddresses: addressList
 });
 
@@ -121,6 +124,12 @@ const backupMoveSchema = z.discriminatedUnion('kind', [
 ]);
 
 const updatesSchema = z.object({ automatic: z.boolean() });
+
+/** The update reminder's answer (domain/releases/update-reminder.ts). */
+const updateReminderSchema = z.object({
+	snoozedUntil: z.iso.datetime().nullable(),
+	skippedVersion: z.string().max(40).nullable()
+});
 
 /** A Mailgun sending domain: letters, digits, dots and hyphens (mg.example.com). */
 const DOMAIN =
@@ -191,6 +200,10 @@ const KEYS = {
 	backupMarker: { schema: backupMarkerSchema, fallback: null },
 	backupMove: { schema: backupMoveSchema, fallback: { kind: 'none' } },
 	updates: { schema: updatesSchema, fallback: UPDATE_DEFAULTS },
+	updateReminder: {
+		schema: updateReminderSchema,
+		fallback: { snoozedUntil: null, skippedVersion: null }
+	},
 	disk: { schema: diskSchema, fallback: DISK_DEFAULTS },
 	email: { schema: emailSchema, fallback: emptyEmail() },
 	throughput: { schema: learnedPaceSchema, fallback: null },
@@ -283,6 +296,14 @@ export function readAiAccess(db: Queryable): AiAccess {
 
 export function saveAiAccess(db: Queryable, access: AiAccess): void {
 	write(db, 'ai', aiAccessSchema.parse(access));
+}
+
+export function readUpdateReminder(db: Queryable): UpdateReminderState {
+	return read(db, 'updateReminder', KEYS.updateReminder.schema, KEYS.updateReminder.fallback);
+}
+
+export function saveUpdateReminder(db: Queryable, reminder: UpdateReminderState): void {
+	write(db, 'updateReminder', updateReminderSchema.parse(reminder));
 }
 
 export function saveUpdates(db: Queryable, updates: UpdateSettings): void {

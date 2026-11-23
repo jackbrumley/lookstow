@@ -50,6 +50,11 @@ export type FolderGap =
 	| { kind: 'unchecked' }
 	| { kind: 'match' }
 	| { kind: 'explained'; waiting: number; givenUp: number; otherItems: number }
+	/**
+	 * An auto-expanding archive's folder whose mail Microsoft counts in another part: checked
+	 * against its last full listing (every week) instead of Microsoft's count.
+	 */
+	| { kind: 'from-listing'; listed: number | null; listedAt: string | null }
 	| {
 			kind: 'checking' | 'needs-look';
 			stored: number;
@@ -65,11 +70,16 @@ export type MailboxDetail = MailboxSummary & {
 	backupFolder: string;
 	/** Online archive items the .fts reader could not read for Search (stored as they came). */
 	unreadableItems: number;
+	/** An online archive's parts (more than one: auto-expanding), or null. */
+	archiveParts: number | null;
 	folders: {
 		path: string;
 		itemCount: number;
 		/** Microsoft's count after the folder's last up-to-date sync, or null before one. */
 		sourceCount: number | null;
+		/** How many items the folder's last full listing returned, and when, or null. */
+		listedCount: number | null;
+		listedAt: string | null;
 		firstCopyDone: boolean;
 		lastSyncedAt: string | null;
 		gap: FolderGap;

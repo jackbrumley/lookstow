@@ -126,6 +126,14 @@
 				subject, sender and recipient, and each item downloads as an <code>.eml</code> any mail program
 				opens.
 			</dd>
+			{#if mailbox.archiveParts !== null && mailbox.archiveParts > 1}
+				<dt>Auto-expanding</dt>
+				<dd>
+					Microsoft has spread this archive over {mailbox.archiveParts} parts (it does so past 100 GB).
+					Lookstow copies every part. Microsoft's count for a folder covers only one part, so a folder
+					it counts short is checked against its own full listing instead, every week.
+				</dd>
+			{/if}
 		{/if}
 		<dt>Messages</dt>
 		<dd>{formatCount(mailbox.itemCount)} ({formatBytes(mailbox.byteCount)})</dd>
@@ -179,7 +187,14 @@
 						<td>{folder.path}</td>
 						<td>{formatCount(folder.itemCount)}</td>
 						<td>
-							{#if folder.sourceCount === null}
+							{#if folder.gap.kind === 'from-listing'}
+								{formatCount(folder.sourceCount ?? 0)}
+								<span class="muted small"
+									>(one part only; its full listing {folder.gap.listedAt === null
+										? 'is due'
+										: `on ${formatDateTime(folder.gap.listedAt)} found ${formatCount(folder.gap.listed ?? 0)}`})</span
+								>
+							{:else if folder.sourceCount === null}
 								<span class="muted">Not compared</span>
 							{:else if folder.gap.kind === 'needs-look'}
 								<Badge tone="warn">{formatCount(folder.sourceCount)}</Badge>
@@ -191,6 +206,11 @@
 								{formatCount(folder.sourceCount)}
 								{#if folder.gap.kind === 'explained'}
 									<span class="muted small">{explainedText(folder.gap)}</span>
+								{/if}
+								{#if folder.listedCount !== null && folder.listedCount !== folder.sourceCount}
+									<span class="muted small"
+										>(last full listing: {formatCount(folder.listedCount)})</span
+									>
 								{/if}
 							{/if}
 						</td>

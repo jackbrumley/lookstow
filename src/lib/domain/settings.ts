@@ -29,6 +29,11 @@ export type ScopeSettings = {
 	/** Room and equipment mailboxes (mostly calendar, little mail). */
 	includeResources: boolean;
 	includeArchives: boolean;
+	/**
+	 * Recoverable Items (deletions, purges, versions, items kept for a hold) and the items in a
+	 * mailbox's or archive's root, which the folder tree leaves out. Off unless chosen.
+	 */
+	includeRecoverable: boolean;
 	/** Addresses never backed up, lower case. */
 	excludedAddresses: string[];
 };
@@ -99,6 +104,7 @@ export const SCOPE_DEFAULTS: ScopeSettings = {
 	includeShared: true,
 	includeResources: false,
 	includeArchives: true,
+	includeRecoverable: false,
 	excludedAddresses: []
 };
 

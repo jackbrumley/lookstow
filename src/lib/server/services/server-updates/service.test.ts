@@ -85,7 +85,7 @@ describe('update checks', () => {
 		]);
 	});
 
-	it('records only checks asked for in the console, and is due again a day later', async () => {
+	it('records only checks asked for in the console, and is due again 6 hours later', async () => {
 		const recorded: ActivityEntry[] = [];
 		const service = new ServerUpdates(
 			installed(scratch()),
@@ -96,8 +96,8 @@ describe('update checks', () => {
 		expect(service.due(NOW)).toBe(true);
 		await service.check('schedule', NOW);
 		expect(recorded).toEqual([]);
-		expect(service.due(NOW + 24 * 60 * 60 * 1000 - 1)).toBe(false);
-		expect(service.due(NOW + 24 * 60 * 60 * 1000)).toBe(true);
+		expect(service.due(NOW + 6 * 60 * 60 * 1000 - 1)).toBe(false);
+		expect(service.due(NOW + 6 * 60 * 60 * 1000)).toBe(true);
 		expect(service.view().install).toEqual({
 			allowed: false,
 			reason: 'No newer signed release is available.'

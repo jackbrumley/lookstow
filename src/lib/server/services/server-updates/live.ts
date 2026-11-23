@@ -33,14 +33,17 @@ export function serverUpdates(): ServerUpdates {
 }
 
 /**
- * Checks for a new release now if one is due, then every minute whether the daily check is due.
- * Called once from the server's `init` hook; later calls do nothing.
+ * Checks for a new release at start, then every minute whether the next check is due (every 6
+ * hours). Called once from the server's `init` hook; later calls do nothing.
  */
 export function startUpdateChecks(): void {
 	if (Reflect.get(globalThis, TIMER_KEY) === true) return;
 	Reflect.set(globalThis, TIMER_KEY, true);
+	let first = true;
 	const check = (): void => {
-		if (serverUpdates().due(Date.now()))
+		const now = first || serverUpdates().due(Date.now());
+		first = false;
+		if (now)
 			void serverUpdates()
 				.check('schedule', Date.now())
 				.catch((error: unknown) => {

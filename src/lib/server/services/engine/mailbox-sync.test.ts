@@ -393,6 +393,39 @@ describe('one bad message never stops a folder', () => {
 			.find((each) => each.graphId === 'm2');
 		expect(gone?.deletedAt).not.toBeNull();
 	});
+
+	it('after a delta restart, marks deleted a message now in a folder Lookstow does not copy', async () => {
+		let fresh = 0;
+		const graph = mailbox({
+			'mailFolders/inbox/messages/delta': () => {
+				fresh += 1;
+				return fresh === 1 ? pageOf('m1', 'm2', 'm3')() : pageOf('m1')();
+			},
+			'^/v1\\.0/inbox-delta-1$': () => graphError(410, 'SyncStateNotFound', 'Expired'),
+			'mailFolders/(sent|proj)/messages/delta': empty,
+			'^/v1\\.0/empty-delta$': empty
+		})
+			// Shift+Delete: still found by id, in the hidden Recoverable Items.
+			.on(/\/messages\/m2\?\$select=/, () =>
+				json({ ...message('m2', 'Subject m2'), parentFolderId: 'recoverable-deletions' })
+			)
+			// Moved to a folder Lookstow copies: that folder's sync records the move.
+			.on(/\/messages\/m3\?\$select=/, () =>
+				json({ ...message('m3', 'Subject m3'), parentFolderId: 'sent' })
+			);
+		const { db, row, context } = await setup(graph);
+		await syncMailbox(context, row);
+		await syncMailbox(context, row);
+		const deleted = new Map(
+			db
+				.select()
+				.from(messages)
+				.all()
+				.map((each) => [each.graphId, each.deletedAt !== null])
+		);
+		expect(deleted.get('m2')).toBe(true);
+		expect(deleted.get('m3')).toBe(false);
+	});
 });
 
 describe('the completeness check during a sync', () => {

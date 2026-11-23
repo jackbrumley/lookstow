@@ -105,24 +105,34 @@ export function mailboxDetail(
 		lastSeenAt: row.lastSeenAt.toISOString(),
 		backupFolder: resolveStoragePath(backupRoot, mailboxFolderName(row.address, row.kind)),
 		unreadableItems: unreadableItemCount(db, id),
+		archiveParts: row.archiveParts,
 		folders: foldersOf(db, id)
 			.filter((folder) => folder.goneAt === null)
 			.map((folder) => ({
 				path: folder.path,
 				itemCount: counts.get(folder.id) ?? 0,
 				sourceCount: folder.sourceCount,
+				listedCount: folder.listedCount,
+				listedAt: folder.listedAt?.toISOString() ?? null,
 				firstCopyDone: folder.firstCopyDone,
 				lastSyncedAt: folder.lastSyncedAt?.toISOString() ?? null,
-				gap: folderGap(
-					explainGap(
-						counts.get(folder.id) ?? 0,
-						folder.sourceCount,
-						failures.get(folder.id) ?? { waiting: 0, givenUp: 0 },
-						folder.otherItemCount
-					),
-					folder,
-					now
-				)
+				gap:
+					folder.countFromListing && folder.differsSince === null
+						? {
+								kind: 'from-listing' as const,
+								listed: folder.listedCount,
+								listedAt: folder.listedAt?.toISOString() ?? null
+							}
+						: folderGap(
+								explainGap(
+									counts.get(folder.id) ?? 0,
+									folder.countFromListing ? folder.listedCount : folder.sourceCount,
+									failures.get(folder.id) ?? { waiting: 0, givenUp: 0 },
+									folder.countFromListing ? null : folder.otherItemCount
+								),
+								folder,
+								now
+							)
 			})),
 		recentRuns: recentRuns(db, { limit: 20, mailboxId: id })
 	};
