@@ -77,7 +77,12 @@ export async function attachmentResponse(
 			'content-length': String(found.data.length),
 			'content-disposition': `${shown ? 'inline' : 'attachment'}; ${name}`,
 			'x-content-type-options': 'nosniff',
-			'cache-control': 'no-store'
+			'cache-control': 'no-store',
+			// A PDF shows in the lightbox's frame (ui/lightbox.svelte): framed by Lookstow's own
+			// pages only. Anything that downloads stays unframed (hooks.server.ts sets DENY).
+			...(shown
+				? { 'x-frame-options': 'SAMEORIGIN', 'content-security-policy': "frame-ancestors 'self'" }
+				: {})
 		}
 	});
 }

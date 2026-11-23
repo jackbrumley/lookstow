@@ -7,6 +7,8 @@
 	import { formatBytes, formatDateTime } from '#lib/utils/format.ts';
 	import type { MessageEvent } from '#lib/domain/messages.ts';
 	import type { MessagePageData } from '#lib/domain/viewer.ts';
+	import type { ResolvedPathname } from '$app/types';
+	import Lightbox, { type LightboxItem } from '#lib/ui/lightbox.svelte';
 
 	/** A message's page, or a forwarded email's inside it (`data.part`): the same page. */
 	let { data }: { data: MessagePageData } = $props();
@@ -29,8 +31,8 @@
 		}${remotePictures ? '?remote=1' : ''}`
 	);
 
-	/** A picture's address, for an <img> (not a link). */
-	function pictureUrl(index: number): string {
+	/** An attachment shown in the browser (a picture, a HEIC photo's JPEG copy, a PDF). */
+	function pictureUrl(index: number): ResolvedPathname {
 		return data.part === null
 			? resolve('/messages/[id]/attachments/[index]/open', {
 					id: message.id,
@@ -52,6 +54,44 @@
 	);
 	const pictures = $derived(attachments.filter((attachment) => attachment.preview === 'image'));
 	const others = $derived(attachments.filter((attachment) => attachment.preview !== 'image'));
+
+	/** The original file, downloaded. */
+	function downloadUrl(index: number): ResolvedPathname {
+		return data.part === null
+			? resolve('/messages/[id]/attachments/[index]', { id: message.id, index: String(index) })
+			: resolve('/messages/[id]/forwarded/[part]/attachments/[index]', {
+					id: message.id,
+					part: String(data.part),
+					index: String(index)
+				});
+	}
+
+	// The lightbox (ui/lightbox.svelte): the pictures, then the PDFs, flicked through in order.
+	const viewable = $derived([
+		...pictures,
+		...others.filter((attachment) => attachment.preview === 'pdf')
+	]);
+	const lightboxItems = $derived(
+		viewable.map((attachment): LightboxItem => ({
+			kind: attachment.preview === 'pdf' ? 'pdf' : 'image',
+			view: pictureUrl(attachment.index),
+			download: downloadUrl(attachment.index),
+			filename: attachment.filename,
+			caption: formatBytes(attachment.bytes)
+		}))
+	);
+	let showing = $state<number | null>(null);
+
+	/** A plain click opens the lightbox; Ctrl, Shift or a middle click still opens a tab. */
+	function openInLightbox(event: MouseEvent, attachmentIndex: number): void {
+		if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+			return;
+		}
+		const position = viewable.findIndex((attachment) => attachment.index === attachmentIndex);
+		if (position < 0) return;
+		event.preventDefault();
+		showing = position;
+	}
 
 	function describe(event: MessageEvent): string {
 		switch (event.kind) {
@@ -150,6 +190,9 @@
 								})}
 						target="_blank"
 						rel="noopener noreferrer"
+						onclick={(event) => {
+							openInLightbox(event, picture.index);
+						}}
 					>
 						<img src={pictureUrl(picture.index)} alt={picture.filename} loading="lazy" />
 						<span class="small">{picture.filename} · {formatBytes(picture.bytes)}</span>
@@ -191,7 +234,10 @@
 												index: String(attachment.index)
 											})}
 									target="_blank"
-									rel="noopener noreferrer">Open</a
+									rel="noopener noreferrer"
+									onclick={(event) => {
+										if (attachment.preview === 'pdf') openInLightbox(event, attachment.index);
+									}}>Open</a
 								>
 							{/if}
 							<a
@@ -213,6 +259,8 @@
 		{/if}
 	{/if}
 </Card>
+
+<Lightbox items={lightboxItems} bind:index={showing} />
 
 <Card title="Where it is">
 	<dl class="facts">

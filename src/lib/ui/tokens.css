@@ -52,6 +52,10 @@
 	--colour-on-bad: #ffffff;
 	/* Behind an open modal: dims the page in both themes */
 	--colour-backdrop: rgb(15 23 42 / 0.45);
+	/* The picture lightbox: dark in both themes, so a photo stands out */
+	--colour-lightbox: rgb(8 12 20 / 0.96);
+	--colour-lightbox-bar: rgb(255 255 255 / 0.12);
+	--colour-lightbox-text: #ffffff;
 	--colour-border: #dde3e9;
 	--colour-border-strong: #c3ccd5;
 
