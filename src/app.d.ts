@@ -14,6 +14,8 @@ declare global {
 			remoteUser: string | null;
 			/** That remote account may make and download evidence packs. */
 			remoteMayExport: boolean;
+			/** An AI tool signed in with this remote account's own token (remote/ai-tokens.ts). */
+			remoteAiUser: string | null;
 		}
 	}
 }

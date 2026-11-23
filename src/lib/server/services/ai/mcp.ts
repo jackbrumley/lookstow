@@ -104,14 +104,26 @@ export async function handleMcp(
 				const output = await callTool(context, name, args);
 				await audit(
 					context.dataDir,
-					{ tool: name, arguments: args, ok: output.isError !== true, ms: context.now() - started },
+					{
+						who: context.who ?? 'this computer',
+						tool: name,
+						arguments: args,
+						ok: output.isError !== true,
+						ms: context.now() - started
+					},
 					started
 				);
 				return result(message.id, output);
 			} catch (error) {
 				await audit(
 					context.dataDir,
-					{ tool: name, arguments: args, ok: false, error: errorText(error) },
+					{
+						who: context.who ?? 'this computer',
+						tool: name,
+						arguments: args,
+						ok: false,
+						error: errorText(error)
+					},
 					started
 				);
 				return result(message.id, {
@@ -134,7 +146,11 @@ export async function downloadAttachment(
 	const found = await attachmentBytes(context, messageId, index);
 	await audit(
 		context.dataDir,
-		{ download: { messageId, index }, ok: !('error' in found) },
+		{
+			who: context.who ?? 'this computer',
+			download: { messageId, index },
+			ok: !('error' in found)
+		},
 		context.now()
 	);
 	return found;

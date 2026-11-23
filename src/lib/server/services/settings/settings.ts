@@ -149,6 +149,11 @@ const remoteSchema = z.object({
 				disabled: z.boolean(),
 				/** May make and download evidence packs (docs/specs/SPEC-EVIDENCE-PACKS.md). */
 				evidencePacks: z.boolean().default(false),
+				/** May use the AI tools (MCP) remotely, with its own token (services/remote/ai-tokens.ts). */
+				aiTools: z.boolean().default(false),
+				/** The SHA-256 of that token, and its last four characters; the token is shown once. */
+				aiTokenSha256: z.string().max(64).nullable().default(null),
+				aiTokenHint: z.string().max(8).nullable().default(null),
 				createdAt: z.iso.datetime(),
 				lastSignInAt: z.iso.datetime().nullable()
 			})

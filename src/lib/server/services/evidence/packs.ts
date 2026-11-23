@@ -66,19 +66,51 @@ export function packZipPath(dataDir: string, id: string): string {
 	return join(packFolder(dataDir, id), 'pack.zip');
 }
 
+/**
+ * Windows refuses to replace or open a file for a moment while another thread has it open (the
+ * page reading pack.json as the builder replaces it): EPERM, EBUSY or EACCES. Such a moment is
+ * waited out, a few times, rather than failing a pack.
+ */
+const BUSY = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const BUSY_TRIES = 10;
+
+function isBusy(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		'code' in error &&
+		typeof error.code === 'string' &&
+		BUSY.has(error.code)
+	);
+}
+
+async function whenFree<T>(work: () => Promise<T>): Promise<T> {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			return await work();
+		} catch (error) {
+			if (!isBusy(error) || attempt >= BUSY_TRIES) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 20 * attempt));
+		}
+	}
+}
+
 /** Writes pack.json whole (a temporary file, then a rename), so a reader never sees half. */
 export async function savePack(dataDir: string, pack: EvidencePack): Promise<void> {
 	const folder = packFolder(dataDir, pack.id);
 	const temporary = join(folder, `pack.json.${randomUUID()}.tmp`);
 	await writeFile(temporary, JSON.stringify(pack, null, 1), { mode: 0o600 });
-	await rename(temporary, join(folder, 'pack.json'));
+	try {
+		await whenFree(() => rename(temporary, join(folder, 'pack.json')));
+	} catch (error) {
+		await rm(temporary, { force: true });
+		throw error;
+	}
 }
 
 export async function readPack(dataDir: string, id: string): Promise<EvidencePack | null> {
 	try {
-		const parsed = packSchema.safeParse(
-			JSON.parse(await readFile(join(packFolder(dataDir, id), 'pack.json'), 'utf8'))
-		);
+		const text = await whenFree(() => readFile(join(packFolder(dataDir, id), 'pack.json'), 'utf8'));
+		const parsed = packSchema.safeParse(JSON.parse(text));
 		return parsed.success ? parsed.data : null;
 	} catch {
 		return null;

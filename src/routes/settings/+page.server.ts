@@ -39,6 +39,8 @@ import {
 	saveRemoteAccess,
 	setAccountDisabled,
 	setAccountEvidencePacks,
+	setAccountAiTools,
+	newAccountAiToken,
 	generatePassword
 } from '#lib/server/services/remote/manage.ts';
 
@@ -72,7 +74,7 @@ function saved(summary: string, message: string) {
 	return done(message);
 }
 
-function attempt(work: () => ReturnType<typeof done>) {
+function attempt<T extends ReturnType<typeof done>>(work: () => T) {
 	try {
 		return work();
 	} catch (error) {
@@ -373,6 +375,22 @@ export const actions = {
 		return attempt(() =>
 			done(setAccountEvidencePacks(database, field(data, 'username'), checked(data, 'allowed')))
 		);
+	},
+	remoteAi: async ({ request }) => {
+		const data = await request.formData();
+		const username = field(data, 'username');
+		return attempt(() => {
+			const changed = setAccountAiTools(database, username, checked(data, 'allowed'));
+			return { ...done(changed.message), aiSetup: { username, token: changed.token } };
+		});
+	},
+	remoteAiToken: async ({ request }) => {
+		const data = await request.formData();
+		const username = field(data, 'username');
+		return attempt(() => {
+			const made = newAccountAiToken(database, username);
+			return { ...done(made.message), aiSetup: { username, token: made.token } };
+		});
 	},
 	remoteDelete: async ({ request }) => {
 		const data = await request.formData();

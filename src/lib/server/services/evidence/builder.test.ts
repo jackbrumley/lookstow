@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from '../../database/connection.ts';
 import { applyDiscovery, insertMessage, syncFolderList } from '../mailboxes/repository.ts';
 import { PackBuilder } from './builder.ts';
 import { createPack, listPacks, packZipPath, planPack, readPack, removePack } from './packs.ts';
 import { readZip } from '#tests/support/read-zip.ts';
+// Packs are made in the background and polled; the full suite runs many files at once.
+vi.setConfig({ testTimeout: 20_000 });
 
 const folders: string[] = [];
 afterEach(async () => {

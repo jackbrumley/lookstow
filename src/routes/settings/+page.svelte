@@ -322,6 +322,7 @@
 <RemoteAccessCard
 	remote={data.remote}
 	credentials={form !== null && 'credentials' in form ? form.credentials : null}
+	aiSetup={form !== null && 'aiSetup' in form ? form.aiSetup : null}
 />
 
 <BackupFolderCard

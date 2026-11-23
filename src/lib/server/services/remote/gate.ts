@@ -2,10 +2,13 @@ import type { RequestEvent } from '@sveltejs/kit';
 import type { Queryable } from '../../database/connection.ts';
 import { readRemote } from '../settings/settings.ts';
 import { SESSION_COOKIE, sessionUser } from './accounts.ts';
+import { accountForAiToken, bearerToken } from './ai-tokens.ts';
 import {
 	allowed,
+	isAiPath,
 	openWithoutSignIn,
 	parseAllowEntry,
+	remoteAiMayOpen,
 	remoteMayOpen,
 	type AllowEntry
 } from '../../../domain/remote.ts';
@@ -36,11 +39,30 @@ export function remoteGate(
 	if (!allowed(address, entries)) {
 		return plain(403, `This computer (${address}) is not on Lookstow's remote access list.`);
 	}
+	const path = event.url.pathname;
+	// AI tools sign in with an account's own token, never a session (remote/ai-tokens.ts).
+	if (isAiPath(path)) {
+		const agent = accountForAiToken(
+			remote,
+			bearerToken(event.request.headers.get('authorization'))
+		);
+		if (agent === null) {
+			return plain(
+				401,
+				'Send a remote account’s AI token: Authorization: Bearer <token> (Settings, Remote access).'
+			);
+		}
+		if (!remoteAiMayOpen(event.request.method, path)) {
+			return plain(403, 'The AI tools only read: /mcp, and the downloads its answers link to.');
+		}
+		event.locals.remoteUser = agent.username;
+		event.locals.remoteAiUser = agent.username;
+		return null;
+	}
 	const name = sessionUser(event.cookies.get(SESSION_COOKIE));
 	const account = remote.accounts.find((each) => each.username === name && !each.disabled);
 	event.locals.remoteUser = account?.username ?? null;
 	event.locals.remoteMayExport = account?.evidencePacks ?? false;
-	const path = event.url.pathname;
 	if (openWithoutSignIn(path)) return null;
 	if (account === undefined) {
 		// SvelteKit takes /__data.json off the path before this hook; such a fetch (moving between

@@ -20,6 +20,26 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.6',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.6 from the Updates page. Expected: the countdown, then the console back by itself',
+				'Open a message with photos and press one. Expected: it opens over the page, not in a new tab; the wheel or + and - zoom, dragging moves it, the rotate buttons or R turn it a quarter, the arrows or ← → go to the next picture, and Esc or a click outside closes it',
+				"On the same message, press Open on a PDF. Expected: it opens in the same viewer, with the PDF's own toolbar (zoom, pages, rotate)",
+				'Make an evidence pack and leave the Evidence packs page open while it is made. Expected: it reaches Ready every time (in 0.13.5 one could fail now and then with “operation not permitted”)',
+				"In Settings, Remote access, press Not allowed in an account's AI tools column. Expected: it says Allowed, and a box shows three setup lines and the token, with Copy",
+				"On that person's computer (an allowed address), run the three lines in Command Prompt, open a new Command Prompt and start Claude Code. Expected: /mcp lists lookstow as connected, and asking it to list the mailboxes works",
+				'Press New AI token, or Allowed again to turn it off. Expected: the old token stops working at once (Claude Code shows lookstow as failed until given the new one)'
+			]
+		},
+		changes: [
+			"Pictures and PDFs open in a viewer over the page instead of a new tab: zoom, drag, rotate a quarter turn (R), flick between a message's pictures and PDFs (← →), and close with Esc or a click outside. Ctrl-click still opens a new tab",
+			"AI tools from other computers: in Settings, Remote access, allow an account the AI tools and it gets its own token, with three lines to set up Claude Code on that person's computer. Read-only, from allowed computers only, and every call is logged with their name. Turning it off or making a new token stops the old one at once",
+			'Fixed: an evidence pack could fail now and then (“operation not permitted”) when its page was open while it was being made'
+		]
+	},
+	{
 		version: '0.13.5',
 		testing: {
 			kind: 'steps',

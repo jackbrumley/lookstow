@@ -10,7 +10,8 @@ import { Alerts } from '../services/alerts/alerts.ts';
 import { Engine } from '../services/engine/engine.ts';
 import { liveStatus } from '../services/engine/live-status.ts';
 import { startSearchIndex } from '../services/search-index/keeper.ts';
-import { effectiveBackupRoot, readAiAccess } from '../services/settings/settings.ts';
+import { effectiveBackupRoot } from '../services/settings/settings.ts';
+import { aiToolsWanted } from '../services/ai/access.ts';
 import { throughputExtras } from '../services/throughput/extras.ts';
 import {
 	forgetLearnedPace,
@@ -58,7 +59,7 @@ engine.start();
 const contentIndex = startContentIndexer(
 	db,
 	() => effectiveBackupRoot(db, folder),
-	() => readAiAccess(db).enabled
+	() => aiToolsWanted(db)
 );
 const searchIndex = startSearchIndex(db);
 const stopWatching = watchThread('work');

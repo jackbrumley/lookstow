@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { openDatabase } from '../../database/connection.ts';
 import { applyDiscovery, insertMessage, syncFolderList } from '../mailboxes/repository.ts';
@@ -11,6 +11,8 @@ import { indexContent } from './content-index.ts';
 import { AUDIT_FOLDER, handleMcp } from './mcp.ts';
 import { parseEml } from './mime.ts';
 import { PackBuilder } from '../evidence/builder.ts';
+// Packs are made in the background and polled; the full suite runs many files at once.
+vi.setConfig({ testTimeout: 20_000 });
 
 const PNG = Buffer.from(
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',

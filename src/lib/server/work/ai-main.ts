@@ -38,8 +38,9 @@ const packs = new PackBuilder({
 	backupRoot: () => effectiveBackupRoot(db, folder)
 });
 
-function context(baseUrl: string) {
+function context(baseUrl: string, who: string) {
 	return {
+		who,
 		db,
 		backupRoot: effectiveBackupRoot(db, folder),
 		baseUrl,
@@ -85,7 +86,7 @@ async function viewed(
 async function answer(call: AiCall): Promise<AiAnswer> {
 	switch (call.name) {
 		case 'mcp':
-			return { name: 'mcp', value: await handleMcp(context(call.baseUrl), call.message) };
+			return { name: 'mcp', value: await handleMcp(context(call.baseUrl, call.who), call.message) };
 		case 'view': {
 			const parsed = await viewed(call.messageId, call.part);
 			return { name: 'view', value: 'error' in parsed ? parsed : { view: viewOf(parsed) } };
@@ -119,7 +120,11 @@ async function answer(call: AiCall): Promise<AiAnswer> {
 			await packs.enqueue(call.packId);
 			return { name: 'pack', value: null };
 		case 'attachment': {
-			const found = await downloadAttachment(context(call.baseUrl), call.messageId, call.index);
+			const found = await downloadAttachment(
+				context(call.baseUrl, call.who),
+				call.messageId,
+				call.index
+			);
 			return {
 				name: 'attachment',
 				value:

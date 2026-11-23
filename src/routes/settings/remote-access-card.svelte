@@ -17,9 +17,11 @@
 		remote: RemoteView;
 		/** An account just added or given a new password: shown once, to copy and send. */
 		credentials: { username: string; password: string | null } | null;
+		/** An account just given an AI token: the setup for its computer, shown once. */
+		aiSetup: { username: string; token: string | null } | null;
 	}
 
-	let { remote, credentials }: Props = $props();
+	let { remote, credentials, aiSetup }: Props = $props();
 
 	let accessOpen = $state(false);
 	let addOpen = $state(false);
@@ -35,18 +37,41 @@
 	// The details to send, until Done; each new set shows again.
 	let dismissed = $state<unknown>(null);
 	const showing = $derived(credentials !== null && dismissed !== credentials ? credentials : null);
-	const message = $derived(
-		showing === null
-			? ''
-			: [
-					`Lookstow (read-only access to the mail backup): ${remote.address}`,
-					`Name: ${showing.username}`,
-					`Password: ${showing.password ?? '(the one you were given)'}`,
-					remote.fingerprint === null
-						? 'Your browser warns about the certificate the first time; accept it to go on.'
-						: `Your browser warns about the certificate the first time. Its SHA-256 fingerprint is ${remote.fingerprint}.`
-				].join('\n')
+	const aiShowing = $derived(
+		aiSetup !== null && aiSetup.token !== null && dismissed !== aiSetup
+			? { username: aiSetup.username, token: aiSetup.token }
+			: null
 	);
+	const message = $derived.by(() => {
+		if (aiShowing !== null) {
+			// For Claude Code on the person's Windows computer, in Command Prompt.
+			return [
+				`Lookstow AI tools for ${aiShowing.username}: read-only access to the mail backup for Claude Code on your computer.`,
+				'Run these once, in Command Prompt:',
+				'',
+				"1. Save Lookstow's certificate, so Claude Code trusts its address:",
+				`   curl.exe -k -o "%USERPROFILE%\\lookstow.pem" ${remote.address}lookstow-certificate.pem`,
+				'2. Tell Claude Code to trust it, then open a new Command Prompt:',
+				'   setx NODE_EXTRA_CA_CERTS "%USERPROFILE%\\lookstow.pem"',
+				'3. Add Lookstow to Claude Code:',
+				`   claude mcp add --transport http lookstow ${remote.address}mcp --header "Authorization: Bearer ${aiShowing.token}"`,
+				'',
+				...(remote.fingerprint === null
+					? []
+					: [`The certificate's SHA-256 fingerprint is ${remote.fingerprint}.`]),
+				`Keep the token private: anyone with it reads the backup as ${aiShowing.username}, from an allowed computer.`
+			].join('\n');
+		}
+		if (showing === null) return '';
+		return [
+			`Lookstow (read-only access to the mail backup): ${remote.address}`,
+			`Name: ${showing.username}`,
+			`Password: ${showing.password ?? '(the one you were given)'}`,
+			remote.fingerprint === null
+				? 'Your browser warns about the certificate the first time; accept it to go on.'
+				: `Your browser warns about the certificate the first time. Its SHA-256 fingerprint is ${remote.fingerprint}.`
+		].join('\n');
+	});
 	let copied = $state(false);
 	let box = $state<HTMLTextAreaElement | null>(null);
 
@@ -80,19 +105,29 @@
 	{#if remote.problem !== null}
 		<p class="problem" role="alert">{remote.problem}</p>
 	{/if}
-	{#if showing !== null}
+	{#if aiShowing !== null || showing !== null}
 		<div class="send" role="status">
-			<strong>Send this to {showing.username}</strong>
-			{#if showing.password !== null}
+			<strong>Send this to {aiShowing?.username ?? showing?.username}</strong>
+			{#if aiShowing !== null}
+				<span class="muted small"
+					>Shown once: Lookstow keeps only a scrambled form of the AI token. If it is lost, use New
+					AI token.</span
+				>
+			{:else if showing?.password !== null}
 				<span class="muted small"
 					>Shown once: Lookstow keeps only a scrambled form of the password, so it cannot show it
 					again. If it is lost, use New password….</span
 				>
 			{/if}
-			<textarea readonly rows="5" bind:this={box} value={message}></textarea>
+			<textarea readonly rows={aiShowing === null ? 5 : 13} bind:this={box} value={message}
+			></textarea>
 			<div class="send-buttons">
 				<Button size="sm" onclick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</Button>
-				<Button size="sm" variant="ghost" onclick={() => (dismissed = credentials)}>Done</Button>
+				<Button
+					size="sm"
+					variant="ghost"
+					onclick={() => (dismissed = aiShowing === null ? credentials : aiSetup)}>Done</Button
+				>
 			</div>
 		</div>
 	{/if}
@@ -111,7 +146,9 @@
 	{:else}
 		<table>
 			<thead
-				><tr><th>Name</th><th>State</th><th>Evidence packs</th><th>Last signed in</th><th></th></tr
+				><tr
+					><th>Name</th><th>State</th><th>Evidence packs</th><th>AI tools</th><th>Last signed in</th
+					><th></th></tr
 				></thead
 			>
 			<tbody>
@@ -137,6 +174,37 @@
 									>{account.evidencePacks ? 'Allowed' : 'Not allowed'}</Button
 								>
 							</form>
+						</td>
+						<td>
+							<div class="ai-cell">
+								<form method="POST" action="?/remoteAi" use:enhance>
+									<input type="hidden" name="username" value={account.username} />
+									<input type="hidden" name="allowed" value={account.aiTools ? '' : 'on'} />
+									<Button
+										type="submit"
+										size="sm"
+										variant="ghost"
+										title={account.aiTools
+											? 'Their AI agent (Claude Code) may read the backup with their own token. Press to stop it.'
+											: 'Press to let their AI agent (Claude Code) read the backup, with a token of their own.'}
+										>{account.aiTools ? 'Allowed' : 'Not allowed'}</Button
+									>
+								</form>
+								{#if account.aiTools}
+									<form method="POST" action="?/remoteAiToken" use:enhance>
+										<input type="hidden" name="username" value={account.username} />
+										<Button
+											type="submit"
+											size="sm"
+											variant="ghost"
+											title="Make a new token and stop the old one"
+											>New AI token{account.aiTokenHint === null
+												? ''
+												: ` (now …${account.aiTokenHint})`}</Button
+										>
+									</form>
+								{/if}
+							</div>
 						</td>
 						<td>{account.lastSignInAt === null ? 'Never' : formatDateTime(account.lastSignInAt)}</td
 						>
@@ -356,6 +424,12 @@
 		font-family: var(--font-mono, monospace);
 		font-size: var(--font-size-sm);
 		resize: vertical;
+	}
+
+	.ai-cell {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1);
 	}
 
 	.send-buttons {

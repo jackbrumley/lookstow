@@ -59,6 +59,11 @@ const createInput = z.object({
 });
 const getInput = z.object({ packId: z.string() });
 
+/** An AI agent as packs and the activity log name it: whose, when it is a remote account's. */
+function agentName(who: string | undefined): string {
+	return who === undefined || who === 'this computer' ? 'AI agent' : `AI agent (${who})`;
+}
+
 function text(value: unknown): Text {
 	return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
 }
@@ -91,7 +96,12 @@ function described(pack: EvidencePack, baseUrl: string, full: boolean) {
 }
 
 export async function callEvidenceTool(
-	context: { db: Queryable; baseUrl: string; evidence?: EvidenceContext | undefined },
+	context: {
+		db: Queryable;
+		baseUrl: string;
+		who?: string | undefined;
+		evidence?: EvidenceContext | undefined;
+	},
 	name: string,
 	args: unknown
 ): Promise<Text | null> {
@@ -116,13 +126,13 @@ export async function callEvidenceTool(
 			if (plan.refusal !== null) return failure(plan.refusal);
 			const pack = await createPack(evidence.dataDir, plan, {
 				name: input.data.name ?? '',
-				createdBy: 'AI agent',
+				createdBy: agentName(context.who),
 				withAttachments
 			});
 			recordActivity(context.db, {
 				level: 'info',
 				kind: 'evidence-pack',
-				actor: 'AI agent',
+				actor: agentName(context.who),
 				summary: `Evidence pack asked for: ${pack.name}`,
 				detail: `${String(pack.total)} messages${pack.missing.length > 0 ? `; ${String(pack.missing.length)} ids not in the backup` : ''}.`
 			});

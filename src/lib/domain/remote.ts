@@ -63,7 +63,14 @@ const REMOTE_PAGES = [
 /** Evidence packs: only for remote accounts given the right. */
 const EXPORT_PAGE = /^\/evidence-packs(\/.*)?$/;
 /** What any page needs: the app's own files and the status probe. */
-const ALWAYS = [/^\/_app\//, /^\/favicon\.svg$/, /^\/healthz$/, /^\/signin$/];
+const ALWAYS = [
+	/^\/_app\//,
+	/^\/favicon\.svg$/,
+	/^\/healthz$/,
+	/^\/signin$/,
+	// The certificate is public: an AI tool's computer saves it to trust Lookstow's address.
+	/^\/lookstow-certificate\.pem$/
+];
 
 /**
  * Whether a remote, signed-in person may make this request. Only reading (GET and HEAD), plus
@@ -137,9 +144,30 @@ export type RemoteView = {
 		username: string;
 		disabled: boolean;
 		evidencePacks: boolean;
+		aiTools: boolean;
+		aiTokenHint: string | null;
 		createdAt: string;
 		lastSignInAt: string | null;
 	}[];
 	firewall: { windows: string; linux: string[] };
 	audit: RemoteAuditLine[];
 };
+
+/**
+ * The AI tools' requests (docs/specs/SPEC-REMOTE.md), which sign in with a remote account's own
+ * token instead of a session: the MCP endpoint, and the attachment and evidence pack downloads
+ * its answers link to.
+ */
+export function isAiPath(pathname: string): boolean {
+	return pathname === '/mcp' || pathname.startsWith('/mcp/');
+}
+
+/** Whether an AI tool with a remote account's token may make this request. */
+export function remoteAiMayOpen(method: string, pathname: string): boolean {
+	if (pathname === '/mcp') return method === 'POST';
+	if (method !== 'GET' && method !== 'HEAD') return false;
+	return (
+		/^\/mcp\/attachments\/[^/]+\/\d+$/.test(pathname) ||
+		/^\/mcp\/evidence-packs\/[^/]+\/download$/.test(pathname)
+	);
+}

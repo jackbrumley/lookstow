@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Queryable } from '../../database/connection.ts';
-import { readAiAccess, saveAiAccess } from '../settings/settings.ts';
+import { readAiAccess, readRemote, saveAiAccess } from '../settings/settings.ts';
 
 /**
  * Who may use the AI tools endpoint (/mcp): nobody until it is turned on in Settings, and then
@@ -52,4 +52,31 @@ export function authoriseAi(db: Queryable, authorization: string | null): AiAuth
 		return { ok: false, status: 401, reason: 'The access token is not the current one.' };
 	}
 	return { ok: true };
+}
+
+/** Who is using the AI tools: a remote account's name, or `this computer`. */
+export type AiCaller = { ok: true; who: string } | { ok: false; status: 401 | 403; reason: string };
+
+/**
+ * The AI tools' routes: on the remote address the gate has already checked a remote account's
+ * own token (hooks.server.ts, remote/gate.ts); on this computer, the access token from Settings.
+ */
+export function aiCaller(
+	db: Queryable,
+	locals: { remoteAiUser: string | null },
+	authorization: string | null
+): AiCaller {
+	if (locals.remoteAiUser !== null) return { ok: true, who: locals.remoteAiUser };
+	const local = authoriseAi(db, authorization);
+	return local.ok ? { ok: true, who: 'this computer' } : local;
+}
+
+/**
+ * Whether anything may use the AI tools, so the content index keeps reading messages: turned
+ * on for this computer, or a remote account allowed them while remote access is on.
+ */
+export function aiToolsWanted(db: Queryable): boolean {
+	if (readAiAccess(db).enabled) return true;
+	const remote = readRemote(db);
+	return remote.enabled && remote.accounts.some((account) => account.aiTools && !account.disabled);
 }

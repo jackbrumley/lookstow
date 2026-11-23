@@ -32,6 +32,8 @@ export type ToolContext = {
 	db: Queryable;
 	backupRoot: string;
 	baseUrl: string;
+	/** Who uses the tools: a remote account's name, or `this computer` (the default). */
+	who?: string | undefined;
 	/** Evidence packs (docs/specs/SPEC-EVIDENCE-PACKS.md), on the reading thread only. */
 	evidence?: EvidenceContext | undefined;
 };

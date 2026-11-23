@@ -57,6 +57,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 	event.locals.remoteUser = null;
 	event.locals.remoteMayExport = false;
+	event.locals.remoteAiUser = null;
 	// server.ts marks which listener a request came in on (it overwrites what a client sends).
 	if (event.request.headers.get(LISTENER_HEADER) === 'remote') {
 		event.locals.isLocal = false;

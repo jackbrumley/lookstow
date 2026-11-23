@@ -5,6 +5,7 @@ import { tlsFingerprint } from '../../crypto/tls-certificate.ts';
 import { recordActivity } from '../activity/activity.ts';
 import { readRemote, saveRemote, type RemoteSettings } from '../settings/settings.ts';
 import { endSessionsOf, hashPassword } from './accounts.ts';
+import { makeAiToken } from './ai-tokens.ts';
 import { applyRemote, newRemoteCertificate, recentRemoteAudit, remoteProblem } from './listener.ts';
 import {
 	PASSWORD_MIN,
@@ -36,6 +37,8 @@ export async function remoteView(db: Queryable, dataDir: string): Promise<Remote
 			username: account.username,
 			disabled: account.disabled,
 			evidencePacks: account.evidencePacks,
+			aiTools: account.aiTools,
+			aiTokenHint: account.aiTools ? account.aiTokenHint : null,
 			createdAt: account.createdAt,
 			lastSignInAt: account.lastSignInAt
 		})),
@@ -164,6 +167,9 @@ export async function addAccount(
 			passwordHash: await hashPassword(password),
 			disabled: false,
 			evidencePacks: false,
+			aiTools: false,
+			aiTokenSha256: null,
+			aiTokenHint: null,
 			createdAt: new Date(now).toISOString(),
 			lastSignInAt: null
 		}
@@ -209,6 +215,70 @@ export function setAccountEvidencePacks(db: Queryable, username: string, allowed
 	return allowed
 		? `${username} may make and download evidence packs.`
 		: `${username} may no longer make evidence packs.`;
+}
+
+/**
+ * Lets the account use the AI tools from another computer, with a new token of its own (returned,
+ * the only time it is shown), or stops it (its token stops working at once).
+ */
+export function setAccountAiTools(
+	db: Queryable,
+	username: string,
+	allowed: boolean
+): { message: string; token: string | null } {
+	const remote = readRemote(db);
+	existing(remote, username);
+	const made = allowed ? makeAiToken() : null;
+	withAccounts(
+		db,
+		remote,
+		remote.accounts.map((each) =>
+			each.username === username
+				? {
+						...each,
+						aiTools: allowed,
+						aiTokenSha256: made?.sha256 ?? null,
+						aiTokenHint: made?.hint ?? null
+					}
+				: each
+		)
+	);
+	note(
+		db,
+		`Remote account ${username} ${allowed ? 'may now use' : 'may no longer use'} the AI tools`
+	);
+	return {
+		message: allowed
+			? `${username} may use the AI tools. Send them the setup below.`
+			: `${username} may no longer use the AI tools; their token has stopped working.`,
+		token: made?.token ?? null
+	};
+}
+
+/** A new AI token for an account already allowed the AI tools; the old one stops working. */
+export function newAccountAiToken(
+	db: Queryable,
+	username: string
+): { message: string; token: string } {
+	const remote = readRemote(db);
+	if (!existing(remote, username).aiTools) {
+		throw new Error(`${username} is not allowed the AI tools.`);
+	}
+	const made = makeAiToken();
+	withAccounts(
+		db,
+		remote,
+		remote.accounts.map((each) =>
+			each.username === username
+				? { ...each, aiTokenSha256: made.sha256, aiTokenHint: made.hint }
+				: each
+		)
+	);
+	note(db, `Remote account ${username} was given a new AI token`);
+	return {
+		message: `Made a new AI token for ${username}; the old one has stopped working.`,
+		token: made.token
+	};
 }
 
 export async function resetPassword(

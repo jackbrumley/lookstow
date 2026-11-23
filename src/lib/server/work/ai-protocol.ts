@@ -9,8 +9,8 @@ import type { MessageView } from '../../domain/viewer.ts';
  * email's attachment index, to show that email instead of the message itself.
  */
 export type AiCall =
-	| { name: 'mcp'; message: unknown; baseUrl: string }
-	| { name: 'attachment'; messageId: string; index: number; baseUrl: string }
+	| { name: 'mcp'; message: unknown; baseUrl: string; who: string }
+	| { name: 'attachment'; messageId: string; index: number; baseUrl: string; who: string }
 	| { name: 'view'; messageId: string; part: number | null }
 	| { name: 'body'; messageId: string; part: number | null }
 	| { name: 'part'; messageId: string; part: number | null; index: number; asPicture: boolean }

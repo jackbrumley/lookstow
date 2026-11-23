@@ -85,14 +85,20 @@ export class AiThread {
 		});
 	}
 
-	async mcp(message: unknown, baseUrl: string): Promise<McpReply> {
-		const answer = await this.#call({ name: 'mcp', message, baseUrl });
+	/** `who`: the remote account using the AI tools, or `this computer` (the audit log says). */
+	async mcp(message: unknown, baseUrl: string, who: string): Promise<McpReply> {
+		const answer = await this.#call({ name: 'mcp', message, baseUrl, who });
 		if (answer.name !== 'mcp') throw new Error('The AI tools answered the wrong call.');
 		return answer.value;
 	}
 
-	async attachment(messageId: string, index: number, baseUrl: string): Promise<AttachmentReply> {
-		const answer = await this.#call({ name: 'attachment', messageId, index, baseUrl });
+	async attachment(
+		messageId: string,
+		index: number,
+		baseUrl: string,
+		who: string
+	): Promise<AttachmentReply> {
+		const answer = await this.#call({ name: 'attachment', messageId, index, baseUrl, who });
 		if (answer.name !== 'attachment') throw new Error('The AI tools answered the wrong call.');
 		return answer.value;
 	}
