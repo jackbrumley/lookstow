@@ -22,7 +22,7 @@ export const load = (({ url, depends, locals }) => {
 	const signedOut = remote && locals.remoteUser === null;
 	const live = engine.live();
 	return {
-		remote: remote ? { user: locals.remoteUser } : null,
+		remote: remote ? { user: locals.remoteUser, mayExport: locals.remoteMayExport } : null,
 		// Reading the URL makes SvelteKit run this load again on every page change, so the
 		// frame's banners and engine state are never left over from an earlier page.
 		path: url.pathname,

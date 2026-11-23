@@ -39,6 +39,7 @@ export function remoteGate(
 	const name = sessionUser(event.cookies.get(SESSION_COOKIE));
 	const account = remote.accounts.find((each) => each.username === name && !each.disabled);
 	event.locals.remoteUser = account?.username ?? null;
+	event.locals.remoteMayExport = account?.evidencePacks ?? false;
 	const path = event.url.pathname;
 	if (openWithoutSignIn(path)) return null;
 	if (account === undefined) {
@@ -54,7 +55,7 @@ export function remoteGate(
 		}
 		return new Response(null, { status: 303, headers: { location } });
 	}
-	if (!remoteMayOpen(event.request.method, path)) {
+	if (!remoteMayOpen(event.request.method, path, account.evidencePacks)) {
 		return plain(
 			403,
 			'This part of Lookstow is only on the computer it runs on. From here you can search, open and download messages.'

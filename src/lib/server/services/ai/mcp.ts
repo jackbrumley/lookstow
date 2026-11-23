@@ -13,9 +13,10 @@ import { attachmentBytes, callTool, TOOLS, type ToolContext } from './tools.ts';
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 export const AUDIT_FOLDER = 'ai-audit';
 
-const INSTRUCTIONS = `Lookstow is a backup of Microsoft 365 mailboxes and online archives. These tools only read it.
+const INSTRUCTIONS = `Lookstow is a backup of Microsoft 365 mailboxes and online archives. These tools only read it (evidence packs are copies of messages).
 Start with list_mailboxes, then search_messages (filters by mailbox, sender, recipient, subject, folder and date; withContent adds attachments and the start of the text). Open a candidate with get_message and look at an attachment with get_attachment.
-Record findings by message id, attachment index and SHA-256: they identify exactly what was looked at.`;
+Record findings by message id, attachment index and SHA-256: they identify exactly what was looked at.
+To hand messages to a lawyer, create_evidence_pack with their ids makes one ZIP file in the background; get_evidence_pack gives its progress and, when ready, its download URL.`;
 
 type JsonRpcRequest = {
 	jsonrpc: '2.0';

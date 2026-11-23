@@ -8,6 +8,7 @@ import { loadMessage } from '../services/ai/message-content.ts';
 import { parseEml, type ParsedMessage } from '../services/ai/mime.ts';
 import { bodyDocument, viewOf } from '../services/viewer/view-message.ts';
 import { effectiveBackupRoot } from '../services/settings/settings.ts';
+import { PackBuilder } from '../services/evidence/builder.ts';
 import { isToAi, type FromAi, type AiAnswer, type AiCall } from './ai-protocol.ts';
 
 /**
@@ -29,6 +30,12 @@ sendLogTo((level, area, message, at) => {
 
 const db = openDatabase(env.databasePath);
 const folder = dataDir();
+/** Evidence packs are made here (docs/specs/SPEC-EVIDENCE-PACKS.md), one at a time. */
+const packs = new PackBuilder({
+	db,
+	dataDir: folder,
+	backupRoot: () => effectiveBackupRoot(db, folder)
+});
 
 function context(baseUrl: string) {
 	return {
@@ -36,7 +43,8 @@ function context(baseUrl: string) {
 		backupRoot: effectiveBackupRoot(db, folder),
 		baseUrl,
 		dataDir: folder,
-		now: Date.now
+		now: Date.now,
+		evidence: { builder: packs, dataDir: folder }
 	};
 }
 
@@ -104,6 +112,9 @@ async function answer(call: AiCall): Promise<AiAnswer> {
 							}
 			};
 		}
+		case 'pack':
+			await packs.enqueue(call.packId);
+			return { name: 'pack', value: null };
 		case 'attachment': {
 			const found = await downloadAttachment(context(call.baseUrl), call.messageId, call.index);
 			return {

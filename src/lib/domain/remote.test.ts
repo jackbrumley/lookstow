@@ -74,6 +74,21 @@ describe('what a remote person may open', () => {
 		expect(remoteMayOpen('DELETE', '/messages/42')).toBe(false);
 	});
 
+	it('opens evidence packs only to accounts given that right', () => {
+		for (const [method, path] of [
+			['GET', '/evidence-packs'],
+			['POST', '/evidence-packs'],
+			['GET', '/evidence-packs/abc/download']
+		] as const) {
+			expect(remoteMayOpen(method, path), `${method} ${path}`).toBe(false);
+			expect(remoteMayOpen(method, path, true), `${method} ${path}`).toBe(true);
+		}
+		// The right covers packs only.
+		expect(remoteMayOpen('POST', '/', true)).toBe(false);
+		expect(remoteMayOpen('GET', '/settings', true)).toBe(false);
+		expect(remoteMayOpen('DELETE', '/evidence-packs', true)).toBe(false);
+	});
+
 	it('shows only the sign-in page and the app files before signing in', () => {
 		expect(openWithoutSignIn('/signin')).toBe(true);
 		expect(openWithoutSignIn('/_app/immutable/start.js')).toBe(true);

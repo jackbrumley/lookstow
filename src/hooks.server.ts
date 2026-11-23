@@ -56,6 +56,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		// No client address while prerendering: treated as not local.
 	}
 	event.locals.remoteUser = null;
+	event.locals.remoteMayExport = false;
 	// server.ts marks which listener a request came in on (it overwrites what a client sends).
 	if (event.request.headers.get(LISTENER_HEADER) === 'remote') {
 		event.locals.isLocal = false;

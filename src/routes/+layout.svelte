@@ -13,6 +13,7 @@
 	import IconTerminal2 from '@tabler/icons-svelte-runes/icons/terminal-2';
 	import IconCloudDownload from '@tabler/icons-svelte-runes/icons/cloud-download';
 	import IconBook from '@tabler/icons-svelte-runes/icons/book';
+	import IconPackageExport from '@tabler/icons-svelte-runes/icons/package-export';
 	import ToastHost from '#lib/ui/toast-host.svelte';
 	import Modal from '#lib/ui/modal.svelte';
 	import Button from '#lib/ui/button.svelte';
@@ -31,6 +32,12 @@
 		{ path: '/', href: resolve('/'), label: 'Dashboard', icon: IconLayoutDashboard },
 		{ path: '/mailboxes', href: resolve('/mailboxes'), label: 'Mailboxes', icon: IconMailbox },
 		{ path: '/search', href: resolve('/search'), label: 'Search', icon: IconSearch },
+		{
+			path: '/evidence-packs',
+			href: resolve('/evidence-packs'),
+			label: 'Evidence packs',
+			icon: IconPackageExport
+		},
 		{ path: '/activity', href: resolve('/activity'), label: 'Activity', icon: IconListDetails },
 		{ path: '/log', href: resolve('/log'), label: 'Log', icon: IconTerminal2 },
 		{ path: '/alerts', href: resolve('/alerts'), label: 'Alerts', icon: IconBell },
@@ -48,7 +55,10 @@
 			? allItems
 			: remote.user === null
 				? []
-				: allItems.filter((item) => READ_ONLY.has(item.path))
+				: allItems.filter(
+						(item) =>
+							READ_ONLY.has(item.path) || (item.path === '/evidence-packs' && remote.mayExport)
+					)
 	);
 
 	function active(path: string): boolean {

@@ -118,6 +118,12 @@ export class AiThread {
 		return answer.value;
 	}
 
+	/** Starts making an evidence pack already written by createPack (it is queued there). */
+	async buildPack(packId: string): Promise<void> {
+		const answer = await this.#call({ name: 'pack', packId });
+		if (answer.name !== 'pack') throw new Error('The reading thread answered the wrong call.');
+	}
+
 	/** Lets the call under way finish, then ends the thread. */
 	async stop(): Promise<void> {
 		const worker = this.#worker;

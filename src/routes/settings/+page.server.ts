@@ -37,7 +37,8 @@ import {
 	renewCertificate,
 	resetPassword,
 	saveRemoteAccess,
-	setAccountDisabled
+	setAccountDisabled,
+	setAccountEvidencePacks
 } from '#lib/server/services/remote/manage.ts';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
@@ -347,6 +348,12 @@ export const actions = {
 					secret(data, 'confirm')
 				)
 			)
+		);
+	},
+	remoteEvidence: async ({ request }) => {
+		const data = await request.formData();
+		return attempt(() =>
+			done(setAccountEvidencePacks(database, field(data, 'username'), checked(data, 'allowed')))
 		);
 	},
 	remoteDelete: async ({ request }) => {

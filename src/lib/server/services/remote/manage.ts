@@ -31,11 +31,12 @@ export async function remoteView(db: Queryable, dataDir: string): Promise<Remote
 		address: `https://${hostname().toLowerCase()}:${port}/`,
 		fingerprint: remote.certificatePem === null ? null : tlsFingerprint(remote.certificatePem),
 		problem: remoteProblem(),
-		accounts: remote.accounts.map(({ username, disabled, createdAt, lastSignInAt }) => ({
-			username,
-			disabled,
-			createdAt,
-			lastSignInAt
+		accounts: remote.accounts.map((account) => ({
+			username: account.username,
+			disabled: account.disabled,
+			evidencePacks: account.evidencePacks,
+			createdAt: account.createdAt,
+			lastSignInAt: account.lastSignInAt
 		})),
 		firewall: {
 			windows: `netsh advfirewall firewall add rule name="${RULE}" dir=in action=allow protocol=TCP localport=${port} remoteip=${list.join(',')}`,
@@ -142,6 +143,7 @@ export async function addAccount(
 			username,
 			passwordHash: await hashPassword(password),
 			disabled: false,
+			evidencePacks: false,
 			createdAt: new Date(now).toISOString(),
 			lastSignInAt: null
 		}
@@ -167,6 +169,26 @@ export function setAccountDisabled(db: Queryable, username: string, disabled: bo
 	if (disabled) endSessionsOf(username);
 	note(db, `Remote account ${username} was ${disabled ? 'disabled' : 'enabled'}`);
 	return disabled ? `${username} is disabled and signed out.` : `${username} may sign in again.`;
+}
+
+/** Lets the account make and download evidence packs, or stops it. */
+export function setAccountEvidencePacks(db: Queryable, username: string, allowed: boolean): string {
+	const remote = readRemote(db);
+	existing(remote, username);
+	withAccounts(
+		db,
+		remote,
+		remote.accounts.map((each) =>
+			each.username === username ? { ...each, evidencePacks: allowed } : each
+		)
+	);
+	note(
+		db,
+		`Remote account ${username} ${allowed ? 'may now make' : 'may no longer make'} evidence packs`
+	);
+	return allowed
+		? `${username} may make and download evidence packs.`
+		: `${username} may no longer make evidence packs.`;
 }
 
 export async function resetPassword(

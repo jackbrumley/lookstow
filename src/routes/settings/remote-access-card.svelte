@@ -58,7 +58,10 @@
 		<p class="muted">No accounts yet.</p>
 	{:else}
 		<table>
-			<thead><tr><th>Name</th><th>State</th><th>Last signed in</th><th></th></tr></thead>
+			<thead
+				><tr><th>Name</th><th>State</th><th>Evidence packs</th><th>Last signed in</th><th></th></tr
+				></thead
+			>
 			<tbody>
 				{#each remote.accounts as account (account.username)}
 					<tr>
@@ -67,6 +70,21 @@
 							{#if account.disabled}<Badge tone="neutral">Disabled</Badge>{:else}<Badge tone="ok"
 									>Active</Badge
 								>{/if}
+						</td>
+						<td>
+							<form method="POST" action="?/remoteEvidence" use:enhance>
+								<input type="hidden" name="username" value={account.username} />
+								<input type="hidden" name="allowed" value={account.evidencePacks ? '' : 'on'} />
+								<Button
+									type="submit"
+									size="sm"
+									variant="ghost"
+									title={account.evidencePacks
+										? 'May make and download evidence packs (bulk copies of mail). Press to stop it.'
+										: 'Press to let this account make and download evidence packs (bulk copies of mail).'}
+									>{account.evidencePacks ? 'Allowed' : 'Not allowed'}</Button
+								>
+							</form>
 						</td>
 						<td>{account.lastSignInAt === null ? 'Never' : formatDateTime(account.lastSignInAt)}</td
 						>

@@ -12,6 +12,8 @@ declare global {
 			 * or null: on this computer, or not signed in yet. A remote person only reads.
 			 */
 			remoteUser: string | null;
+			/** That remote account may make and download evidence packs. */
+			remoteMayExport: boolean;
 		}
 	}
 }

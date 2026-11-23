@@ -11,6 +11,7 @@ import {
 } from './content-index.ts';
 import { loadMessage, sha256Of } from './message-content.ts';
 import { aiSearch, topSenders, type AiHit, type ContentFilters } from './search.ts';
+import { callEvidenceTool, EVIDENCE_TOOLS, type EvidenceContext } from './evidence-tools.ts';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
@@ -19,14 +20,21 @@ const MAX_PAGE_SIZE = 200;
  * The AI tools (served over MCP at /mcp): read-only access to the backed-up mail, so an agent
  * can find messages, read them and look at their attachments. Every message and attachment is
  * named by Lookstow's id and its SHA-256, so what an agent records can be traced back and
- * checked against the backup. Nothing here changes the backup or the index.
+ * checked against the backup. Nothing here changes the backup or the index; evidence packs are
+ * copies, made in the data folder.
  */
 type ToolContent =
 	{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
 
 export type ToolResult = { content: ToolContent[]; isError?: boolean };
 
-export type ToolContext = { db: Queryable; backupRoot: string; baseUrl: string };
+export type ToolContext = {
+	db: Queryable;
+	backupRoot: string;
+	baseUrl: string;
+	/** Evidence packs (docs/specs/SPEC-EVIDENCE-PACKS.md), on the reading thread only. */
+	evidence?: EvidenceContext | undefined;
+};
 
 /** Images up to this size come back inline; bigger ones are fetched from their URL. */
 const INLINE_IMAGE_BYTES = 1024 * 1024;
@@ -134,7 +142,8 @@ export const TOOLS = [
 			},
 			required: ['messageId', 'index']
 		}
-	}
+	},
+	...EVIDENCE_TOOLS
 ] as const;
 
 function text(value: unknown): ToolResult {
@@ -358,6 +367,8 @@ export async function callTool(
 	name: string,
 	args: unknown
 ): Promise<ToolResult> {
+	const evidence = await callEvidenceTool(context, name, args);
+	if (evidence !== null) return evidence;
 	switch (name) {
 		case 'list_mailboxes':
 			return listMailboxes(context.db);

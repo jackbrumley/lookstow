@@ -60,6 +60,8 @@ const REMOTE_PAGES = [
 	/^\/messages\/.+$/,
 	/^\/how-it-works$/
 ];
+/** Evidence packs: only for remote accounts given the right. */
+const EXPORT_PAGE = /^\/evidence-packs(\/.*)?$/;
 /** What any page needs: the app's own files and the status probe. */
 const ALWAYS = [/^\/_app\//, /^\/favicon\.svg$/, /^\/healthz$/, /^\/signin$/];
 
@@ -67,7 +69,12 @@ const ALWAYS = [/^\/_app\//, /^\/favicon\.svg$/, /^\/healthz$/, /^\/signin$/];
  * Whether a remote, signed-in person may make this request. Only reading (GET and HEAD), plus
  * signing out; a page's data (`…/__data.json`) follows its page.
  */
-export function remoteMayOpen(method: string, pathname: string): boolean {
+export function remoteMayOpen(method: string, pathname: string, mayExport = false): boolean {
+	// Evidence packs (docs/specs/SPEC-EVIDENCE-PACKS.md): for accounts given that right, their
+	// page, its actions and the downloads. A pack copies mail; it never changes the backup.
+	if (mayExport && EXPORT_PAGE.test(pathname.replace(/\/__data\.json$/, ''))) {
+		return method === 'GET' || method === 'HEAD' || method === 'POST';
+	}
 	if (method === 'POST') return pathname === '/signout';
 	if (method !== 'GET' && method !== 'HEAD') return false;
 	const page = pathname.replace(/\/__data\.json$/, '') || '/';
@@ -129,6 +136,7 @@ export type RemoteView = {
 	accounts: {
 		username: string;
 		disabled: boolean;
+		evidencePacks: boolean;
 		createdAt: string;
 		lastSignInAt: string | null;
 	}[];

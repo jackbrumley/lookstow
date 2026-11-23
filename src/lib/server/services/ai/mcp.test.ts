@@ -10,6 +10,7 @@ import { authoriseAi, newAiToken, setAiEnabled } from './access.ts';
 import { indexContent } from './content-index.ts';
 import { AUDIT_FOLDER, handleMcp } from './mcp.ts';
 import { parseEml } from './mime.ts';
+import { PackBuilder } from '../evidence/builder.ts';
 
 const PNG = Buffer.from(
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -176,7 +177,11 @@ async function setup() {
 		backupRoot,
 		baseUrl: 'http://127.0.0.1:8030',
 		dataDir,
-		now: () => Date.parse('2026-11-19T00:00:00Z')
+		now: () => Date.parse('2026-11-19T00:00:00Z'),
+		evidence: {
+			builder: new PackBuilder({ db, dataDir, backupRoot: () => backupRoot }),
+			dataDir
+		}
 	};
 	let id = 0;
 	const call = async (method: string, params: unknown = {}) => {
@@ -221,7 +226,10 @@ describe('the AI tools over MCP', () => {
 			'search_messages',
 			'top_senders',
 			'get_message',
-			'get_attachment'
+			'get_attachment',
+			'create_evidence_pack',
+			'list_evidence_packs',
+			'get_evidence_pack'
 		]);
 		expect(json(await call('tools/call', { name: 'list_mailboxes' }))).toEqual([
 			expect.objectContaining({ id: mailbox.id, storedMessages: 1 })
@@ -312,6 +320,53 @@ describe('the AI tools over MCP', () => {
 			z.array(z.object({ sender: z.string(), messages: z.number() }))
 		);
 		expect(senders).toEqual([{ sender: 'manager@example.com', messages: 1 }]);
+	});
+
+	it('makes an evidence pack, follows it, and gives its download URL', async () => {
+		const { call, db } = await setup();
+		const [row] = db.$client.prepare('select id from messages').all();
+		const messageId = parsed(row, z.object({ id: z.string() })).id;
+		const unknown = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+		const created = parsed(
+			json(
+				await call('tools/call', {
+					name: 'create_evidence_pack',
+					arguments: { name: 'For counsel', messageIds: [messageId, unknown, messageId] }
+				})
+			),
+			z.object({ id: z.string(), messages: z.number(), missing: z.array(z.string()) })
+		);
+		expect(created).toMatchObject({ messages: 1, missing: [unknown] });
+		const packSchema = z.object({
+			state: z.string(),
+			sha256: z.string().nullable(),
+			downloadUrl: z.string().nullable()
+		});
+		let pack = packSchema.parse({ state: 'queued', sha256: null, downloadUrl: null });
+		for (let attempt = 0; attempt < 200 && pack.state !== 'ready'; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			pack = parsed(
+				json(
+					await call('tools/call', { name: 'get_evidence_pack', arguments: { packId: created.id } })
+				),
+				packSchema
+			);
+		}
+		expect(pack.state).toBe('ready');
+		expect(pack.sha256).toMatch(/^[0-9a-f]{64}$/);
+		expect(pack.downloadUrl).toBe(
+			`http://127.0.0.1:8030/mcp/evidence-packs/${created.id}/download`
+		);
+		const listed = parsed(
+			json(await call('tools/call', { name: 'list_evidence_packs' })),
+			z.array(z.object({ id: z.string(), state: z.string() }))
+		);
+		expect(listed).toEqual([expect.objectContaining({ id: created.id, state: 'ready' })]);
+		const refused = await call('tools/call', {
+			name: 'create_evidence_pack',
+			arguments: { messageIds: [unknown] }
+		});
+		expect(refused.result?.isError).toBe(true);
 	});
 
 	it('answers notifications with nothing and unknown methods with an error', async () => {

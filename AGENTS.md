@@ -195,6 +195,7 @@ src/
         throughput/    the governor's life: learned pace kept, pace history, /api/throughput view
         viewer/        a message in the browser: body document and policy, attachment previews (SPEC-VIEWER)
         remote/        remote access (SPEC-REMOTE): HTTPS listener control, gate, accounts, sign-in, audit
+        evidence/      evidence packs (SPEC-EVIDENCE-PACKS): ZIP writer, pack contents, builder, downloads
     domain/            browser-safe types and pure rules (releases/changelog.ts lives here)
     schemas/           zod contracts shared by server and browser
     ui/                tokens.css, global.css, shared components

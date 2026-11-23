@@ -67,6 +67,14 @@ const FILE_CHANGE_ALLOWED = new Map<string, string>([
 	[
 		'src/lib/server/services/server-updates/service.ts',
 		"atomic write of the updater's request and status files"
+	],
+	[
+		'src/lib/server/services/evidence/packs.ts',
+		'evidence packs: its own files in <data>/evidence-packs (atomic pack.json, removing a pack); reads the backup, never changes it'
+	],
+	[
+		'src/lib/server/services/evidence/builder.ts',
+		'evidence packs: renames its finished ZIP into place and removes a stopped or failed pack in <data>/evidence-packs; never backup files'
 	]
 ]);
 const FILE_CHANGE_CALL =

@@ -13,7 +13,8 @@ export type AiCall =
 	| { name: 'attachment'; messageId: string; index: number; baseUrl: string }
 	| { name: 'view'; messageId: string; part: number | null }
 	| { name: 'body'; messageId: string; part: number | null }
-	| { name: 'part'; messageId: string; part: number | null; index: number };
+	| { name: 'part'; messageId: string; part: number | null; index: number }
+	| { name: 'pack'; packId: string };
 
 export type ViewReply = { error: string } | { view: MessageView };
 export type BodyReply = { error: string } | { document: string };
@@ -23,7 +24,8 @@ export type AiAnswer =
 	| { name: 'attachment'; value: AttachmentReply }
 	| { name: 'view'; value: ViewReply }
 	| { name: 'body'; value: BodyReply }
-	| { name: 'part'; value: AttachmentReply };
+	| { name: 'part'; value: AttachmentReply }
+	| { name: 'pack'; value: null };
 
 export type ToAi = { type: 'call'; id: number; call: AiCall } | { type: 'stop' };
 

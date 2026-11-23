@@ -147,6 +147,8 @@ const remoteSchema = z.object({
 				/** scrypt$salt$hash (services/remote/accounts.ts). */
 				passwordHash: z.string().max(200),
 				disabled: z.boolean(),
+				/** May make and download evidence packs (docs/specs/SPEC-EVIDENCE-PACKS.md). */
+				evidencePacks: z.boolean().default(false),
 				createdAt: z.iso.datetime(),
 				lastSignInAt: z.iso.datetime().nullable()
 			})
