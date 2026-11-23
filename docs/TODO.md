@@ -42,7 +42,6 @@ The first real run (0.1.0, 18 November 2026: 1,816 mailboxes in 1,770 users, arc
 
 - **Restore.** Download a mailbox or folder as a zip of .eml or one .mbox; later, put messages back with Graph.
 - **Retention.** Optionally delete files of messages deleted at the source more than N days ago (off by default).
-- **Remote console** with sign-in (Entra sign-in for admins), then allow other computers.
 - **Calendar and contacts** (Graph delta works for both).
 
 ## Ideas

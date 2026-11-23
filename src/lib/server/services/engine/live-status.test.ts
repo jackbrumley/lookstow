@@ -8,6 +8,7 @@ function idle(): EngineStatus {
 		pause: { paused: false },
 		problem: null,
 		discovery: { running: false, progress: null, lastAt: null, nextAt: null },
+		syncAll: false,
 		syncing: [],
 		waiting: { requested: 0, due: 0, firstCopy: 0, later: 3, nextDueAt: null },
 		slots: { current: 1, maximum: 8 },

@@ -10,6 +10,7 @@
  */
 import { existsSync } from 'node:fs';
 import { createServer, type RequestListener } from 'node:http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { acquireDataLock } from './src/lib/server/database/data-lock.ts';
 import { env } from './src/lib/server/env.ts';
@@ -55,6 +56,58 @@ process.env['LOOKSTOW_AI_ENTRY'] = fileURLToPath(
 		: new URL('./src/lib/server/work/ai-thread.ts', import.meta.url)
 );
 
+/**
+ * Which listener a request came in on, set by this server on every request (overwriting anything
+ * a client sent): `local` (this computer only) or `remote` (HTTPS, docs/specs/SPEC-REMOTE.md).
+ * hooks.server.ts lets a remote request in only from an allowed address, signed in, read-only.
+ */
+const LISTENER_HEADER = 'x-lookstow-listener';
+
+/**
+ * The remote HTTPS listener, started, changed and stopped by the app (Settings, Remote access)
+ * through this control on globalThis (services/remote/listener.ts). A config the app sends while
+ * this module is still loading the handler is applied once it has.
+ */
+type RemoteConfig = { port: number; key: string; cert: string };
+let handlerRef: RequestListener | null = null;
+let remote: HttpsServer | null = null;
+let waitingConfig: RemoteConfig | null | undefined;
+
+async function applyRemote(config: RemoteConfig | null): Promise<string | null> {
+	if (handlerRef === null) {
+		waitingConfig = config;
+		return null;
+	}
+	const listener = handlerRef;
+	const running = remote;
+	if (running !== null) {
+		remote = null;
+		await new Promise<void>((resolve) => {
+			running.close(() => {
+				resolve();
+			});
+			running.closeAllConnections();
+		});
+	}
+	if (config === null) return null;
+	const https = createHttpsServer({ key: config.key, cert: config.cert }, (request, response) => {
+		request.headers[PROTOCOL_HEADER] = 'https';
+		request.headers[LISTENER_HEADER] = 'remote';
+		listener(request, response);
+	});
+	return new Promise((resolve) => {
+		https.once('error', (error) => {
+			resolve(`Could not listen on port ${String(config.port)}: ${error.message}`);
+		});
+		https.listen(config.port, '0.0.0.0', () => {
+			remote = https;
+			process.stdout.write(`Lookstow remote access on https://0.0.0.0:${String(config.port)}\n`);
+			resolve(null);
+		});
+	});
+}
+Reflect.set(globalThis, 'lookstow.remoteListener', { apply: applyRemote });
+
 // Importing the handler runs the app's `init` hook (migrations, the backup engine, update checks).
 const handlerModule: unknown = await import(new URL('./build/handler.js', import.meta.url).href);
 /** adapter-node's handler is a (request, response) listener; a function is all JavaScript can check. */
@@ -71,8 +124,16 @@ if (
 }
 const handler = handlerModule.handler;
 
+handlerRef = handler;
+if (waitingConfig !== undefined) {
+	void applyRemote(waitingConfig).then((problem) => {
+		if (problem !== null) process.stderr.write(`${problem}\n`);
+	});
+}
+
 const server = createServer((request, response) => {
 	request.headers[PROTOCOL_HEADER] = 'http';
+	request.headers[LISTENER_HEADER] = 'local';
 	handler(request, response);
 });
 server.listen(env.port, env.host, () => {
@@ -85,6 +146,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 	process.on(signal, () => {
 		server.close();
 		server.closeIdleConnections();
+		void applyRemote(null);
 		setTimeout(() => {
 			server.closeAllConnections();
 			process.exit(0);

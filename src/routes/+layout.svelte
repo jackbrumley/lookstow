@@ -22,11 +22,12 @@
 	import { onMount } from 'svelte';
 	import { LIVE_STATUS, isBusy, phaseText, refreshAfterMs } from '#lib/domain/live-status.ts';
 	import { toast } from '#lib/runes/toast.svelte.ts';
+	import { pending } from '#lib/runes/pending.svelte.ts';
 	import { formatPercent } from '#lib/utils/format.ts';
 
 	let { data, children }: LayoutProps = $props();
 
-	const items = [
+	const allItems = [
 		{ path: '/', href: resolve('/'), label: 'Dashboard', icon: IconLayoutDashboard },
 		{ path: '/mailboxes', href: resolve('/mailboxes'), label: 'Mailboxes', icon: IconMailbox },
 		{ path: '/search', href: resolve('/search'), label: 'Search', icon: IconSearch },
@@ -38,11 +39,27 @@
 		{ path: '/how-it-works', href: resolve('/how-it-works'), label: 'How it works', icon: IconBook }
 	];
 
+	// A remote person (docs/specs/SPEC-REMOTE.md) sees only what they may open, and nothing
+	// before they have signed in.
+	const READ_ONLY = new Set(['/', '/mailboxes', '/search', '/how-it-works']);
+	const remote = $derived(data.remote);
+	const items = $derived(
+		remote === null
+			? allItems
+			: remote.user === null
+				? []
+				: allItems.filter((item) => READ_ONLY.has(item.path))
+	);
+
 	function active(path: string): boolean {
 		return path === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(path);
 	}
 
 	const live = $derived(data.live);
+	// A request just made shows at once; the live status takes over once it shows the work.
+	$effect(() => {
+		pending.settle(live.engine);
+	});
 	const pause = $derived(live.engine.pause);
 	const disk = $derived(live.engine.disk);
 
@@ -158,23 +175,34 @@
 				</li>
 			{/each}
 		</ul>
-		<button
-			type="button"
-			class="control"
-			class:resume={pause.paused}
-			disabled={switching}
-			onclick={() => void togglePause()}
-		>
-			{#if live.engine.backupMove.kind === 'moving'}
-				<div class="banner" role="status">
-					The backup is moving to {live.engine.backupMove.to}. Backups and changes wait until every
-					file is copied and checked. Settings, Backup folder shows how far it is.
-				</div>
+		{#if remote !== null}
+			{#if remote.user !== null}
+				<form method="POST" action={resolve('/signout')} class="signed-in">
+					<span>Signed in as {remote.user}</span>
+					<button type="submit" class="link">Sign out</button>
+				</form>
 			{/if}
-			{#if pause.paused}<IconPlayerPlay size={18} /> Resume{:else}<IconPlayerPause size={18} /> Pause{/if}
-		</button>
+		{:else}
+			<button
+				type="button"
+				class="control"
+				class:resume={pause.paused}
+				disabled={switching}
+				onclick={() => void togglePause()}
+			>
+				{#if live.engine.backupMove.kind === 'moving'}
+					<div class="banner" role="status">
+						The backup is moving to {live.engine.backupMove.to}. Backups and changes wait until
+						every file is copied and checked. Settings, Backup folder shows how far it is.
+					</div>
+				{/if}
+				{#if pause.paused}<IconPlayerPlay size={18} /> Resume{:else}<IconPlayerPause size={18} /> Pause{/if}
+			</button>
+		{/if}
 		<div class="footer">
-			<div class="phase" class:busy={isBusy(live) || pause.paused}>{phaseText(live)}</div>
+			<div class="phase" class:busy={pending.current !== null || isBusy(live) || pause.paused}>
+				{pending.current?.text ?? phaseText(live)}
+			</div>
 			<div class="version">Version {data.version}</div>
 		</div>
 	</nav>
@@ -213,7 +241,7 @@
 		{#if live.engine.problem !== null}
 			<div class="banner" role="status">
 				{live.engine.problem}
-				<a href={resolve('/settings')}>Settings</a>
+				{#if remote === null}<a href={resolve('/settings')}>Settings</a>{/if}
 			</div>
 		{/if}
 		{@render children()}
@@ -381,6 +409,19 @@
 		background: var(--colour-brand);
 		color: var(--colour-text-inverse);
 		font-size: var(--font-size-sm);
+	}
+
+	.signed-in {
+		margin: 0 var(--space-3);
+		display: grid;
+		gap: var(--space-1);
+		color: var(--colour-sidebar-muted);
+		font-size: var(--font-size-sm);
+	}
+
+	.signed-in .link {
+		justify-self: start;
+		color: var(--colour-sidebar-text);
 	}
 
 	.highlights {

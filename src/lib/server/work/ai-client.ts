@@ -1,7 +1,14 @@
 import { Worker } from 'node:worker_threads';
 import { errorText, serverLog, writeLogLine } from '../log.ts';
 import type { McpReply } from '../services/ai/mcp.ts';
-import { isFromAi, type AiAnswer, type AiCall, type ToAi } from './ai-protocol.ts';
+import {
+	isFromAi,
+	type AiAnswer,
+	type AiCall,
+	type BodyReply,
+	type ToAi,
+	type ViewReply
+} from './ai-protocol.ts';
 import type { AttachmentReply } from './protocol.ts';
 
 /**
@@ -87,6 +94,27 @@ export class AiThread {
 	async attachment(messageId: string, index: number, baseUrl: string): Promise<AttachmentReply> {
 		const answer = await this.#call({ name: 'attachment', messageId, index, baseUrl });
 		if (answer.name !== 'attachment') throw new Error('The AI tools answered the wrong call.');
+		return answer.value;
+	}
+
+	/** The viewer: a message's headers and attachments (or a forwarded email's, with `part`). */
+	async view(messageId: string, part: number | null): Promise<ViewReply> {
+		const answer = await this.#call({ name: 'view', messageId, part });
+		if (answer.name !== 'view') throw new Error('The reading thread answered the wrong call.');
+		return answer.value;
+	}
+
+	/** The viewer: the body as a document for its locked-down frame. */
+	async body(messageId: string, part: number | null): Promise<BodyReply> {
+		const answer = await this.#call({ name: 'body', messageId, part });
+		if (answer.name !== 'body') throw new Error('The reading thread answered the wrong call.');
+		return answer.value;
+	}
+
+	/** The viewer: one attachment's bytes. */
+	async part(messageId: string, part: number | null, index: number): Promise<AttachmentReply> {
+		const answer = await this.#call({ name: 'part', messageId, part, index });
+		if (answer.name !== 'part') throw new Error('The reading thread answered the wrong call.');
 		return answer.value;
 	}
 

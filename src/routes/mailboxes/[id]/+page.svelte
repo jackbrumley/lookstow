@@ -85,7 +85,9 @@
 	lede={`${mailbox.displayName} · ${KIND_LABELS[mailbox.kind] ?? mailbox.kind}`}
 >
 	{#snippet actions()}
-		{#if mailbox.state === 'excluded'}
+		{#if data.remote !== null}
+			<!-- Remote people only read (docs/specs/SPEC-REMOTE.md). -->
+		{:else if mailbox.state === 'excluded'}
 			<form method="POST" action="?/include" use:enhance>
 				<Button type="submit">Back up again</Button>
 			</form>
@@ -105,7 +107,9 @@
 				<input type="hidden" name="mailbox" value={mailbox.id} />
 				<Button type="submit" variant="secondary">Search this mailbox</Button>
 			</form>
-			<Button variant="ghost" onclick={() => (deleteOpen = true)}>Delete backup…</Button>
+			{#if data.remote === null}
+				<Button variant="ghost" onclick={() => (deleteOpen = true)}>Delete backup…</Button>
+			{/if}
 		{/if}
 	{/snippet}
 </PageHeader>
@@ -221,7 +225,14 @@
 			</tbody>
 		</table>
 		{#if open.length > 0}
-			<h3>Differences from Microsoft</h3>
+			<div class="differences-head">
+				<h3>Differences from Microsoft</h3>
+				{#if data.remote === null}
+					<form method="POST" action="?/recheck" use:enhance>
+						<Button type="submit" size="sm" variant="secondary">Check again now</Button>
+					</form>
+				{/if}
+			</div>
 			<ul class="plain">
 				{#each open as folder (folder.path)}
 					<li>
@@ -251,9 +262,11 @@
 {#if data.failures.total > 0}
 	<Card title={`Items that could not be copied (${formatCount(data.failures.total)})`} tone="warn">
 		{#snippet actions()}
-			<form method="POST" action="?/retryFailures" use:enhance>
-				<Button type="submit" variant="secondary">Try again now</Button>
-			</form>
+			{#if data.remote === null}
+				<form method="POST" action="?/retryFailures" use:enhance>
+					<Button type="submit" variant="secondary">Try again now</Button>
+				</form>
+			{/if}
 		{/snippet}
 		<p class="small muted">
 			Microsoft refused these items, or their download kept breaking. The rest of each folder is
@@ -398,5 +411,12 @@
 
 	form {
 		display: contents;
+	}
+
+	.differences-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
 	}
 </style>

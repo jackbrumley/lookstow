@@ -4,6 +4,7 @@ import { done, field, refused } from '#lib/server/actions.ts';
 import { backupEngine, database, dataDir } from '#lib/server/runtime.ts';
 import { listActivity, recordActivity } from '#lib/server/services/activity/activity.ts';
 import { resolveExistingBackup } from '#lib/server/existing-backup.ts';
+import { checkAgainNow } from '#lib/server/check-again.ts';
 import {
 	mailboxById,
 	setExcluded,
@@ -92,6 +93,11 @@ export const actions = {
 				? `${mailbox.address} is paused: resume it to sync.`
 				: `${mailbox.address} syncs next.`
 		);
+	},
+	recheck: ({ params }) => {
+		const mailbox = found(params.id);
+		if (mailbox === undefined) return refused('No such mailbox', 404);
+		return checkAgainNow(mailbox);
 	},
 	pause: ({ params }) => setPaused(params.id, true),
 	resume: ({ params }) => setPaused(params.id, false),

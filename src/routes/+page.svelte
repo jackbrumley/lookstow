@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance, type SubmitFunction } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
 	import Badge from '#lib/ui/badge.svelte';
@@ -8,6 +8,9 @@
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import SpeedCard from './speed-card.svelte';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
+	import { invalidate } from '$app/navigation';
+	import { LIVE_STATUS } from '#lib/domain/live-status.ts';
+	import { pending, type PendingKind } from '#lib/runes/pending.svelte.ts';
 	import {
 		formatBytes,
 		formatCount,
@@ -37,16 +40,53 @@
 	});
 
 	const setupDone = $derived(data.setup.ids && data.setup.credential && data.setup.discovered);
+
+	// Buttons answer at once ("Starting…") and wait while their work runs; the live status, which
+	// the frame refreshes, says when it is under way or done (runes/pending.svelte.ts).
+	const syncAllBusy = $derived(pending.current?.kind === 'sync-all' || engine.syncAll);
+	const discoverBusy = $derived(pending.current?.kind === 'discover' || engine.discovery.running);
+
+	/** A form that shows `text` at once, and refreshes the live status soon after the answer. */
+	function starting(kind: PendingKind, text: string): SubmitFunction {
+		return () => {
+			pending.start(kind, text);
+			return async ({ result, update }) => {
+				if (result.type !== 'success') pending.clear();
+				await update();
+				// The engine starts within a second; ask again then instead of at the next timer.
+				setTimeout(() => {
+					void invalidate(LIVE_STATUS);
+				}, 1200);
+			};
+		};
+	}
 </script>
 
 <PageHeader title="Dashboard" lede="Whether every mailbox is backed up, and what is happening now.">
 	{#snippet actions()}
-		<form method="POST" action="?/discover" use:enhance>
-			<Button type="submit" variant="secondary">Discover now</Button>
-		</form>
-		<form method="POST" action="?/syncAll" use:enhance>
-			<Button type="submit">Sync all now</Button>
-		</form>
+		{#if data.remote === null}
+			<form
+				method="POST"
+				action="?/discover"
+				use:enhance={starting('discover', 'Starting discovery…')}
+			>
+				<Button type="submit" variant="secondary" disabled={discoverBusy}
+					>{discoverBusy ? 'Discovering…' : 'Discover now'}</Button
+				>
+			</form>
+			<form
+				method="POST"
+				action="?/syncAll"
+				use:enhance={starting('sync-all', 'Starting a sync of every mailbox…')}
+			>
+				<Button
+					type="submit"
+					disabled={syncAllBusy || engine.pause.paused}
+					title={engine.pause.paused ? 'Backups are paused: press Resume first' : undefined}
+					>{syncAllBusy ? 'Syncing all…' : 'Sync all now'}</Button
+				>
+			</form>
+		{/if}
 	{/snippet}
 </PageHeader>
 
@@ -107,7 +147,9 @@
 {#if overview.attention.length > 0}
 	<Card title="Needs attention" tone="bad">
 		<table>
-			<thead><tr><th>Mailbox</th><th>What is wrong</th><th>What happens next</th></tr></thead>
+			<thead
+				><tr><th>Mailbox</th><th>What is wrong</th><th>What happens next</th><th></th></tr></thead
+			>
 			<tbody>
 				{#each overview.attention as item (item.id)}
 					<tr>
@@ -117,6 +159,23 @@
 						</td>
 						<td>{item.problem}</td>
 						<td>{item.what}</td>
+						<td>
+							{#if data.remote === null}
+								<form
+									method="POST"
+									action="?/recheck"
+									use:enhance={starting('check-again', `Checking ${item.address} again…`)}
+								>
+									<input type="hidden" name="mailboxId" value={item.id} />
+									<Button
+										type="submit"
+										size="sm"
+										variant="secondary"
+										disabled={pending.current !== null}>Check again now</Button
+									>
+								</form>
+							{/if}
+						</td>
 					</tr>
 				{/each}
 			</tbody>

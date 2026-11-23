@@ -4,13 +4,16 @@ import { dataDir } from '../data-dir.ts';
 import { env } from '../env.ts';
 import { errorText, sendLogTo } from '../log.ts';
 import { downloadAttachment, handleMcp } from '../services/ai/mcp.ts';
+import { loadMessage } from '../services/ai/message-content.ts';
+import { parseEml, type ParsedMessage } from '../services/ai/mime.ts';
+import { bodyDocument, viewOf } from '../services/viewer/view-message.ts';
 import { effectiveBackupRoot } from '../services/settings/settings.ts';
 import { isToAi, type FromAi, type AiAnswer, type AiCall } from './ai-protocol.ts';
 
 /**
- * The AI tools' thread (docs/specs/SPEC-SCALE.md): its own database connection, answering the
- * MCP endpoint's calls one at a time. An AI agent searching all day then holds only this thread,
- * never the backup engine's or the console's.
+ * The reading thread (docs/specs/SPEC-SCALE.md): its own database connection, answering the
+ * MCP endpoint's calls and the console viewer's one at a time. An AI agent searching all day, or
+ * a 70 MB email being opened, then holds only this thread, never the engine's or the console's.
  */
 function aiPort(): MessagePort {
 	if (parentPort === null) throw new Error('ai-main.ts runs on the AI thread only');
@@ -37,10 +40,70 @@ function context(baseUrl: string) {
 	};
 }
 
+/**
+ * The last few messages read for the viewer, parsed: a message's page, its body and each of its
+ * pictures ask for the same message one after another, and a large one is read only once.
+ */
+const recent = new Map<string, ParsedMessage>();
+const RECENT_KEPT = 4;
+
+async function viewed(
+	messageId: string,
+	part: number | null
+): Promise<ParsedMessage | { error: string }> {
+	const key = `${messageId}#${String(part)}`;
+	const kept = recent.get(key);
+	if (kept !== undefined) return kept;
+	const loaded = await loadMessage(db, effectiveBackupRoot(db, folder), messageId);
+	if ('error' in loaded) return loaded;
+	let parsed = loaded.parsed;
+	if (part !== null) {
+		const forwarded = parsed.attachments[part];
+		if (forwarded?.contentType !== 'message/rfc822') {
+			return { error: 'That part is not a forwarded email' };
+		}
+		parsed = parseEml(forwarded.data);
+	}
+	recent.set(key, parsed);
+	while (recent.size > RECENT_KEPT) {
+		const oldest = recent.keys().next().value;
+		if (oldest === undefined) break;
+		recent.delete(oldest);
+	}
+	return parsed;
+}
+
 async function answer(call: AiCall): Promise<AiAnswer> {
 	switch (call.name) {
 		case 'mcp':
 			return { name: 'mcp', value: await handleMcp(context(call.baseUrl), call.message) };
+		case 'view': {
+			const parsed = await viewed(call.messageId, call.part);
+			return { name: 'view', value: 'error' in parsed ? parsed : { view: viewOf(parsed) } };
+		}
+		case 'body': {
+			const parsed = await viewed(call.messageId, call.part);
+			return {
+				name: 'body',
+				value: 'error' in parsed ? parsed : { document: bodyDocument(parsed) }
+			};
+		}
+		case 'part': {
+			const parsed = await viewed(call.messageId, call.part);
+			if ('error' in parsed) return { name: 'part', value: parsed };
+			const attachment = parsed.attachments[call.index];
+			return {
+				name: 'part',
+				value:
+					attachment === undefined
+						? { error: 'No such attachment' }
+						: {
+								filename: attachment.filename,
+								contentType: attachment.contentType,
+								data: new Uint8Array(attachment.data)
+							}
+			};
+		}
 		case 'attachment': {
 			const found = await downloadAttachment(context(call.baseUrl), call.messageId, call.index);
 			return {

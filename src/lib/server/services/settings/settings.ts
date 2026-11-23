@@ -131,6 +131,31 @@ const updateReminderSchema = z.object({
 	skippedVersion: z.string().max(40).nullable()
 });
 
+/** Remote access (docs/specs/SPEC-REMOTE.md): the HTTPS listener, who may reach it, accounts. */
+const remoteSchema = z.object({
+	enabled: z.boolean(),
+	port: z.number().int().min(1024).max(65_535),
+	/** Addresses and IPv4 ranges allowed to connect, one per entry (domain/remote.ts). */
+	allowList: z.array(z.string().max(60)).max(50),
+	/** The self-signed certificate, and its private key sealed with SECRETS_KEY. */
+	certificatePem: z.string().max(10_000).nullable(),
+	sealedKey: z.string().max(10_000).nullable(),
+	accounts: z
+		.array(
+			z.object({
+				username: z.string().max(40),
+				/** scrypt$salt$hash (services/remote/accounts.ts). */
+				passwordHash: z.string().max(200),
+				disabled: z.boolean(),
+				createdAt: z.iso.datetime(),
+				lastSignInAt: z.iso.datetime().nullable()
+			})
+		)
+		.max(20)
+});
+export type RemoteSettings = z.infer<typeof remoteSchema>;
+export type RemoteAccount = RemoteSettings['accounts'][number];
+
 /** A Mailgun sending domain: letters, digits, dots and hyphens (mg.example.com). */
 const DOMAIN =
 	/^(?=.{3,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
@@ -188,6 +213,17 @@ const aiAccessSchema = z.object({
 });
 export type AiAccess = z.infer<typeof aiAccessSchema>;
 
+function emptyRemote(): RemoteSettings {
+	return {
+		enabled: false,
+		port: 8443,
+		allowList: [],
+		certificatePem: null,
+		sealedKey: null,
+		accounts: []
+	};
+}
+
 function emptyEmail(): StoredEmail {
 	return { mailgun: null, recipients: [] };
 }
@@ -204,6 +240,7 @@ const KEYS = {
 		schema: updateReminderSchema,
 		fallback: { snoozedUntil: null, skippedVersion: null }
 	},
+	remote: { schema: remoteSchema, fallback: emptyRemote() },
 	disk: { schema: diskSchema, fallback: DISK_DEFAULTS },
 	email: { schema: emailSchema, fallback: emptyEmail() },
 	throughput: { schema: learnedPaceSchema, fallback: null },
@@ -288,6 +325,14 @@ export function savePause(
 
 export function readUpdates(db: Queryable): UpdateSettings {
 	return read(db, 'updates', KEYS.updates.schema, KEYS.updates.fallback);
+}
+
+export function readRemote(db: Queryable): RemoteSettings {
+	return read(db, 'remote', KEYS.remote.schema, KEYS.remote.fallback);
+}
+
+export function saveRemote(db: Queryable, remote: RemoteSettings): void {
+	write(db, 'remote', remoteSchema.parse(remote));
 }
 
 export function readAiAccess(db: Queryable): AiAccess {

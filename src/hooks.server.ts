@@ -1,6 +1,10 @@
 import { building } from '$app/env';
+import type { RequestEvent } from '@sveltejs/kit';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
-import { aiTools, database, startWork } from '#lib/server/runtime.ts';
+import { env } from '#lib/server/env.ts';
+import { aiTools, database, dataDir, startWork } from '#lib/server/runtime.ts';
+import { remoteGate } from '#lib/server/services/remote/gate.ts';
+import { applyRemote, auditRemote } from '#lib/server/services/remote/listener.ts';
 import { startAutomaticUpdates } from '#lib/server/services/engine/auto-update.ts';
 import { errorText, serverLog } from '#lib/server/log.ts';
 import { serverUpdates, startUpdateChecks } from '#lib/server/services/server-updates/live.ts';
@@ -13,10 +17,12 @@ import { watchThread } from '#lib/server/work/thread-health.ts';
  * answers the console. The daily release check starts here, and so do automatic updates (when
  * they are on in Settings).
  *
- * Access: the console answers only on this computer. Anyone who can open a browser on the
- * server is already trusted with it; reaching it from another computer needs sign-in, which
- * is not built yet (docs/TODO.md), so it is refused rather than left open.
+ * Access: the plain-HTTP console answers only on this computer; anyone who can open a browser
+ * on the server is already trusted with it. Other computers come in only through the remote
+ * HTTPS listener (docs/specs/SPEC-REMOTE.md): an allowed address, a signed-in account, and
+ * read-only pages, every request written to the audit trail.
  */
+const LISTENER_HEADER = 'x-lookstow-listener';
 export const init: ServerInit = async () => {
 	if (building) {
 		return;
@@ -25,6 +31,7 @@ export const init: ServerInit = async () => {
 	const work = await startWork();
 	startUpdateChecks();
 	startAutomaticUpdates(database, serverUpdates);
+	void applyRemote(database, env.secretsKey);
 	for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 		process.once(signal, () => {
 			void Promise.all([work.stop(), aiTools().stop()]);
@@ -48,13 +55,44 @@ export const handle: Handle = async ({ event, resolve }) => {
 	} catch {
 		// No client address while prerendering: treated as not local.
 	}
+	event.locals.remoteUser = null;
+	// server.ts marks which listener a request came in on (it overwrites what a client sends).
+	if (event.request.headers.get(LISTENER_HEADER) === 'remote') {
+		event.locals.isLocal = false;
+		const refused = remoteGate(database, event, address);
+		const response = refused ?? (await answer(event, resolve));
+		audit(event, address, response.status);
+		return response;
+	}
 	event.locals.isLocal = LOCAL.has(address);
 	if (!event.locals.isLocal && !OPEN_PATHS.has(event.url.pathname)) {
 		return new Response(
-			'Lookstow answers only on the computer it runs on. Open http://localhost:8030 there.',
+			'Lookstow answers only on the computer it runs on. Open http://localhost:8030 there, or use remote access (Settings) over HTTPS.',
 			{ status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } }
 		);
 	}
+	return answer(event, resolve);
+};
+
+/** Remote requests go to the audit trail, except the app's own files and page data fetches. */
+function audit(event: RequestEvent, address: string, status: number): void {
+	const path = event.url.pathname;
+	// A page's data fetch is the same view as the page (SvelteKit takes /__data.json off the path).
+	if (event.isDataRequest || path.startsWith('/_app/') || path === '/favicon.svg') return;
+	void auditRemote(dataDir(), {
+		at: new Date().toISOString(),
+		user: event.locals.remoteUser,
+		address,
+		method: event.request.method,
+		path,
+		status
+	});
+}
+
+async function answer(
+	event: RequestEvent,
+	resolve: Parameters<Handle>[0]['resolve']
+): Promise<Response> {
 	// AI tools (MCP clients) send no Origin; the access token protects /mcp instead.
 	const aiTool = event.url.pathname === '/mcp' && event.request.headers.get('origin') === null;
 	if (!aiTool && crossSiteWrite(event.request)) {
@@ -70,11 +108,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 			`${event.request.method} ${event.url.pathname} took ${String(Math.round(ms))} ms`
 		);
 	}
-	response.headers.set('X-Frame-Options', 'DENY');
+	// Never framed, except the viewer's message body, which says SAMEORIGIN itself.
+	if (!response.headers.has('X-Frame-Options')) response.headers.set('X-Frame-Options', 'DENY');
 	response.headers.set('X-Content-Type-Options', 'nosniff');
 	response.headers.set('Referrer-Policy', 'same-origin');
 	return response;
-};
+}
 
 /**
  * Any write must come from a page Lookstow served: the browser's Origin has to match the host

@@ -9,6 +9,7 @@ import {
 	REPORT_AFTER_MS,
 	explainGap,
 	recheckDue,
+	recheckNow,
 	recordFolderCounts,
 	reportLastingDifferences
 } from './completeness.ts';
@@ -240,5 +241,40 @@ describe('repairing a lasting difference', () => {
 			REPORT_AFTER_MS + 2
 		);
 		expect(foldersOf(db, mailbox.id)[0]?.differenceAlertedAt).toBeNull();
+	});
+});
+
+describe('check again now', () => {
+	it('reads a folder never fully listed again at once, not a day after its last re-read', () => {
+		const since = new Date(0);
+		const rechecked = new Date(RECHECK_AFTER_MS);
+		const now = RECHECK_AFTER_MS * 2;
+		expect(recheckDue({ differsSince: since, recheckedAt: rechecked, listedAt: null }, now)).toBe(
+			true
+		);
+		expect(
+			recheckDue({ differsSince: since, recheckedAt: rechecked, listedAt: rechecked }, now)
+		).toBe(false);
+	});
+
+	it('makes every differing folder of the mailbox due on the next sync, also a new difference', () => {
+		const { db, mailbox, inbox, folder } = setup();
+		const now = RECHECK_AFTER_MS * 10;
+		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 3, listed: null }], now - 1);
+		db.update(mailFolders)
+			.set({ recheckedAt: new Date(now - 2), listedAt: new Date(now - 2) })
+			.where(eq(mailFolders.id, inbox.id))
+			.run();
+		expect(recheckDue(folder(), now)).toBe(false);
+		expect(recheckNow(db, mailbox.id, now)).toBe(1);
+		expect(folder()).toMatchObject({ recheckedAt: null, listedAt: null });
+		expect(folder().differsSince?.getTime()).toBe(now - RECHECK_AFTER_MS);
+		expect(recheckDue(folder(), now)).toBe(true);
+	});
+
+	it('leaves a mailbox whose folders match alone', () => {
+		const { db, mailbox, inbox } = setup();
+		recordFolderCounts(db, mailbox.id, [{ folderId: inbox.id, count: 2, listed: null }], 1);
+		expect(recheckNow(db, mailbox.id, RECHECK_AFTER_MS * 10)).toBe(0);
 	});
 });

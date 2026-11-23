@@ -9,6 +9,7 @@
 	import FormModal from '#lib/ui/form-modal.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import BackupFolderCard from './backup-folder-card.svelte';
+	import RemoteAccessCard from './remote-access-card.svelte';
 	import { SCHEDULE_LIMITS } from '#lib/domain/settings.ts';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 	import {
@@ -317,6 +318,8 @@
 		anything.
 	</p>
 </FormModal>
+
+<RemoteAccessCard remote={data.remote} />
 
 <BackupFolderCard
 	root={settings.backup.root}

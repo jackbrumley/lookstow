@@ -38,6 +38,11 @@ export type EngineStatus = {
 		startedAt: string;
 		firstCopy: boolean;
 	}[];
+	/**
+	 * A Sync all now is under way: from the click until every mailbox it covers has synced (the
+	 * dashboard's button waits meanwhile).
+	 */
+	syncAll: boolean;
 	/** Mailboxes waiting for a free slot, by queue. */
 	waiting: {
 		requested: number;

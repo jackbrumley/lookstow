@@ -219,8 +219,45 @@ export function recheckDue(
 	return (
 		folder.differsSince !== null &&
 		now - folder.differsSince.getTime() >= RECHECK_AFTER_MS &&
-		(folder.recheckedAt === null || now - folder.recheckedAt.getTime() >= RECHECK_EVERY_MS)
+		// A folder never fully listed since 0.13.3 recorded listings (its listing is what the newer
+		// rules check against) is read again at once, not a day after the last re-read.
+		(folder.recheckedAt === null ||
+			folder.listedAt === null ||
+			now - folder.recheckedAt.getTime() >= RECHECK_EVERY_MS)
 	);
+}
+
+/**
+ * Check again now (the dashboard and a mailbox's page): each folder of the mailbox that differs
+ * from Microsoft is read again from the start on its next sync, whenever it was last read.
+ * Returns how many folders will be read again.
+ */
+export function recheckNow(db: Queryable, mailboxId: string, now = Date.now()): number {
+	const result = db
+		.update(mailFolders)
+		.set({ recheckedAt: null, listedAt: null })
+		.where(
+			and(
+				eq(mailFolders.mailboxId, mailboxId),
+				isNull(mailFolders.goneAt),
+				sql`(${mailFolders.differsSince} is not null or ${mailFolders.countFromListing} = 1)`
+			)
+		)
+		.run();
+	// A difference younger than RECHECK_AFTER_MS would otherwise wait out that grace first; asked
+	// for by a person, it is read again on this sync (its "differs since" moves back at most that).
+	const graceStart = new Date(now - RECHECK_AFTER_MS);
+	db.update(mailFolders)
+		.set({ differsSince: graceStart })
+		.where(
+			and(
+				eq(mailFolders.mailboxId, mailboxId),
+				isNull(mailFolders.goneAt),
+				sql`${mailFolders.differsSince} > ${graceStart.getTime()}`
+			)
+		)
+		.run();
+	return result.changes;
 }
 
 /** A folder checked against its own full listing is listed again this often. */

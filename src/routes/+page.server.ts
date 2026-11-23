@@ -1,5 +1,7 @@
 import type { Actions, PageServerLoad } from './$types';
-import { done } from '#lib/server/actions.ts';
+import { done, field, refused } from '#lib/server/actions.ts';
+import { checkAgainNow } from '#lib/server/check-again.ts';
+import { mailboxById } from '#lib/server/services/mailboxes/repository.ts';
 import { backupEngine, database } from '#lib/server/runtime.ts';
 import { listActivity, recordActivity } from '#lib/server/services/activity/activity.ts';
 import { firstCopyProgress, recentRuns } from '#lib/server/services/mailboxes/repository.ts';
@@ -58,6 +60,12 @@ export const actions = {
 			actor: 'console',
 			summary: 'Sync all now was asked for'
 		});
-		return done('A sync of every mailbox has started.');
+		return done('A sync of every mailbox, online archives included, has started.');
+	},
+	recheck: async ({ request }) => {
+		const id = field(await request.formData(), 'mailboxId');
+		const mailbox = mailboxById(database, id);
+		if (mailbox === undefined) return refused('No such mailbox', 404);
+		return checkAgainNow(mailbox);
 	}
 } satisfies Actions;

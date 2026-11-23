@@ -1,14 +1,29 @@
 import type { McpReply } from '../services/ai/mcp.ts';
 import type { LogLevel } from '../log.ts';
 import type { AttachmentReply } from './protocol.ts';
+import type { MessageView } from '../../domain/viewer.ts';
 
-/** What the web thread and the AI tools' thread say to each other (docs/specs/SPEC-SCALE.md). */
+/**
+ * What the web thread and the reading thread say to each other (docs/specs/SPEC-SCALE.md): the
+ * AI tools, and the console's message viewer (docs/specs/SPEC-VIEWER.md). `part` is a forwarded
+ * email's attachment index, to show that email instead of the message itself.
+ */
 export type AiCall =
 	| { name: 'mcp'; message: unknown; baseUrl: string }
-	| { name: 'attachment'; messageId: string; index: number; baseUrl: string };
+	| { name: 'attachment'; messageId: string; index: number; baseUrl: string }
+	| { name: 'view'; messageId: string; part: number | null }
+	| { name: 'body'; messageId: string; part: number | null }
+	| { name: 'part'; messageId: string; part: number | null; index: number };
+
+export type ViewReply = { error: string } | { view: MessageView };
+export type BodyReply = { error: string } | { document: string };
 
 export type AiAnswer =
-	{ name: 'mcp'; value: McpReply } | { name: 'attachment'; value: AttachmentReply };
+	| { name: 'mcp'; value: McpReply }
+	| { name: 'attachment'; value: AttachmentReply }
+	| { name: 'view'; value: ViewReply }
+	| { name: 'body'; value: BodyReply }
+	| { name: 'part'; value: AttachmentReply };
 
 export type ToAi = { type: 'call'; id: number; call: AiCall } | { type: 'stop' };
 

@@ -19,6 +19,7 @@ function status(): EngineStatus {
 		pause: { paused: false },
 		problem: null,
 		discovery: { running: false, progress: null, lastAt: null, nextAt: null },
+		syncAll: false,
 		syncing: [
 			{
 				mailboxId: GUID,

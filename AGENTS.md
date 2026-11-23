@@ -171,13 +171,15 @@ src/
       env.ts           the only reader of process.env
       runtime.ts       the web thread's database, data folder and the work thread (backupEngine())
       data-dir.ts      the data folder
-      work/            the work thread (docs/specs/SPEC-SCALE.md): entry, its side, the web side, messages, thread health
+      work/            the work thread (docs/specs/SPEC-SCALE.md): entry, its side, the web side, messages, thread health;
+                       the reading thread (ai-*: AI tools and the message viewer)
       actions.ts       done(), refused() and form helpers for actions
       log.ts           serverLog()
       existing-backup.ts  keep or delete a mailbox's backup (typed confirmation)
       database/        connection, schema/<area>.ts, migrations/ (generated), readiness, data lock,
                        content file (lookstow-content.db: search index, message text), slow-query log
-      crypto/          DER, the Entra certificate, sealed secrets
+      crypto/          DER, the Entra certificate, the remote access certificate, sealed secrets
+      check-again.ts   Check again now (a mailbox's differing folders read again on a sync now)
       services/
         graph/         token, client (paging, throttling, retries), discovery, mail, archive, connection test
         engine/        engine (timer, queue), sync-pass, discovery-pass, startup-tasks, snapshot-task, scheduler, mailbox-sync, archive-sync, scope-change, live-status, backup-move-task, backup-folder-check, run-history
@@ -191,10 +193,12 @@ src/
         alerts/        alert rules (activity to email), the outbox, Mailgun
         fts/           reading archive items (.fts): index fields, .eml copies
         throughput/    the governor's life: learned pace kept, pace history, /api/throughput view
+        viewer/        a message in the browser: body document and policy, attachment previews (SPEC-VIEWER)
+        remote/        remote access (SPEC-REMOTE): HTTPS listener control, gate, accounts, sign-in, audit
     domain/            browser-safe types and pure rules (releases/changelog.ts lives here)
     schemas/           zod contracts shared by server and browser
     ui/                tokens.css, global.css, shared components
-    runes/             toast state         utils/   formatting
+    runes/             toast state, pending clicks         utils/   formatting
 launcher/              Rust workspace: crates/lookstow (launcher, installer, root updater), crates/service
 docs/                  install page and installers (GitHub Pages), DESIGN, decisions, TODO, RELEASE, specs
 scripts/               release packaging, signing, notes, checks, scratch update test
@@ -330,7 +334,7 @@ The backup is evidence that mail existed. Treat every file and index row as irre
 - **Secrets at rest** (the certificate's private key, a client secret) are sealed with `SECRETS_KEY` (`crypto/secret-box.ts`), write-only in the console, never logged and never sent to the browser. A form shows that a secret is set, never the secret.
 - **The release signing key never enters the repository.** `keys/` is gitignored; the private key lives in the `LOOKSTOW_RELEASE_KEY` repository secret and offline. Never print it, copy it, commit it, pass it on a command line that is logged, or replace the key pair (`npm run release:key`) without the maintainer's explicit instruction: a new key strands every installed copy.
 - **Never commit** a `.env`, `server.env`, a database, a certificate's private key, a token, a tenant id, a real mailbox address or real mail. Test data is invented.
-- **Console access:** local-only (127.0.0.1 and ::1) except `/healthz` and `/readyz`, with the Origin check on writes (`hooks.server.ts`). Never widen `HOST`, add a trusted origin, open a route to other computers or add a CORS rule without the maintainer's approval and a sign-in design.
+- **Console access:** the plain-HTTP console is local-only (127.0.0.1 and ::1) except `/healthz` and `/readyz`, with the Origin check on writes (`hooks.server.ts`). Other computers come in only through remote access (`docs/specs/SPEC-REMOTE.md`): HTTPS, an allowed address, a signed-in account, read-only pages, every request audited. Never widen `HOST`, add a trusted origin, let a remote person write or open another page, loosen the gate or add a CORS rule without the maintainer's approval.
 - **Validate every input** at the trust boundary: form fields, URL parameters, JSON bodies, Graph replies used for paths or ids, files read from the data folder, release manifests. Use zod schemas (`src/lib/schemas/`) or explicit checks; never trust a type annotation on outside data.
 - **Path traversal:** any path built from outside data (Graph, the database, a URL, a form) goes through `resolveStoragePath()` or an equivalent check that the result stays inside its root. The launcher never follows a link in the data folder (`O_NOFOLLOW`, `FILE_FLAG_OPEN_REPARSE_POINT`).
 - **Data folder privacy:** the data folder and the backup folder are for the service account and administrators only (Linux 0700 and `server.env` 0600; Windows a protected DACL for SYSTEM, Administrators and LocalService). Never loosen those permissions, and never write mail, secrets or the database anywhere else.

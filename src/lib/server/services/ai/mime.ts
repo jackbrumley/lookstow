@@ -13,12 +13,18 @@ type MimeAttachment = {
 	inline: boolean;
 	/** Inside a forwarded email (an attached message): that attachment's index, else null. */
 	insideAttachment: number | null;
+	/** Its Content-ID, without the angle brackets (an HTML body's `cid:` pictures), or null. */
+	contentId: string | null;
 };
 
 export type ParsedMessage = {
 	headers: Map<string, string>;
 	text: string;
 	attachments: MimeAttachment[];
+	/** The message's own HTML body (not a forwarded email's), as written, or null. */
+	html: string | null;
+	/** The message's own plain-text body, as written, or null. */
+	plain: string | null;
 };
 
 type Part = { headers: Map<string, string>; body: Buffer };
@@ -221,7 +227,8 @@ export function parseEml(raw: Buffer, nesting = 0): ParsedMessage {
 				contentType: mediaType,
 				data,
 				inline: /^inline/i.test(disposition) || part.headers.has('content-id'),
-				insideAttachment: null
+				insideAttachment: null,
+				contentId: (part.headers.get('content-id') ?? '').replace(/^\s*<|>\s*$/g, '') || null
 			});
 			// A forwarded email: its text and attachments count as this message's own.
 			if (inner !== null) {
@@ -249,5 +256,11 @@ export function parseEml(raw: Buffer, nesting = 0): ParsedMessage {
 		texts.plain.length > 0 ? texts.plain.join('\n\n') : texts.html.map(htmlToText).join('\n\n');
 	const text = cleanText([body, ...forwarded].join('\n\n'));
 	const headers = new Map([...root.headers].map(([name, value]) => [name, decodeWords(value)]));
-	return { headers, text, attachments };
+	return {
+		headers,
+		text,
+		attachments,
+		html: texts.html.length > 0 ? texts.html.join('\n') : null,
+		plain: texts.plain.length > 0 ? texts.plain.join('\n\n') : null
+	};
 }

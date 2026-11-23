@@ -13,7 +13,7 @@ import { mailboxList, mailboxListQuery } from '#lib/domain/mailbox-list.ts';
  * Every mailbox discovery has found, with its state: filtered, sorted and paged here, so the page
  * gets one page of rows however many mailboxes the tenant has (docs/specs/SPEC-SCALE.md).
  */
-export const load = (async ({ parent, depends, url }) => {
+export const load = (async ({ parent, depends, url, locals }) => {
 	depends(LIVE_STATUS);
 	// Syncing comes from the frame's live status, so a badge never disagrees with the side bar.
 	const { live } = await parent();
@@ -26,7 +26,8 @@ export const load = (async ({ parent, depends, url }) => {
 	);
 	return {
 		list,
-		picking: scope.mode === 'selected',
+		// Picking changes what is backed up, so remote people (who only read) never see it.
+		picking: scope.mode === 'selected' && locals.isLocal,
 		pickedCount: picked.size,
 		// Only the rows shown need to know whether they are picked.
 		picked: list.rows.filter((row) => picked.has(row.address)).map((row) => row.address)

@@ -71,6 +71,8 @@ export class Engine {
 	readonly #running = new Map<string, Live>();
 	readonly #requested = new Set<string>();
 	#allRequestedAt: number | null = null;
+	/** When the Sync all now under way was asked for, until every mailbox it covers has synced. */
+	#syncAllAt: number | null = null;
 	/** Mailboxes whose running sync must stop after its page (excluded, paused, deleted). */
 	readonly #cancelled = new Set<string>();
 	#discovery: Promise<void> | null = null;
@@ -244,6 +246,7 @@ export class Engine {
 	requestSync(mailboxIds: string[] | null): void {
 		if (mailboxIds === null) {
 			this.#allRequestedAt = this.#deps.now();
+			this.#syncAllAt = this.#allRequestedAt;
 		} else {
 			for (const id of mailboxIds) {
 				this.#requested.add(id);
@@ -296,6 +299,7 @@ export class Engine {
 						? null
 						: iso((this.#lastDiscoveryAt ?? 0) + discoverEveryMs)
 			},
+			syncAll: this.#syncAllAt !== null,
 			syncing: [...this.#running.entries()].map(([id, live]) => ({
 				mailboxId: id,
 				address: live.address,
@@ -442,6 +446,15 @@ export class Engine {
 		}
 		if (plan.waiting.requested === 0 && this.#allRequestedAt !== null && plan.start.length === 0) {
 			this.#allRequestedAt = null;
+		}
+		// The Sync all now is over once nothing it asked for waits or runs.
+		const syncAllAt = this.#syncAllAt;
+		if (
+			syncAllAt !== null &&
+			this.#allRequestedAt === null &&
+			![...this.#running.values()].some((live) => live.startedAt >= syncAllAt)
+		) {
+			this.#syncAllAt = null;
 		}
 	}
 

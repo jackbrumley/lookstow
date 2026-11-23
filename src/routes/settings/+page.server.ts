@@ -29,9 +29,19 @@ import { storedTotals } from '#lib/server/services/mailboxes/repository.ts';
 import { newAiToken, setAiEnabled } from '#lib/server/services/ai/access.ts';
 import { hostname } from 'node:os';
 import { indexingText } from '#lib/domain/indexing.ts';
+import {
+	addAccount,
+	deleteAccount,
+	readAllowList,
+	remoteView,
+	renewCertificate,
+	resetPassword,
+	saveRemoteAccess,
+	setAccountDisabled
+} from '#lib/server/services/remote/manage.ts';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
-export const load = (() => ({
+export const load = (async () => ({
 	settings: settingsView(database, dataDir()),
 	backupsOutsideScope: backupsOutsideScope(database),
 	indexSnapshots: snapshotSummary(effectiveBackupRoot(database, dataDir()), dataDir()),
@@ -41,7 +51,9 @@ export const load = (() => ({
 	// The AI tools' content index (docs/specs/SPEC-SCALE.md): how far it has got, and any long
 	// work after an update, so empty AI results are explained here.
 	contentIndex: backupEngine().snapshot().contentIndex,
-	indexing: indexingText(backupEngine().indexing())
+	indexing: indexingText(backupEngine().indexing()),
+	// Remote access (docs/specs/SPEC-REMOTE.md): the listener, who may connect, accounts, audit.
+	remote: await remoteView(database, dataDir())
 })) satisfies PageServerLoad;
 
 function aiView() {
@@ -81,6 +93,12 @@ function addresses(text: string): string[] {
 		.split(/[\s,;]+/)
 		.map((address) => address.trim().toLowerCase())
 		.filter((address) => address !== '');
+}
+
+/** A password field as typed: spaces count, so it is not trimmed. */
+function secret(data: FormData, name: string): string {
+	const value = data.get(name);
+	return typeof value === 'string' ? value : '';
 }
 
 function whole(data: FormData, name: string): number {
@@ -284,5 +302,55 @@ export const actions = {
 			await backupEngine().removeOldCopy('console');
 			return done('Removing the old copy. Files whose copy is not identical are kept.');
 		});
+	},
+	remoteAccess: async ({ request }) => {
+		const data = await request.formData();
+		return attemptAsync(async () =>
+			done(
+				await saveRemoteAccess(database, env.secretsKey, {
+					enabled: checked(data, 'enabled'),
+					port: whole(data, 'port'),
+					allowList: readAllowList(field(data, 'allowList'))
+				})
+			)
+		);
+	},
+	remoteCertificate: () =>
+		attemptAsync(async () => done(await renewCertificate(database, env.secretsKey))),
+	remoteAdd: async ({ request }) => {
+		const data = await request.formData();
+		return attemptAsync(async () =>
+			done(
+				await addAccount(
+					database,
+					field(data, 'username'),
+					secret(data, 'password'),
+					secret(data, 'confirm')
+				)
+			)
+		);
+	},
+	remoteDisable: async ({ request }) => {
+		const data = await request.formData();
+		return attempt(() =>
+			done(setAccountDisabled(database, field(data, 'username'), checked(data, 'disabled')))
+		);
+	},
+	remotePassword: async ({ request }) => {
+		const data = await request.formData();
+		return attemptAsync(async () =>
+			done(
+				await resetPassword(
+					database,
+					field(data, 'username'),
+					secret(data, 'password'),
+					secret(data, 'confirm')
+				)
+			)
+		);
+	},
+	remoteDelete: async ({ request }) => {
+		const data = await request.formData();
+		return attempt(() => done(deleteAccount(database, field(data, 'username'))));
 	}
 } satisfies Actions;

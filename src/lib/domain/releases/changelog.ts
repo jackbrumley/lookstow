@@ -20,6 +20,30 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.4',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.4 from the Updates page. Expected: the countdown, then the console back by itself',
+				'Open any message from Search. Expected: the message itself shows on the page (From, To, date, body); its own pictures show; pictures from the internet stay blocked until you press Show them; PDFs, photos and text attachments open in the browser with View, and everything else downloads',
+				'On the Dashboard, press Sync all now. Expected: the button greys out and says Syncing all… at once, the side bar says so too, and both follow the work until it ends; Discover now does the same',
+				'In Needs attention, press Check again now on a mailbox. Expected: a message says how many folders are read again; after that sync, the mailbox leaves the list unless a folder really still differs',
+				"In Settings, Remote access, add an account (a password of 12 or more characters), then press Change…, tick the box and enter the addresses allowed to connect. Expected: it says remote access is on, with the address to use and the certificate's fingerprint",
+				'Open the firewall for those addresses with the command Settings shows (as an administrator). Then, from an allowed computer, open the address Settings shows. Expected: the browser warns about the certificate once; after accepting it, a sign-in page; after signing in, Dashboard, Mailboxes, Search and How it works only, and links from your report to /messages/… open the message',
+				"From a computer not on the list, open the same address. Expected: a one-line refusal naming that computer's address, and no sign-in page",
+				'Back in Settings, Remote access. Expected: Who opened what lists the remote requests, with the account and address'
+			]
+		},
+		changes: [
+			'Messages open in the browser: the message with its pictures, nothing in it ever runs, and pictures from the internet load only when you ask. Pictures, PDFs and text attachments open in the browser; anything else downloads. A forwarded email opens as its own page. iPhone photos (HEIC) still only download',
+			'Remote access (Settings): people on other computers can search, open and download messages over HTTPS. Only from the addresses you allow, signed in with an account you make, and read-only: they never see Settings, the Log or any button that changes something. Every request they make is kept in an audit trail, shown in Settings. The certificate is made by Lookstow (self-signed), so each browser warns once',
+			'Buttons answer at once: Sync all now and Discover now grey out and say what they are doing until the work ends, and the side bar shows it straight away instead of Idle',
+			"New Check again now, in Needs attention and on a mailbox's page: reads the folders that differ from Microsoft again on a sync starting now, instead of waiting up to a day",
+			'Needs attention clears sooner: a folder never fully listed is read again on the next sync, not a day after its last re-read',
+			'Sync all now says that it includes online archives (it always did)'
+		]
+	},
+	{
 		version: '0.13.3',
 		testing: {
 			kind: 'steps',

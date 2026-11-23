@@ -91,3 +91,16 @@ export function derTime(date: Date): Buffer {
 export function derExplicit(tagNumber: number, element: Buffer): Buffer {
 	return derElement(0xa0 | tagNumber, element);
 }
+
+export function derOctetString(bytes: Buffer): Buffer {
+	return derElement(0x04, bytes);
+}
+
+export function derBoolean(value: boolean): Buffer {
+	return derElement(0x01, Buffer.from([value ? 0xff : 0x00]));
+}
+
+/** `[n] IMPLICIT` of a primitive value (a subject alternative name's DNS name or address). */
+export function derImplicit(tagNumber: number, contents: Buffer): Buffer {
+	return derElement(0x80 | tagNumber, contents);
+}

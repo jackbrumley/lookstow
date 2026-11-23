@@ -7,6 +7,11 @@ declare global {
 		interface Locals {
 			/** The request came from this computer (the console answers nobody else yet). */
 			isLocal: boolean;
+			/**
+			 * The signed-in remote account's name on the remote listener (docs/specs/SPEC-REMOTE.md),
+			 * or null: on this computer, or not signed in yet. A remote person only reads.
+			 */
+			remoteUser: string | null;
 		}
 	}
 }
