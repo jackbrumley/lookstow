@@ -1,18 +1,24 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance, type SubmitFunction } from '$app/forms';
 	import { refreshAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
+	import Callout from '#lib/ui/callout.svelte';
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
+	import Modal from '#lib/ui/modal.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 	import { formatBytes, formatCount, formatDateTime } from '#lib/utils/format.ts';
 	import { PACK_KEEP_DAYS, PACK_MAX_MESSAGES, packProgress } from '#lib/domain/evidence-packs.ts';
 
 	let { data, form }: PageProps = $props();
+
+	type RowRow = PageProps['data']['packs'][number];
 
 	$effect(() => {
 		toastFormResult(form);
@@ -50,6 +56,22 @@
 	function mine(createdBy: string): boolean {
 		return data.isLocal || createdBy === data.me;
 	}
+
+	// A check's answer shows in a window, until it is closed or the pack is made from it.
+	let dismissed = $state<unknown>(null);
+	const checked = $derived(preview !== null && preview !== dismissed ? preview : null);
+
+	// The pack opened from the list, as it stands now (the list follows a pack being made).
+	let viewing = $state<string | null>(null);
+	let viewOpen = $state(false);
+	const pack = $derived(data.packs.find((each) => each.id === viewing));
+
+	function closeOnSuccess(): ReturnType<SubmitFunction> {
+		return async ({ result, update }) => {
+			await update();
+			if (result.type === 'success') viewOpen = false;
+		};
+	}
 </script>
 
 <svelte:head><title>Evidence packs · Lookstow</title></svelte:head>
@@ -63,6 +85,7 @@
 	<form
 		method="POST"
 		action="?/check"
+		id="make-pack"
 		class="make"
 		use:enhance={({ action }) => {
 			working = true;
@@ -96,27 +119,6 @@
 			Also put each attachment in as its own file (easier to look through; the pack is about twice as
 			big)
 		</label>
-		{#if preview !== null}
-			<div class="preview" class:bad={preview.refusal !== null}>
-				<p>
-					<strong>{formatCount(preview.found)}</strong> messages found ({formatBytes(
-						preview.sourceBytes
-					)} as stored){#if preview.repeats > 0}, {formatCount(preview.repeats)} repeats left out{/if}.
-					{#if preview.freeBytes !== null}{formatBytes(preview.freeBytes)} free on the data folder’s drive.{/if}
-				</p>
-				{#if preview.missingCount > 0}
-					<p>
-						{formatCount(preview.missingCount)} ids are not in the backup and are left out (the pack’s
-						README lists them):
-					</p>
-					<pre class="missing">{preview.missing.join('\n')}{preview.missingCount >
-						preview.missing.length
-							? '\n…'
-							: ''}</pre>
-				{/if}
-				{#if preview.refusal !== null}<p class="problem">{preview.refusal}</p>{/if}
-			</div>
-		{/if}
 		<div class="buttons">
 			<Button type="submit" variant="secondary" disabled={working}>Check</Button>
 			<Button type="submit" formaction="?/build" disabled={working}
@@ -130,81 +132,148 @@
 	{#if data.packs.length === 0}
 		<p class="muted">No packs yet. Packs are kept for {PACK_KEEP_DAYS} days, then removed.</p>
 	{:else}
-		<table>
-			<thead>
-				<tr><th>Name</th><th>State</th><th>Messages</th><th>Size</th><th>Made</th><th></th></tr>
-			</thead>
-			<tbody>
-				{#each data.packs as pack (pack.id)}
-					<tr>
-						<td>
-							<strong>{pack.name}</strong>
-							<div class="muted small">by {pack.createdBy}</div>
-							{#if pack.sha256 !== null}
-								<div class="muted small sha">SHA-256 <code>{pack.sha256}</code></div>
-							{/if}
-						</td>
-						<td>
-							<Badge tone={tone(pack.status)}>{LABELS[pack.status]}</Badge>
-							<div class="small">{packProgress(pack)}</div>
-							{#if pack.status === 'building' && pack.total > 0}
-								<progress max={pack.total} value={pack.done}></progress>
-							{/if}
-							{#if pack.missing.length > 0}
-								<div class="small muted">
-									{formatCount(pack.missing.length)} ids not in the backup
-								</div>
-							{/if}
-							{#if pack.mismatched > 0}
-								<div class="small problem">
-									{formatCount(pack.mismatched)} stored files no longer match their SHA-256 (see the README)
-								</div>
-							{/if}
-							{#if pack.unreadable > 0}
-								<div class="small problem">{formatCount(pack.unreadable)} could not be read</div>
-							{/if}
-						</td>
-						<td>{formatCount(pack.total)}</td>
-						<td>{pack.zipBytes === null ? '' : formatBytes(pack.zipBytes)}</td>
-						<td>
-							{formatDateTime(pack.createdAt)}
-							{#if pack.expiresAt !== null}
-								<div class="muted small">kept until {formatDateTime(pack.expiresAt)}</div>
-							{/if}
-						</td>
-						<td class="row-actions">
-							{#if pack.status === 'ready'}
-								<Button size="sm" href={resolve('/evidence-packs/[id]/download', { id: pack.id })}
-									>Download</Button
-								>
-							{/if}
-							{#if mine(pack.createdBy)}
-								{#if pack.status === 'failed'}
-									<form method="POST" action="?/again" use:enhance>
-										<input type="hidden" name="id" value={pack.id} />
-										<Button type="submit" size="sm" variant="secondary">Make again</Button>
-									</form>
-								{/if}
-								<form method="POST" action="?/remove" use:enhance>
-									<input type="hidden" name="id" value={pack.id} />
-									<Button type="submit" size="sm" variant="ghost"
-										>{pack.status === 'ready' || pack.status === 'failed'
-											? 'Remove'
-											: 'Stop'}</Button
-									>
-								</form>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<DataTable
+			columns={['Name', 'State', 'Messages', 'Size', 'Made']}
+			rows={data.packs}
+			key={(row: RowRow) => row.id}
+			label={(row: RowRow) => row.name}
+			onopen={(row: RowRow) => {
+				viewing = row.id;
+				viewOpen = true;
+			}}
+		>
+			{#snippet first(row: RowRow)}
+				<div class="muted small">by {row.createdBy}</div>
+			{/snippet}
+			{#snippet cells(row: RowRow)}
+				<td>
+					<Badge tone={tone(row.status)}>{LABELS[row.status]}</Badge>
+					<div class="small">{packProgress(row)}</div>
+					{#if row.status === 'building' && row.total > 0}
+						<progress max={row.total} value={row.done}></progress>
+					{/if}
+					{#if row.mismatched > 0 || row.unreadable > 0}
+						<div class="small problem">Some messages need a look: open the pack</div>
+					{/if}
+				</td>
+				<td>{formatCount(row.total)}</td>
+				<td>{row.zipBytes === null ? '' : formatBytes(row.zipBytes)}</td>
+				<td>{formatDateTime(row.createdAt)}</td>
+			{/snippet}
+		</DataTable>
+		<p class="muted small">Click a pack to download it, see its SHA-256 or remove it.</p>
 		<p class="muted small">
 			Packs are kept in the data folder for {PACK_KEEP_DAYS} days, then removed. Check a copy with
 			<code>Get-FileHash &lt;file&gt;.zip</code> (PowerShell) against its SHA-256 here.
 		</p>
 	{/if}
 </Card>
+
+<Modal
+	open={checked !== null}
+	title={checked === null ? 'Check' : `${formatCount(checked.found)} messages found`}
+	onclose={() => (dismissed = checked)}
+>
+	{#if checked !== null}
+		<p>
+			<strong>{formatCount(checked.found)}</strong> messages found ({formatBytes(
+				checked.sourceBytes
+			)} as stored){#if checked.repeats > 0}, {formatCount(checked.repeats)} repeats left out{/if}.
+			{#if checked.freeBytes !== null}{formatBytes(checked.freeBytes)} free on the data folder’s drive.{/if}
+		</p>
+		{#if checked.missingCount > 0}
+			<p>
+				{formatCount(checked.missingCount)} ids are not in the backup and are left out (the pack’s README
+				lists them):
+			</p>
+			<pre class="missing">{checked.missing.join('\n')}{checked.missingCount >
+				checked.missing.length
+					? '\n…'
+					: ''}</pre>
+		{/if}
+		{#if checked.refusal !== null}<Callout tone="danger">{checked.refusal}</Callout>{/if}
+	{/if}
+	{#snippet footer()}
+		<Button variant="secondary" onclick={() => (dismissed = checked)}>Close</Button>
+		{#if checked !== null && checked.refusal === null}
+			<Button type="submit" form="make-pack" formaction="?/build" disabled={working}
+				>{working ? 'Working…' : 'Make the pack'}</Button
+			>
+		{/if}
+	{/snippet}
+</Modal>
+
+<Modal bind:open={viewOpen} title={pack === undefined ? 'Evidence pack' : pack.name}>
+	{#if pack !== undefined}
+		<DetailView>
+			<dt>State</dt>
+			<dd>
+				<Badge tone={tone(pack.status)}>{LABELS[pack.status]}</Badge>
+				{packProgress(pack)}
+				{#if pack.status === 'building' && pack.total > 0}
+					<progress max={pack.total} value={pack.done}></progress>
+				{/if}
+			</dd>
+			<dt>Made by</dt>
+			<dd>{pack.createdBy}, {formatDateTime(pack.createdAt)}</dd>
+			<dt>Messages</dt>
+			<dd>
+				{formatCount(pack.total)}{pack.withAttachments ? ', attachments as their own files' : ''}
+			</dd>
+			{#if pack.zipBytes !== null}
+				<dt>Size</dt>
+				<dd>{formatBytes(pack.zipBytes)}</dd>
+			{/if}
+			{#if pack.sha256 !== null}
+				<dt>SHA-256</dt>
+				<dd><code class="sha">{pack.sha256}</code></dd>
+			{/if}
+			{#if pack.expiresAt !== null}
+				<dt>Kept until</dt>
+				<dd>{formatDateTime(pack.expiresAt)}</dd>
+			{/if}
+			{#if pack.missing.length > 0}
+				<dt>Not in the backup</dt>
+				<dd>{formatCount(pack.missing.length)} ids (the README lists them)</dd>
+			{/if}
+			{#if pack.mismatched > 0}
+				<dt>No longer match</dt>
+				<dd class="problem">
+					{formatCount(pack.mismatched)} stored files no longer match their SHA-256 (see the README)
+				</dd>
+			{/if}
+			{#if pack.unreadable > 0}
+				<dt>Could not be read</dt>
+				<dd class="problem">{formatCount(pack.unreadable)}</dd>
+			{/if}
+			{#if pack.problem !== null}
+				<dt>Problem</dt>
+				<dd class="problem">{pack.problem}</dd>
+			{/if}
+		</DetailView>
+	{/if}
+	{#snippet footer()}
+		{#if pack !== undefined}
+			{#if mine(pack.createdBy)}
+				<form method="POST" action="?/remove" use:enhance={closeOnSuccess}>
+					<input type="hidden" name="id" value={pack.id} />
+					<Button type="submit" variant="danger"
+						>{pack.status === 'ready' || pack.status === 'failed' ? 'Remove' : 'Stop'}</Button
+					>
+				</form>
+				{#if pack.status === 'failed'}
+					<form method="POST" action="?/again" use:enhance>
+						<input type="hidden" name="id" value={pack.id} />
+						<Button type="submit" variant="secondary">Make again</Button>
+					</form>
+				{/if}
+			{/if}
+			{#if pack.status === 'ready'}
+				<Button href={resolve('/evidence-packs/[id]/download', { id: pack.id })}>Download</Button>
+			{/if}
+		{/if}
+	{/snippet}
+</Modal>
 
 <style>
 	.make {
@@ -229,29 +298,14 @@
 		font-family: var(--font-mono, monospace);
 	}
 
-	.buttons,
-	.row-actions {
+	.buttons {
 		display: flex;
 		gap: var(--space-2);
 		flex-wrap: wrap;
 	}
 
-	.row-actions {
-		justify-content: flex-end;
-	}
-
-	.preview {
-		background: var(--colour-surface-muted, var(--colour-border));
-		padding: var(--space-3);
-		border-radius: var(--radius-md);
-	}
-
-	.preview p {
-		margin: 0 0 var(--space-2);
-	}
-
-	.preview.bad {
-		background: var(--colour-bad-soft);
+	.sha {
+		word-break: break-all;
 	}
 
 	.missing {
@@ -259,23 +313,6 @@
 		overflow: auto;
 		font-size: var(--font-size-sm);
 		margin: 0;
-	}
-
-	table {
-		width: 100%;
-		border-collapse: collapse;
-	}
-
-	th,
-	td {
-		text-align: left;
-		padding: var(--space-2);
-		border-bottom: 1px solid var(--colour-border);
-		vertical-align: top;
-	}
-
-	.sha code {
-		word-break: break-all;
 	}
 
 	progress {

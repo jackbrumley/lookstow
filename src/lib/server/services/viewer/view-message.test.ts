@@ -70,6 +70,9 @@ describe('the message body', () => {
 		const parsed = parseEml(withPicture);
 		const view = viewOf(parsed);
 		expect(view).toMatchObject({ subject: 'Site photo', hasHtml: true });
+		// The Date header becomes an exact time, to show in local time; the text is kept as written.
+		expect(view.sentAt).toBe('2026-11-01T23:00:00.000Z');
+		expect(view.date).toBe('Mon, 2 Nov 2026 09:00:00 +1000');
 		expect(view.attachments).toEqual([
 			expect.objectContaining({ filename: 'pic.png', preview: 'image', bytes: PIXEL.length })
 		]);

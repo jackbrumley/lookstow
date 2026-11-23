@@ -1,18 +1,27 @@
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { eq, lt, or } from 'drizzle-orm';
+import type { Queryable } from '../../database/connection.ts';
+import { remoteSessions } from '../../database/schema.ts';
 
 /**
  * Remote accounts' passwords and sessions (docs/specs/SPEC-REMOTE.md). Passwords are kept as
- * scrypt hashes (N 2^15, r 8, p 1, a 16-byte salt). Sessions live in memory: a restart signs
- * everyone out, which suits a handful of people. A session ends after 8 hours, or an hour after
- * its last request. Five wrong passwords for a name, or from an address, lock it for 15 minutes.
+ * scrypt hashes (N 2^15, r 8, p 1, a 16-byte salt). A sign-in is remembered (in the database,
+ * as the SHA-256 of its token, so restarts and updates keep it) for 7 days, or until it has gone
+ * 48 hours unused. Five wrong passwords for a username, or from an address, lock it for 15
+ * minutes.
  */
 const N = 32_768;
 const KEY_BYTES = 32;
-const SESSION_MS = 8 * 3_600_000;
-const IDLE_MS = 3_600_000;
+export const SESSION_MS = 7 * 24 * 3_600_000;
+const IDLE_MS = 48 * 3_600_000;
+/** Last use is written at most this often, not on every request. */
+const SEEN_EVERY_MS = 5 * 60_000;
 const LOCK_AFTER = 5;
 const LOCK_MS = 15 * 60_000;
-/** The cookie that carries a session: HttpOnly, Secure, SameSite=Strict. */
+/**
+ * The cookie that carries a session: HttpOnly, Secure, SameSite=Lax (Strict would drop it when a
+ * link to a message is opened from Outlook or Teams, which then looked like being signed out).
+ */
 export const SESSION_COOKIE = 'lookstow_session';
 
 function derive(password: string, salt: Buffer): Promise<Buffer> {
@@ -39,37 +48,67 @@ export async function passwordMatches(password: string, stored: string): Promise
 	return key.length === expected.length && timingSafeEqual(key, expected);
 }
 
-type Session = { username: string; createdAt: number; seenAt: number };
-const sessions = new Map<string, Session>();
+function hashed(token: string): string {
+	return createHash('sha256').update(token).digest('hex');
+}
 
-export function newSession(username: string, now = Date.now()): string {
+export function newSession(db: Queryable, username: string, now = Date.now()): string {
 	const token = randomBytes(32).toString('base64url');
-	sessions.set(token, { username, createdAt: now, seenAt: now });
+	// Ended sessions are cleared now and then; a sign-in is a good moment.
+	db.delete(remoteSessions)
+		.where(
+			or(
+				lt(remoteSessions.createdAt, new Date(now - SESSION_MS)),
+				lt(remoteSessions.seenAt, new Date(now - IDLE_MS))
+			)
+		)
+		.run();
+	db.insert(remoteSessions)
+		.values({
+			tokenSha256: hashed(token),
+			username,
+			createdAt: new Date(now),
+			seenAt: new Date(now)
+		})
+		.run();
 	return token;
 }
 
 /** The session's username, or null when it has ended (its age, idleness or a sign-out). */
-export function sessionUser(token: string | undefined, now = Date.now()): string | null {
-	if (token === undefined) return null;
-	const session = sessions.get(token);
+export function sessionUser(
+	db: Queryable,
+	token: string | undefined,
+	now = Date.now()
+): string | null {
+	if (token === undefined || token === '') return null;
+	const key = hashed(token);
+	const session = db.select().from(remoteSessions).where(eq(remoteSessions.tokenSha256, key)).get();
 	if (session === undefined) return null;
-	if (now - session.createdAt >= SESSION_MS || now - session.seenAt >= IDLE_MS) {
-		sessions.delete(token);
+	const created = session.createdAt.getTime();
+	const seen = session.seenAt.getTime();
+	if (now - created >= SESSION_MS || now - seen >= IDLE_MS) {
+		db.delete(remoteSessions).where(eq(remoteSessions.tokenSha256, key)).run();
 		return null;
 	}
-	session.seenAt = now;
+	if (now - seen >= SEEN_EVERY_MS) {
+		db.update(remoteSessions)
+			.set({ seenAt: new Date(now) })
+			.where(eq(remoteSessions.tokenSha256, key))
+			.run();
+	}
 	return session.username;
 }
 
-export function endSession(token: string | undefined): void {
-	if (token !== undefined) sessions.delete(token);
+export function endSession(db: Queryable, token: string | undefined): void {
+	if (token === undefined || token === '') return;
+	db.delete(remoteSessions)
+		.where(eq(remoteSessions.tokenSha256, hashed(token)))
+		.run();
 }
 
 /** Ends every session of this person (disabled, deleted, or a new password). */
-export function endSessionsOf(username: string): void {
-	for (const [token, session] of sessions) {
-		if (session.username === username) sessions.delete(token);
-	}
+export function endSessionsOf(db: Queryable, username: string): void {
+	db.delete(remoteSessions).where(eq(remoteSessions.username, username)).run();
 }
 
 type Strikes = { failures: number; lockedUntil: number };

@@ -37,9 +37,7 @@ import {
 	renewCertificate,
 	resetPassword,
 	saveRemoteAccess,
-	setAccountDisabled,
-	setAccountEvidencePacks,
-	setAccountAiTools,
+	updateAccount,
 	newAccountAiToken,
 	generatePassword
 } from '#lib/server/services/remote/manage.ts';
@@ -351,11 +349,17 @@ export const actions = {
 			)
 		);
 	},
-	remoteDisable: async ({ request }) => {
+	remoteAccount: async ({ request }) => {
 		const data = await request.formData();
-		return attempt(() =>
-			done(setAccountDisabled(database, field(data, 'username'), checked(data, 'disabled')))
-		);
+		const username = field(data, 'username');
+		return attempt(() => {
+			const changed = updateAccount(database, username, {
+				canSignIn: checked(data, 'canSignIn'),
+				evidencePacks: checked(data, 'evidencePacks'),
+				aiTools: checked(data, 'aiTools')
+			});
+			return { ...done(changed.message), aiSetup: { username, token: changed.token } };
+		});
 	},
 	remotePassword: async ({ request }) => {
 		const data = await request.formData();
@@ -369,20 +373,6 @@ export const actions = {
 				made
 			)
 		);
-	},
-	remoteEvidence: async ({ request }) => {
-		const data = await request.formData();
-		return attempt(() =>
-			done(setAccountEvidencePacks(database, field(data, 'username'), checked(data, 'allowed')))
-		);
-	},
-	remoteAi: async ({ request }) => {
-		const data = await request.formData();
-		const username = field(data, 'username');
-		return attempt(() => {
-			const changed = setAccountAiTools(database, username, checked(data, 'allowed'));
-			return { ...done(changed.message), aiSetup: { username, token: changed.token } };
-		});
 	},
 	remoteAiToken: async ({ request }) => {
 		const data = await request.formData();

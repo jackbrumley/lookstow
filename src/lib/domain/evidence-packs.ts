@@ -65,7 +65,8 @@ export function packName(typed: string, now: Date): string {
 		.trim()
 		.slice(0, 80)
 		.replace(/[. ]+$/, '');
-	return cleaned === '' ? `Evidence pack ${now.toISOString().slice(0, 10)}` : cleaned;
+	// The local date (en-CA writes YYYY-MM-DD), as every time in Lookstow is local.
+	return cleaned === '' ? `Evidence pack ${now.toLocaleDateString('en-CA')}` : cleaned;
 }
 
 /** What a pack's state is now: one left building or queued by a stopped service has failed. */

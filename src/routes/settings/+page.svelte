@@ -3,10 +3,12 @@
 	import { resolve } from '$app/paths';
 	import { untrack } from 'svelte';
 	import type { PageProps } from './$types';
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
+	import Modal from '#lib/ui/modal.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import BackupFolderCard from './backup-folder-card.svelte';
 	import RemoteAccessCard from './remote-access-card.svelte';
@@ -44,6 +46,20 @@
 	const connectCommand = $derived(
 		`claude mcp add --transport http lookstow http://127.0.0.1:8030/mcp --header "Authorization: Bearer ${newToken ?? '<token>'}"`
 	);
+	// A new token shows once, in a window, until it is closed.
+	let tokenSeen = $state<unknown>(null);
+	const tokenShowing = $derived(newToken !== null && form !== tokenSeen ? newToken : null);
+	let tokenCopied = $state(false);
+
+	async function copyCommand(): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(connectCommand);
+			tokenCopied = true;
+			setTimeout(() => (tokenCopied = false), 2_000);
+		} catch {
+			// No clipboard here: the command can still be selected and copied by hand.
+		}
+	}
 	const pace = $derived(data.learnedPace);
 	// The scope form's mode, reset from the saved setting each time the form opens.
 	let scopeMode = $state<'all' | 'selected'>('all');
@@ -81,7 +97,7 @@
 			</Button>
 		</form>
 	{/snippet}
-	<dl class="facts">
+	<DetailView>
 		<dt>Tenant ID</dt>
 		<dd>{connection.tenantId === '' ? 'Not set' : connection.tenantId}</dd>
 		<dt>Application (client) ID</dt>
@@ -101,7 +117,7 @@
 				<Badge tone="bad">Nothing yet</Badge>
 			{/if}
 		</dd>
-	</dl>
+	</DetailView>
 	<div class="row">
 		<Button
 			variant={connection.auth.kind === 'certificate' ? 'secondary' : 'primary'}
@@ -295,18 +311,32 @@
 	{#if data.indexing !== null}
 		<p class="muted small">{data.indexing}</p>
 	{/if}
-	{#if newToken !== null}
-		<p><strong>New access token (shown once):</strong></p>
-		<pre class="token">{newToken}</pre>
-		<p class="muted small">Add Lookstow to Claude Code on this computer:</p>
-		<pre class="token">{connectCommand}</pre>
-	{/if}
 	<form method="POST" action="?/aiToken" use:enhance>
 		<Button variant="secondary" type="submit"
 			>{ai.tokenHint === null ? 'Create access token' : 'Replace access token'}</Button
 		>
 	</form>
 </Card>
+
+<Modal
+	open={tokenShowing !== null}
+	title="New access token"
+	size="lg"
+	onclose={() => (tokenSeen = form)}
+>
+	<p class="muted small">
+		Shown once: Lookstow keeps only a scrambled form of it. If it is lost, use Replace access token.
+	</p>
+	<pre class="token">{tokenShowing}</pre>
+	<p class="muted small">Add Lookstow to Claude Code on this computer:</p>
+	<pre class="token">{connectCommand}</pre>
+	{#snippet footer()}
+		<Button variant="secondary" onclick={() => void copyCommand()}
+			>{tokenCopied ? 'Copied' : 'Copy the command'}</Button
+		>
+		<Button onclick={() => (tokenSeen = form)}>Done</Button>
+	{/snippet}
+</Modal>
 
 <FormModal bind:open={aiOpen} title="AI tools" action="?/aiEnabled">
 	<label class="check">
@@ -535,23 +565,6 @@
 </FormModal>
 
 <style>
-	.facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-2) var(--space-4);
-		margin: 0 0 var(--space-4);
-	}
-
-	.facts dt {
-		color: var(--colour-text-muted);
-	}
-
-	.facts dd {
-		margin: 0;
-		min-width: 0;
-		overflow-wrap: anywhere;
-	}
-
 	.row {
 		display: flex;
 		flex-wrap: wrap;

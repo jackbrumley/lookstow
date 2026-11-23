@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import type { PageProps } from './$types';
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
@@ -188,7 +189,7 @@
 {/if}
 
 <Card title="This server">
-	<dl class="facts">
+	<DetailView>
 		<dt>Installed version</dt>
 		<dd>{view.installedVersion}</dd>
 		<dt>Last checked</dt>
@@ -212,7 +213,7 @@
 			<dt>Running from</dt>
 			<dd>Source (development). Updates are installed only on an installed service.</dd>
 		{/if}
-	</dl>
+	</DetailView>
 </Card>
 
 {#if view.release !== null}
@@ -260,20 +261,5 @@
 		list-style: none;
 		margin: var(--space-1) 0 0;
 		padding: 0;
-	}
-
-	.facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-2) var(--space-4);
-		margin: 0;
-	}
-
-	.facts dt {
-		color: var(--colour-text-muted);
-	}
-
-	.facts dd {
-		margin: 0;
 	}
 </style>

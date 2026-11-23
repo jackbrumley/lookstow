@@ -3,10 +3,14 @@
 	import type { PageProps } from './$types';
 	import Badge from '#lib/ui/badge.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { formatDateTime, plural } from '#lib/utils/format.ts';
 
 	let { data }: PageProps = $props();
+
+	type RowEntry = PageProps['data']['entries'][number];
+	type RowRun = PageProps['data']['discoveries'][number];
 
 	const filters = [
 		{ value: 'all', label: 'Everything' },
@@ -29,34 +33,32 @@
 </form>
 
 <Card>
-	{#if data.entries.length === 0}
-		<p class="muted">Nothing yet.</p>
-	{:else}
-		<table>
-			<thead><tr><th>When</th><th>What</th><th>Who</th></tr></thead>
-			<tbody>
-				{#each data.entries as entry (entry.id)}
-					<tr>
-						<td class="when">{formatDateTime(entry.at)}</td>
-						<td>
-							{#if entry.level !== 'info'}
-								<Badge tone={entry.level === 'error' ? 'bad' : 'warn'}
-									>{entry.level === 'error' ? 'Problem' : 'Warning'}</Badge
-								>
-							{/if}
-							{#if entry.mailboxId !== null}
-								<a href={resolve('/mailboxes/[id]', { id: entry.mailboxId })}>{entry.summary}</a>
-							{:else}
-								{entry.summary}
-							{/if}
-							{#if entry.detail !== null}<div class="muted small detail">{entry.detail}</div>{/if}
-						</td>
-						<td>{entry.actor}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	{/if}
+	<DataTable
+		columns={['When', 'What', 'Who']}
+		rows={data.entries}
+		key={(entry: RowEntry) => entry.id}
+		empty="Nothing yet."
+	>
+		{#snippet cells(entry: RowEntry)}
+			<td class="when">{formatDateTime(entry.at)}</td>
+			<td>
+				{#if entry.level !== 'info'}
+					<Badge tone={entry.level === 'error' ? 'bad' : 'warn'}
+						>{entry.level === 'error' ? 'Problem' : 'Warning'}</Badge
+					>
+				{/if}
+				{#if entry.mailboxId !== null}
+					<a class="row-link" href={resolve('/mailboxes/[id]', { id: entry.mailboxId })}
+						>{entry.summary}</a
+					>
+				{:else}
+					{entry.summary}
+				{/if}
+				{#if entry.detail !== null}<div class="muted small detail">{entry.detail}</div>{/if}
+			</td>
+			<td>{entry.actor}</td>
+		{/snippet}
+	</DataTable>
 </Card>
 
 {#if data.entries.length > 0}
@@ -69,28 +71,24 @@
 {/if}
 
 <Card title="Discovery runs">
-	{#if data.discoveries.length === 0}
-		<p class="muted">Discovery has not run yet.</p>
-	{:else}
-		<table>
-			<thead><tr><th>Started</th><th>Result</th><th>New</th><th>Gone</th></tr></thead>
-			<tbody>
-				{#each data.discoveries as run (run.id)}
-					<tr>
-						<td>{formatDateTime(run.startedAt)}</td>
-						<td>
-							<Badge tone={run.outcome === 'ok' ? 'ok' : run.outcome === 'running' ? 'info' : 'bad'}
-								>{run.outcome}</Badge
-							>
-							{#if run.error !== null}<div class="small muted">{run.error}</div>{/if}
-						</td>
-						<td>{plural(run.added, 'mailbox', 'mailboxes')}</td>
-						<td>{plural(run.removed, 'mailbox', 'mailboxes')}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	{/if}
+	<DataTable
+		columns={['Started', 'Result', 'New', 'Gone']}
+		rows={data.discoveries}
+		key={(run: RowRun) => run.id}
+		empty="Discovery has not run yet."
+	>
+		{#snippet cells(run: RowRun)}
+			<td>{formatDateTime(run.startedAt)}</td>
+			<td>
+				<Badge tone={run.outcome === 'ok' ? 'ok' : run.outcome === 'running' ? 'info' : 'bad'}
+					>{run.outcome}</Badge
+				>
+				{#if run.error !== null}<div class="small muted">{run.error}</div>{/if}
+			</td>
+			<td>{plural(run.added, 'mailbox', 'mailboxes')}</td>
+			<td>{plural(run.removed, 'mailbox', 'mailboxes')}</td>
+		{/snippet}
+	</DataTable>
 </Card>
 
 <style>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { PageProps } from './$types';
+	import Callout from '#lib/ui/callout.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import Button from '#lib/ui/button.svelte';
 
@@ -14,7 +15,7 @@
 	<Card title="Sign in to Lookstow">
 		<p class="muted">
 			Remote access is read-only: you can search, open and download backed-up messages. Your
-			Lookstow administrator gives you a name and password.
+			Lookstow administrator gives you a username and password.
 		</p>
 		<form
 			method="POST"
@@ -28,7 +29,7 @@
 		>
 			<input type="hidden" name="next" value={data.next} />
 			<label>
-				Name
+				Username
 				<input name="username" autocomplete="username" required maxlength="40" />
 			</label>
 			<label>
@@ -41,7 +42,7 @@
 					maxlength="200"
 				/>
 			</label>
-			{#if form?.message}<p class="problem" role="alert">{form.message}</p>{/if}
+			{#if form?.message}<Callout tone="danger">{form.message}</Callout>{/if}
 			<Button type="submit" disabled={signingIn}>{signingIn ? 'Signing in…' : 'Sign in'}</Button>
 		</form>
 	</Card>
@@ -69,11 +70,6 @@
 
 	.muted {
 		color: var(--colour-text-muted);
-		margin: 0;
-	}
-
-	.problem {
-		color: var(--colour-bad-text);
 		margin: 0;
 	}
 </style>

@@ -66,6 +66,12 @@ export function inlineType(kind: PreviewKind, contentType: string): string {
 	}
 }
 
+/** The Date header as an exact time (ISO 8601, UTC), shown in local time; null if unreadable. */
+function sentAt(date: string): string | null {
+	const when = Date.parse(date);
+	return Number.isNaN(when) ? null : new Date(when).toISOString();
+}
+
 export function viewOf(parsed: ParsedMessage): MessageView {
 	const header = (name: string): string => parsed.headers.get(name) ?? '';
 	return {
@@ -74,6 +80,7 @@ export function viewOf(parsed: ParsedMessage): MessageView {
 		to: header('to'),
 		cc: header('cc'),
 		date: header('date'),
+		sentAt: sentAt(header('date')),
 		hasHtml: parsed.html !== null,
 		attachments: parsed.attachments.map((attachment) => ({
 			index: attachment.index,

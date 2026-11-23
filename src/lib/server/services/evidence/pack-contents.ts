@@ -35,14 +35,43 @@ export type ManifestRow = {
 	attachments: number;
 };
 
-function pad(value: number): string {
-	return String(value).padStart(2, '0');
+/**
+ * Times in a pack are the local time of the computer Lookstow runs on, as everywhere in Lookstow,
+ * and say which zone; manifest.csv keeps exact ISO 8601 UTC times as well.
+ */
+const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const LOCAL = new Intl.DateTimeFormat('en-CA', {
+	timeZone: ZONE,
+	year: 'numeric',
+	month: '2-digit',
+	day: '2-digit',
+	hour: '2-digit',
+	minute: '2-digit',
+	hourCycle: 'h23'
+});
+
+function localParts(when: Date): { date: string; hours: string; minutes: string } {
+	const part = (type: Intl.DateTimeFormatPartTypes): string =>
+		LOCAL.formatToParts(when).find((each) => each.type === type)?.value ?? '00';
+	return {
+		date: `${part('year')}-${part('month')}-${part('day')}`,
+		hours: part('hour'),
+		minutes: part('minute')
+	};
 }
 
-/** `2024-03-05 0912` in UTC, so names sort by date and do not depend on the server's zone. */
+/** `2024-03-05 0912`, local time, so names sort by date. */
 function stamp(when: Date | null): string {
 	if (when === null) return 'no date';
-	return `${String(when.getUTCFullYear())}-${pad(when.getUTCMonth() + 1)}-${pad(when.getUTCDate())} ${pad(when.getUTCHours())}${pad(when.getUTCMinutes())}`;
+	const local = localParts(when);
+	return `${local.date} ${local.hours}${local.minutes}`;
+}
+
+/** `2024-03-05 09:12`, local time, for people to read. */
+function shown(when: Date | null): string {
+	if (when === null) return '';
+	const local = localParts(when);
+	return `${local.date} ${local.hours}:${local.minutes}`;
 }
 
 /** The mailbox's folder name in the pack: its address, and "(online archive)" for an archive. */
@@ -164,7 +193,7 @@ export function indexHtml(pack: EvidencePack, rows: readonly ManifestRow[]): str
 				row.check === 'matches' || row.check === 'converted'
 					? ''
 					: ` <strong>${row.check}</strong>`;
-			return `<tr><td>${escapeHtml(m.receivedAt?.toISOString().slice(0, 16).replace('T', ' ') ?? '')}</td><td>${escapeHtml(m.sender)}</td><td>${escapeHtml(m.recipients)}</td><td>${link}${note}</td><td>${escapeHtml(m.mailboxAddress)} / ${escapeHtml(m.folderPath)}</td><td>${m.deletedAt === null ? '' : 'yes'}</td></tr>`;
+			return `<tr><td>${escapeHtml(shown(m.receivedAt))}</td><td>${escapeHtml(m.sender)}</td><td>${escapeHtml(m.recipients)}</td><td>${link}${note}</td><td>${escapeHtml(m.mailboxAddress)} / ${escapeHtml(m.folderPath)}</td><td>${m.deletedAt === null ? '' : 'yes'}</td></tr>`;
 		})
 		.join('\n');
 	return `<!doctype html>
@@ -174,7 +203,7 @@ export function indexHtml(pack: EvidencePack, rows: readonly ManifestRow[]): str
 <style>body{font-family:system-ui,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top;font-size:14px}th{background:#f4f4f4}</style>
 </head><body>
 <h1>${escapeHtml(pack.name)}</h1>
-<p>${String(rows.length)} messages, made by Lookstow on ${escapeHtml(pack.createdAt.slice(0, 16).replace('T', ' '))} UTC. Times are UTC. Open a message to see it in your mail program. README.txt says how to check the files.</p>
+<p>${String(rows.length)} messages, made by Lookstow on ${escapeHtml(shown(new Date(pack.createdAt)))}. Times are local time (${escapeHtml(ZONE)}). Open a message to see it in your mail program. README.txt says how to check the files.</p>
 <table><thead><tr><th>Received</th><th>From</th><th>To and Cc</th><th>Subject</th><th>Mailbox / folder</th><th>Deleted at source</th></tr></thead>
 <tbody>
 ${body}
@@ -195,13 +224,13 @@ export function readmeText(
 		pack.name,
 		'='.repeat(Math.min(pack.name.length, 80)),
 		'',
-		`Made by Lookstow ${version}, a backup of Microsoft 365 mailboxes, on ${pack.createdAt} (UTC).`,
+		`Made by Lookstow ${version}, a backup of Microsoft 365 mailboxes, on ${shown(new Date(pack.createdAt))} (local time, ${ZONE}).`,
 		`Asked for by: ${pack.createdBy}.`,
 		`Messages: ${String(written)} included${pack.missing.length > 0 ? `; ${String(pack.missing.length)} asked for but not in the backup (listed below)` : ''}.`,
 		'',
 		'What is here',
 		'------------',
-		'messages/      One .eml file a message, by mailbox, named by date (UTC), subject and the start of',
+		'messages/      One .eml file a message, by mailbox, named by local date and time, subject and the start of',
 		'               its Lookstow id. An .eml file opens in Outlook, Thunderbird or Apple Mail.',
 		...(pack.withAttachments
 			? [

@@ -4,10 +4,13 @@
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import { formatBytes, formatCount, formatDateTime } from '#lib/utils/format.ts';
 
 	let { data }: PageProps = $props();
+
+	type RowHit = PageProps['data']['hits'][number];
 
 	const query = $derived(data.query);
 	const pageCount = $derived(
@@ -124,38 +127,30 @@
 				and each downloads as an .eml from its page.
 			</p>
 		{/if}
-		{#if data.hits.length === 0}
-			<p class="muted">Nothing matches.</p>
-		{:else}
-			<div class="scroll">
-				<table>
-					<thead>
-						<tr><th>Received</th><th>Subject</th><th>From</th><th>Mailbox</th><th>Folder</th></tr>
-					</thead>
-					<tbody>
-						{#each data.hits as hit (hit.id)}
-							<tr>
-								<td class="nowrap">{formatDateTime(hit.receivedAt)}</td>
-								<td>
-									<a href={resolve('/messages/[id]', { id: hit.id })}
-										>{hit.subject === ''
-											? hit.mailboxKind === 'archive'
-												? 'Archive item'
-												: '(no subject)'
-											: hit.subject}</a
-									>
-									{#if hit.deletedAt !== null}<Badge tone="warn">Deleted</Badge>{/if}
-									<span class="muted small">{formatBytes(hit.byteCount)}</span>
-								</td>
-								<td>{hit.sender}</td>
-								<td>{hit.mailboxAddress}{hit.mailboxKind === 'archive' ? ' (archive)' : ''}</td>
-								<td>{hit.folderPath}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
+		<DataTable
+			columns={['Received', 'Subject', 'From', 'Mailbox', 'Folder']}
+			rows={data.hits}
+			key={(hit: RowHit) => hit.id}
+			empty="Nothing matches."
+		>
+			{#snippet cells(hit: RowHit)}
+				<td class="nowrap">{formatDateTime(hit.receivedAt)}</td>
+				<td>
+					<a class="row-link" href={resolve('/messages/[id]', { id: hit.id })}
+						>{hit.subject === ''
+							? hit.mailboxKind === 'archive'
+								? 'Archive item'
+								: '(no subject)'
+							: hit.subject}</a
+					>
+					{#if hit.deletedAt !== null}<Badge tone="warn">Deleted</Badge>{/if}
+					<span class="muted small">{formatBytes(hit.byteCount)}</span>
+				</td>
+				<td>{hit.sender}</td>
+				<td>{hit.mailboxAddress}{hit.mailboxKind === 'archive' ? ' (archive)' : ''}</td>
+				<td>{hit.folderPath}</td>
+			{/snippet}
+		</DataTable>
 	</Card>
 {/if}
 
@@ -219,10 +214,6 @@
 	.pages button:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-
-	.scroll {
-		overflow-x: auto;
 	}
 
 	.nowrap {

@@ -3,8 +3,10 @@
 	governor, docs/specs/SPEC-THROUGHPUT.md 4.6). The same numbers as GET /api/throughput.
 -->
 <script lang="ts">
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
 	import type { ThroughputView } from '#lib/domain/throughput.ts';
 	import { formatBytes, formatDateTime, formatRelative, plural } from '#lib/utils/format.ts';
 
@@ -29,6 +31,8 @@
 		{ label: '1 minute', seconds: 60, counters: speed.rates.lastMinute },
 		{ label: '15 minutes', seconds: 900, counters: speed.rates.last15Minutes }
 	]);
+	type RowWindow = (typeof windows)[number];
+	type RowLane = ThroughputView['lanes'][number];
 
 	function perSecond(value: number, seconds: number): string {
 		return (value / seconds).toFixed(1);
@@ -65,7 +69,7 @@
 		</div>
 	</div>
 
-	<dl class="facts">
+	<DetailView>
 		<dt>Pace</dt>
 		<dd>
 			<Badge tone={PHASES[speed.pace.phase].tone}>{PHASES[speed.pace.phase].label}</Badge>
@@ -101,52 +105,41 @@
 				)}
 			</dd>
 		{/if}
-	</dl>
+	</DetailView>
 
-	<table class="rates">
-		<thead>
-			<tr
-				><th>Over the last</th><th>Requests/s</th><th>Downloaded/s</th><th>Throttled</th><th
-					>Failed</th
-				></tr
-			>
-		</thead>
-		<tbody>
-			{#each windows as window (window.label)}
-				<tr>
-					<td>{window.label}</td>
-					<td>{perSecond(window.counters.requests, window.seconds)}</td>
-					<td>{formatBytes(window.counters.bytes / window.seconds)}</td>
-					<td>{window.counters.throttled}</td>
-					<td>{window.counters.failed}</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
+	<div class="rates">
+		<DataTable
+			columns={['Over the last', 'Requests/s', 'Downloaded/s', 'Throttled', 'Failed']}
+			rows={windows}
+			key={(window: RowWindow) => window.label}
+		>
+			{#snippet cells(window: RowWindow)}
+				<td>{window.label}</td>
+				<td>{perSecond(window.counters.requests, window.seconds)}</td>
+				<td>{formatBytes(window.counters.bytes / window.seconds)}</td>
+				<td>{window.counters.throttled}</td>
+				<td>{window.counters.failed}</td>
+			{/snippet}
+		</DataTable>
+	</div>
 
 	{#if speed.lanes.length > 0}
 		<details>
 			<summary>Mailbox lanes ({speed.lanes.length})</summary>
-			<table>
-				<thead>
-					<tr
-						><th>Lane</th><th>Limit</th><th>In flight</th><th>Waiting</th><th>Requests (1 min)</th
-						><th>Last throttled</th></tr
-					>
-				</thead>
-				<tbody>
-					{#each speed.lanes as lane (lane.name)}
-						<tr>
-							<td>{lane.name}</td>
-							<td>{lane.limit}</td>
-							<td>{lane.inFlight}</td>
-							<td>{lane.waiting}</td>
-							<td>{lane.requestsLastMinute}</td>
-							<td>{lane.lastThrottleAt === null ? '—' : formatRelative(lane.lastThrottleAt)}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+			<DataTable
+				columns={['Lane', 'Limit', 'In flight', 'Waiting', 'Requests (1 min)', 'Last throttled']}
+				rows={speed.lanes}
+				key={(lane: RowLane) => lane.name}
+			>
+				{#snippet cells(lane: RowLane)}
+					<td>{lane.name}</td>
+					<td>{lane.limit}</td>
+					<td>{lane.inFlight}</td>
+					<td>{lane.waiting}</td>
+					<td>{lane.requestsLastMinute}</td>
+					<td>{lane.lastThrottleAt === null ? '—' : formatRelative(lane.lastThrottleAt)}</td>
+				{/snippet}
+			</DataTable>
 		</details>
 	{/if}
 
@@ -183,21 +176,6 @@
 
 	.tile strong {
 		font-size: var(--font-size-lg);
-	}
-
-	.facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-2) var(--space-4);
-		margin: 0 0 var(--space-4);
-	}
-
-	.facts dt {
-		color: var(--colour-text-muted);
-	}
-
-	.facts dd {
-		margin: 0;
 	}
 
 	.rates {

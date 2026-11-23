@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
@@ -139,7 +140,7 @@
 			still works.
 		</p>
 	{:else}
-		<dl class="facts">
+		<DetailView>
 			<dt>From</dt>
 			<dd>{view.from === '' ? '—' : view.from}</dd>
 			<dt>To</dt>
@@ -149,10 +150,15 @@
 				<dd>{view.cc}</dd>
 			{/if}
 			<dt>Date</dt>
-			<dd>{view.date === '' ? '—' : view.date}</dd>
+			<dd title={view.date === '' ? undefined : `As written: ${view.date}`}>
+				{#if view.sentAt !== null}{formatDateTime(
+						view.sentAt,
+						true
+					)}{:else if view.date === ''}—{:else}{view.date}{/if}
+			</dd>
 			<dt>Subject</dt>
 			<dd>{view.subject === '' ? '(no subject)' : view.subject}</dd>
-		</dl>
+		</DetailView>
 		<div class="body-bar">
 			<span class="muted small">
 				{#if remotePictures}
@@ -263,7 +269,7 @@
 <Lightbox items={lightboxItems} bind:index={showing} />
 
 <Card title="Where it is">
-	<dl class="facts">
+	<DetailView>
 		{#if message.deletedAt !== null}
 			<dt>State</dt>
 			<dd>
@@ -331,7 +337,7 @@
 		{/if}
 		<dt>Microsoft 365 id</dt>
 		<dd><code class="small">{message.graphId}</code></dd>
-	</dl>
+	</DetailView>
 </Card>
 
 <Card title="History">
@@ -406,23 +412,6 @@
 	.actions {
 		display: flex;
 		gap: var(--space-3);
-	}
-
-	.facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-2) var(--space-4);
-		margin: 0;
-	}
-
-	.facts dt {
-		color: var(--colour-text-muted);
-	}
-
-	.facts dd {
-		margin: 0;
-		min-width: 0;
-		overflow-wrap: anywhere;
 	}
 
 	.history {

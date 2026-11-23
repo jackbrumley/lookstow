@@ -8,6 +8,7 @@
 	import FormModal from '#lib/ui/form-modal.svelte';
 	import ExistingBackupChoice from '#lib/ui/existing-backup-choice.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import {
 		COMPLETENESS_LABELS,
@@ -22,6 +23,8 @@
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
 
 	let { data, form }: PageProps = $props();
+
+	type RowMailbox = PageProps['data']['list']['rows'][number];
 
 	$effect(() => {
 		toastFormResult(form);
@@ -132,77 +135,74 @@
 			No mailboxes yet. Discovery finds them once Microsoft 365 is connected on the Settings page.
 		</p>
 	{:else}
-		<div class="scroll">
-			<table>
-				<thead>
-					<tr>
-						{#each columns as column (column.key)}
-							<th
-								aria-sort={query.sort === column.key
-									? query.descending
-										? 'descending'
-										: 'ascending'
-									: 'none'}
+		<DataTable
+			rows={list.rows}
+			key={(mailbox: RowMailbox) => mailbox.id}
+			label={(mailbox: RowMailbox) => mailbox.address}
+			href={(mailbox: RowMailbox) => resolve('/mailboxes/[id]', { id: mailbox.id })}
+			empty="No mailboxes match."
+		>
+			{#snippet head()}
+				{#each columns as column (column.key)}
+					<th
+						aria-sort={query.sort === column.key
+							? query.descending
+								? 'descending'
+								: 'ascending'
+							: 'none'}
+					>
+						<button
+							type="submit"
+							form="mailbox-filters"
+							name="order"
+							value={orderFor(column.key)}
+							class="sort"
+							>{column.label}{query.sort === column.key
+								? query.descending
+									? ' ↓'
+									: ' ↑'
+								: ''}</button
+						>
+					</th>
+				{/each}
+				{#if data.picking}<th>Backed up</th>{/if}
+			{/snippet}
+			{#snippet first(mailbox: RowMailbox)}
+				<div class="muted small">{mailbox.displayName}</div>
+			{/snippet}
+			{#snippet cells(mailbox: RowMailbox)}
+				<td>{KIND_LABELS[mailbox.kind] ?? mailbox.kind}</td>
+				<td><Badge tone={stateTone(mailbox.state)}>{STATE_LABELS[mailbox.state]}</Badge></td>
+				<td>{formatCount(mailbox.itemCount)}</td>
+				<td>{formatBytes(mailbox.byteCount)}</td>
+				<td>{formatRelative(mailbox.lastSyncFinishedAt)}</td>
+				{#if data.picking}
+					<td>
+						{#if mailbox.kind === 'archive'}
+							<span class="muted small">With its mailbox</span>
+						{:else if picked.has(mailbox.address) && mailbox.itemCount > 0}
+							<Button size="sm" variant="secondary" onclick={() => (unpicking = mailbox)}
+								>Unpick…</Button
 							>
-								<button
+						{:else}
+							<form
+								method="POST"
+								action={picked.has(mailbox.address) ? '?/unpick' : '?/pick'}
+								use:enhance
+							>
+								<input type="hidden" name="address" value={mailbox.address} />
+								<Button
 									type="submit"
-									form="mailbox-filters"
-									name="order"
-									value={orderFor(column.key)}
-									class="sort"
-									>{column.label}{query.sort === column.key
-										? query.descending
-											? ' ↓'
-											: ' ↑'
-										: ''}</button
+									size="sm"
+									variant={picked.has(mailbox.address) ? 'secondary' : 'primary'}
+									>{picked.has(mailbox.address) ? 'Unpick' : 'Pick'}</Button
 								>
-							</th>
-						{/each}
-						{#if data.picking}<th>Backed up</th>{/if}
-					</tr>
-				</thead>
-				<tbody>
-					{#each list.rows as mailbox (mailbox.id)}
-						<tr>
-							<td>
-								<a href={resolve('/mailboxes/[id]', { id: mailbox.id })}>{mailbox.address}</a>
-								<div class="muted small">{mailbox.displayName}</div>
-							</td>
-							<td>{KIND_LABELS[mailbox.kind] ?? mailbox.kind}</td>
-							<td><Badge tone={stateTone(mailbox.state)}>{STATE_LABELS[mailbox.state]}</Badge></td>
-							<td>{formatCount(mailbox.itemCount)}</td>
-							<td>{formatBytes(mailbox.byteCount)}</td>
-							<td>{formatRelative(mailbox.lastSyncFinishedAt)}</td>
-							{#if data.picking}
-								<td>
-									{#if mailbox.kind === 'archive'}
-										<span class="muted small">With its mailbox</span>
-									{:else if picked.has(mailbox.address) && mailbox.itemCount > 0}
-										<Button size="sm" variant="secondary" onclick={() => (unpicking = mailbox)}
-											>Unpick…</Button
-										>
-									{:else}
-										<form
-											method="POST"
-											action={picked.has(mailbox.address) ? '?/unpick' : '?/pick'}
-											use:enhance
-										>
-											<input type="hidden" name="address" value={mailbox.address} />
-											<Button
-												type="submit"
-												size="sm"
-												variant={picked.has(mailbox.address) ? 'secondary' : 'primary'}
-												>{picked.has(mailbox.address) ? 'Unpick' : 'Pick'}</Button
-											>
-										</form>
-									{/if}
-								</td>
-							{/if}
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+							</form>
+						{/if}
+					</td>
+				{/if}
+			{/snippet}
+		</DataTable>
 		{#if list.pageCount > 1}
 			<nav class="pages" aria-label="Pages">
 				<button
@@ -287,9 +287,5 @@
 	.pages button:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-
-	.scroll {
-		overflow-x: auto;
 	}
 </style>

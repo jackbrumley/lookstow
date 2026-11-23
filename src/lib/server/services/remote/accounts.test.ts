@@ -11,6 +11,7 @@ import {
 	strike
 } from './accounts.ts';
 import { safeNext } from './sign-in.ts';
+import { openDatabase } from '../../database/connection.ts';
 import { generatePassword, readAllowList } from './manage.ts';
 
 describe('passwords', () => {
@@ -37,32 +38,41 @@ describe('a password Lookstow makes', () => {
 });
 
 describe('sessions', () => {
-	it('end after 8 hours, an idle hour, a sign-out, or for everyone of an account', () => {
+	const HOUR = 3_600_000;
+
+	it('last 7 days, or until 48 hours unused, and survive a restart', () => {
 		const start = 1_000_000;
-		const token = newSession('ann', start);
-		expect(sessionUser(token, start + 59 * 60_000)).toBe('ann');
-		expect(sessionUser(token, start + 59 * 60_000 * 2)).toBe('ann');
-		expect(sessionUser(token, start + 59 * 60_000 * 2 + 3_600_000)).toBeNull();
+		const db = openDatabase(':memory:');
+		const token = newSession(db, 'ann', start);
+		expect(sessionUser(db, token, start + 47 * HOUR)).toBe('ann');
+		expect(sessionUser(db, token, start + 94 * HOUR)).toBe('ann');
+		expect(sessionUser(db, token, start + 94 * HOUR + 48 * HOUR)).toBeNull();
 
-		const long = newSession('ann', start);
-		let now = start;
-		for (let hour = 0; hour < 7; hour += 1) {
-			now += 50 * 60_000;
-			expect(sessionUser(long, now)).toBe('ann');
+		// Used every day, it still ends after 7 days.
+		const daily = newSession(db, 'ann', start);
+		for (let day = 1; day < 7; day += 1) {
+			expect(sessionUser(db, daily, start + day * 24 * HOUR)).toBe('ann');
 		}
-		expect(sessionUser(long, start + 8 * 3_600_000)).toBeNull();
+		expect(sessionUser(db, daily, start + 7 * 24 * HOUR)).toBeNull();
+	});
 
-		const out = newSession('bob', start);
-		endSession(out);
-		expect(sessionUser(out, start)).toBeNull();
+	it('are kept only as a hash, and end at sign-out or for everyone of an account', () => {
+		const start = 1_000_000;
+		const db = openDatabase(':memory:');
+		const out = newSession(db, 'bob', start);
+		expect(JSON.stringify(db.$client.prepare('select * from remote_sessions').all())).not.toContain(
+			out
+		);
+		endSession(db, out);
+		expect(sessionUser(db, out, start)).toBeNull();
 
-		const one = newSession('cat', start);
-		const two = newSession('cat', start);
-		endSessionsOf('cat');
-		expect(sessionUser(one, start)).toBeNull();
-		expect(sessionUser(two, start)).toBeNull();
-		expect(sessionUser(undefined, start)).toBeNull();
-		expect(sessionUser('made-up', start)).toBeNull();
+		const one = newSession(db, 'cat', start);
+		const two = newSession(db, 'cat', start);
+		endSessionsOf(db, 'cat');
+		expect(sessionUser(db, one, start)).toBeNull();
+		expect(sessionUser(db, two, start)).toBeNull();
+		expect(sessionUser(db, undefined, start)).toBeNull();
+		expect(sessionUser(db, 'made-up', start)).toBeNull();
 	});
 });
 

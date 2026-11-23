@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { PageProps } from './$types';
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
+	import Modal from '#lib/ui/modal.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import {
 		ALERT_LABELS,
@@ -16,6 +19,9 @@
 	import { formatCount, formatDateTime } from '#lib/utils/format.ts';
 
 	let { data, form }: PageProps = $props();
+
+	type RowPerson = AlertRecipient;
+	type RowEmail = PageProps['data']['emails'][number];
 
 	$effect(() => {
 		toastFormResult(form);
@@ -37,14 +43,15 @@
 		'not-sent': { label: 'Not sent', tone: 'warn' }
 	};
 
-	function edit(person: AlertRecipient): void {
-		chosen = person;
-		editOpen = true;
-	}
+	// A person opened from the list, as they stand now.
+	let viewOpen = $state(false);
+	const viewed = $derived(
+		chosen === null ? undefined : data.recipients.find((each) => each.id === chosen?.id)
+	);
 
-	function remove(person: AlertRecipient): void {
+	function open(person: AlertRecipient): void {
 		chosen = person;
-		removeOpen = true;
+		viewOpen = true;
 	}
 </script>
 
@@ -68,14 +75,14 @@
 			does. Until it is set up, alerts are recorded below as not sent.
 		</p>
 	{:else}
-		<dl class="facts">
+		<DetailView>
 			<dt>Mailgun domain</dt>
 			<dd>{data.mailgun.domain} ({data.mailgun.region === 'eu' ? 'EU' : 'US'} region)</dd>
 			<dt>Sent from</dt>
 			<dd>{data.mailgun.from}</dd>
 			<dt>Sending key</dt>
 			<dd>{data.mailgun.keyHint}, saved {formatDateTime(data.mailgun.setAt)}</dd>
-		</dl>
+		</DetailView>
 	{/if}
 </Card>
 
@@ -83,108 +90,67 @@
 	{#snippet actions()}
 		<Button onclick={() => (addOpen = true)}>Add a person…</Button>
 	{/snippet}
-	{#if data.recipients.length === 0}
-		<p class="muted">Nobody yet. Add a person and tick the alerts they need.</p>
-	{:else}
-		<div class="scroll">
-			<table>
-				<thead><tr><th>Person</th><th>Alerts</th><th></th></tr></thead>
-				<tbody>
-					{#each data.recipients as person (person.id)}
-						<tr>
-							<td>
-								<strong>{person.name}</strong>
-								<div class="small muted">{person.email}</div>
-								{#if !person.enabled}<Badge tone="warn">Paused</Badge>{/if}
-							</td>
-							<td>
-								{#if person.alerts.length === 0}
-									<span class="muted">None ticked</span>
-								{:else}
-									<ul class="alerts small">
-										{#each person.alerts as alert (alert)}
-											<li>{ALERT_LABELS[alert].label}</li>
-										{/each}
-									</ul>
-								{/if}
-							</td>
-							<td class="row-actions">
-								<form
-									method="POST"
-									action="?/test"
-									use:enhance={() => {
-										testing = person.id;
-										return async ({ update }) => {
-											await update();
-											testing = null;
-										};
-									}}
-								>
-									<input type="hidden" name="id" value={person.id} />
-									<Button type="submit" size="sm" variant="secondary" disabled={testing !== null}
-										>{testing === person.id ? 'Sending…' : 'Send a test'}</Button
-									>
-								</form>
-								<Button
-									size="sm"
-									variant="secondary"
-									onclick={() => {
-										edit(person);
-									}}>Change…</Button
-								>
-								<Button
-									size="sm"
-									variant="ghost"
-									onclick={() => {
-										remove(person);
-									}}>Remove…</Button
-								>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
+	<DataTable
+		columns={['Person', 'Alerts']}
+		rows={data.recipients}
+		key={(person: RowPerson) => person.id}
+		label={(person: RowPerson) => person.name}
+		onopen={open}
+		empty="Nobody yet. Add a person and tick the alerts they need."
+	>
+		{#snippet first(person: RowPerson)}
+			<div class="small muted">{person.email}</div>
+			{#if !person.enabled}<Badge tone="warn">Paused</Badge>{/if}
+		{/snippet}
+		{#snippet cells(person: RowPerson)}
+			<td>
+				{#if person.alerts.length === 0}
+					<span class="muted">None ticked</span>
+				{:else}
+					<ul class="alerts small">
+						{#each person.alerts as alert (alert)}
+							<li>{ALERT_LABELS[alert].label}</li>
+						{/each}
+					</ul>
+				{/if}
+			</td>
+		{/snippet}
+	</DataTable>
 </Card>
 
 <Card title="Emails">
-	{#if data.emails.length === 0}
-		<p class="muted">No alert emails yet.</p>
-	{:else}
+	{#if data.emails.length > 0}
 		<p class="muted small">
 			The newest {formatCount(data.emails.length)} of {formatCount(data.emailCount)}. A failed send
 			is tried again after 1, 5, 15 and 30 minutes, then hourly, eight tries in all.
 		</p>
-		<div class="scroll">
-			<table>
-				<thead><tr><th>When</th><th>To</th><th>Subject</th><th>Result</th></tr></thead>
-				<tbody>
-					{#each data.emails as email (email.id)}
-						<tr>
-							<td class="nowrap">{formatDateTime(email.createdAt)}</td>
-							<td
-								>{email.recipient}
-								<div class="small muted">{email.address}</div></td
-							>
-							<td>{email.subject}</td>
-							<td>
-								<Badge tone={STATUS[email.status].tone}>{STATUS[email.status].label}</Badge>
-								{#if email.sentAt !== null}
-									<div class="small muted">{formatDateTime(email.sentAt)}</div>
-								{/if}
-								{#if email.lastError !== null && email.status !== 'sent'}
-									<div class="small error">
-										{email.lastError}{email.attempts > 0 ? ` (try ${String(email.attempts)})` : ''}
-									</div>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
 	{/if}
+	<DataTable
+		columns={['When', 'To', 'Subject', 'Result']}
+		rows={data.emails}
+		key={(email: RowEmail) => email.id}
+		empty="No alert emails yet."
+	>
+		{#snippet cells(email: RowEmail)}
+			<td class="nowrap">{formatDateTime(email.createdAt)}</td>
+			<td
+				>{email.recipient}
+				<div class="small muted">{email.address}</div></td
+			>
+			<td>{email.subject}</td>
+			<td>
+				<Badge tone={STATUS[email.status].tone}>{STATUS[email.status].label}</Badge>
+				{#if email.sentAt !== null}
+					<div class="small muted">{formatDateTime(email.sentAt)}</div>
+				{/if}
+				{#if email.lastError !== null && email.status !== 'sent'}
+					<div class="small error">
+						{email.lastError}{email.attempts > 0 ? ` (try ${String(email.attempts)})` : ''}
+					</div>
+				{/if}
+			</td>
+		{/snippet}
+	</DataTable>
 </Card>
 
 <FormModal bind:open={mailgunOpen} title="Sending email through Mailgun" action="?/mailgun">
@@ -271,14 +237,65 @@
 	</fieldset>
 {/snippet}
 
+<Modal bind:open={viewOpen} title={viewed === undefined ? 'Person' : viewed.name}>
+	{#if viewed !== undefined}
+		<DetailView>
+			<dt>Email</dt>
+			<dd>{viewed.email}</dd>
+			<dt>Sending</dt>
+			<dd>
+				{#if viewed.enabled}<Badge tone="ok">On</Badge>{:else}<Badge tone="warn">Paused</Badge>{/if}
+			</dd>
+			<dt>Alerts</dt>
+			<dd>
+				{#if viewed.alerts.length === 0}
+					<span class="muted">None ticked</span>
+				{:else}
+					<ul class="alerts">
+						{#each viewed.alerts as alert (alert)}
+							<li>{ALERT_LABELS[alert].label}</li>
+						{/each}
+					</ul>
+				{/if}
+			</dd>
+		</DetailView>
+	{/if}
+	{#snippet footer()}
+		{#if viewed !== undefined}
+			<div class="view-footer">
+				<div class="left">
+					<Button onclick={() => (editOpen = true)}>Change…</Button>
+					<form
+						method="POST"
+						action="?/test"
+						use:enhance={() => {
+							testing = viewed.id;
+							return async ({ update }) => {
+								await update();
+								testing = null;
+							};
+						}}
+					>
+						<input type="hidden" name="id" value={viewed.id} />
+						<Button type="submit" variant="secondary" disabled={testing !== null}
+							>{testing === viewed.id ? 'Sending…' : 'Send a test'}</Button
+						>
+					</form>
+				</div>
+				<Button variant="danger" onclick={() => (removeOpen = true)}>Remove…</Button>
+			</div>
+		{/if}
+	{/snippet}
+</Modal>
+
 <FormModal bind:open={addOpen} title="Add a person" action="?/add" submitLabel="Add" size="lg">
 	{@render personFields(null)}
 </FormModal>
 
 <FormModal bind:open={editOpen} title="Change alerts" action="?/edit" size="lg">
-	{#if chosen !== null}
-		<input type="hidden" name="id" value={chosen.id} />
-		{@render personFields(chosen)}
+	{#if viewed !== undefined}
+		<input type="hidden" name="id" value={viewed.id} />
+		{@render personFields(viewed)}
 	{/if}
 </FormModal>
 
@@ -288,6 +305,7 @@
 	action="?/remove"
 	submitLabel="Remove"
 	variant="danger"
+	onsuccess={() => (viewOpen = false)}
 >
 	{#if chosen !== null}
 		<input type="hidden" name="id" value={chosen.id} />
@@ -296,22 +314,6 @@
 </FormModal>
 
 <style>
-	.facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-2) var(--space-4);
-		margin: 0;
-	}
-
-	.facts dt {
-		color: var(--colour-text-muted);
-	}
-
-	.facts dd {
-		margin: 0;
-		overflow-wrap: anywhere;
-	}
-
 	label {
 		display: grid;
 		gap: var(--space-1);
@@ -340,19 +342,18 @@
 		padding-left: var(--space-4);
 	}
 
-	.row-actions {
+	.view-footer {
+		display: flex;
+		flex: 1;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.view-footer .left {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-		justify-content: flex-end;
-	}
-
-	.row-actions form {
-		display: contents;
-	}
-
-	.scroll {
-		overflow-x: auto;
 	}
 
 	.nowrap {

@@ -4,6 +4,7 @@
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
+	import { formatTimeOfDay } from '#lib/utils/format.ts';
 	import { toast } from '#lib/runes/toast.svelte.ts';
 	import { logReplySchema, type LogLine } from '#lib/schemas/log.ts';
 
@@ -93,7 +94,7 @@
 	<div class="log" bind:this={box}>
 		{#each shown as line (line.seq)}
 			<div class="line {line.level}">
-				<span class="at">{new Date(line.at).toLocaleTimeString('en-AU')}</span>
+				<span class="at">{formatTimeOfDay(line.at)}</span>
 				<span class="area">{line.area}</span>
 				<span class="message">{line.message}</span>
 			</div>

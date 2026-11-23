@@ -208,6 +208,7 @@ tests/support/         the fake Microsoft Graph tests use
 
 - File and folder names are kebab-case; components are `kebab-case.svelte`. SvelteKit route files and `[param]` folders keep their names.
 - A component used by one route lives beside that route. Shared components live in `src/lib/ui/`.
+- **Standard UI parts** (`src/lib/ui/`), used everywhere instead of hand-made ones: every list of records is a `data-table` (a row opens a view modal or a page; empty lists show `empty-state`); a record opens in a view `modal` with its facts in a `detail-view`, and Edit, New… and Delete in its footer; edits are a `form-modal`, on/off settings are `switch`es; notes that need noticing are a `callout`. Nothing that needs attention or copying (a password, a token, a check's result) appears inline in a page: it opens in a modal.
 - New code goes in the folder above that owns its concern. A new top-level folder under `src/lib/` or `src/lib/server/services/` is an architecture decision (Section 1).
 - **File size:** plan a split at 600 lines; 1000 lines is a hard limit. Split by responsibility (sub-components, helpers, sub-services), never into numbered shards (`part1`, `part2`), and never by squashing lines, deleting comments or blank lines, or merging statements to fit.
 

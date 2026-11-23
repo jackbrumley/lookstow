@@ -4,6 +4,7 @@ import { recordActivity } from '../activity/activity.ts';
 import { readRemote, saveRemote } from '../settings/settings.ts';
 import {
 	SESSION_COOKIE,
+	SESSION_MS,
 	clearStrikes,
 	endSession,
 	locked,
@@ -13,11 +14,11 @@ import {
 } from './accounts.ts';
 
 /**
- * Signing a remote person in and out (docs/specs/SPEC-REMOTE.md). A wrong name and a wrong
- * password get the same answer, and both count towards the lockout of the name and of the
+ * Signing a remote person in and out (docs/specs/SPEC-REMOTE.md). A wrong username and a wrong
+ * password get the same answer, and both count towards the lockout of the username and of the
  * address it came from.
  */
-const SESSION_SECONDS = 8 * 3_600;
+const SESSION_SECONDS = SESSION_MS / 1000;
 
 /** Where to go after signing in: a path on this site only, never another site. */
 export function safeNext(text: string | null): string {
@@ -60,17 +61,18 @@ export async function signIn(
 			kind: 'remote',
 			actor: 'remote',
 			summary: `Remote sign-in refused for "${username.slice(0, 40)}" from ${address}`,
-			detail: account?.disabled === true ? 'The account is disabled.' : 'Wrong name or password.'
+			detail:
+				account?.disabled === true ? 'The account is disabled.' : 'Wrong username or password.'
 		});
-		return { ok: false, message: 'That name and password do not match an account.' };
+		return { ok: false, message: 'That username and password do not match an account.' };
 	}
 	clearStrikes(keys);
-	const token = newSession(account.username, now);
+	const token = newSession(db, account.username, now);
 	cookies.set(SESSION_COOKIE, token, {
 		path: '/',
 		httpOnly: true,
 		secure: true,
-		sameSite: 'strict',
+		sameSite: 'lax',
 		maxAge: SESSION_SECONDS
 	});
 	saveRemote(db, {
@@ -90,7 +92,7 @@ export async function signIn(
 	return { ok: true };
 }
 
-export function signOut(cookies: Cookies): void {
-	endSession(cookies.get(SESSION_COOKIE));
-	cookies.delete(SESSION_COOKIE, { path: '/', httpOnly: true, secure: true, sameSite: 'strict' });
+export function signOut(db: Queryable, cookies: Cookies): void {
+	endSession(db, cookies.get(SESSION_COOKIE));
+	cookies.delete(SESSION_COOKIE, { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
 }

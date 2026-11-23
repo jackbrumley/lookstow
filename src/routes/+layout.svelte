@@ -19,14 +19,19 @@
 	import Button from '#lib/ui/button.svelte';
 	import IconPlayerPause from '@tabler/icons-svelte-runes/icons/player-pause';
 	import IconPlayerPlay from '@tabler/icons-svelte-runes/icons/player-play';
+	import IconLogout from '@tabler/icons-svelte-runes/icons/logout';
 	import { invalidate, refreshAll } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { LIVE_STATUS, isBusy, phaseText, refreshAfterMs } from '#lib/domain/live-status.ts';
 	import { toast } from '#lib/runes/toast.svelte.ts';
 	import { pending } from '#lib/runes/pending.svelte.ts';
-	import { formatPercent } from '#lib/utils/format.ts';
+	import { formatPercent, setDisplayTimeZone } from '#lib/utils/format.ts';
 
 	let { data, children }: LayoutProps = $props();
+
+	// Before any page draws a time, so the server's page and the browser show the same zone (it
+	// is the server's, so it never changes while the page is open).
+	setDisplayTimeZone(untrack(() => data.timeZone));
 
 	const allItems = [
 		{ path: '/', href: resolve('/'), label: 'Dashboard', icon: IconLayoutDashboard },
@@ -185,14 +190,7 @@
 				</li>
 			{/each}
 		</ul>
-		{#if remote !== null}
-			{#if remote.user !== null}
-				<form method="POST" action={resolve('/signout')} class="signed-in">
-					<span>Signed in as {remote.user}</span>
-					<button type="submit" class="link">Sign out</button>
-				</form>
-			{/if}
-		{:else}
+		{#if remote === null}
 			<button
 				type="button"
 				class="control"
@@ -215,6 +213,19 @@
 			</div>
 			<div class="version">Version {data.version}</div>
 		</div>
+		{#if remote?.user}
+			<!-- Who is signed in, at the very bottom, where people look for it. -->
+			<form method="POST" action={resolve('/signout')} class="signed-in">
+				<span class="avatar" aria-hidden="true">{remote.user.slice(0, 1).toUpperCase()}</span>
+				<span class="who">
+					<span class="muted-label">Signed in as</span>
+					<strong>{remote.user}</strong>
+				</span>
+				<button type="submit" class="sign-out" title="Sign out" aria-label="Sign out">
+					<IconLogout size={18} />
+				</button>
+			</form>
+		{/if}
 	</nav>
 	<main>
 		{#if updated.current}
@@ -422,16 +433,56 @@
 	}
 
 	.signed-in {
-		margin: 0 var(--space-3);
-		display: grid;
-		gap: var(--space-1);
-		color: var(--colour-sidebar-muted);
-		font-size: var(--font-size-sm);
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-3);
+		border-radius: var(--radius-md);
+		background: var(--colour-sidebar-active);
 	}
 
-	.signed-in .link {
-		justify-self: start;
+	.avatar {
+		display: grid;
+		place-items: center;
+		flex-shrink: 0;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 50%;
+		background: var(--colour-brand);
+		color: var(--colour-text-inverse);
+		font-weight: var(--font-weight-semibold);
+	}
+
+	.who {
+		display: grid;
+		min-width: 0;
+		line-height: var(--line-height-tight);
+	}
+
+	.who strong {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.muted-label {
+		color: var(--colour-sidebar-muted);
+		font-size: var(--font-size-xs);
+	}
+
+	.sign-out {
+		display: inline-flex;
+		margin-left: auto;
+		padding: var(--space-2);
+		border: none;
+		border-radius: var(--radius-sm);
+		background: none;
 		color: var(--colour-sidebar-text);
+		cursor: pointer;
+	}
+
+	.sign-out:hover {
+		background: var(--colour-sidebar);
 	}
 
 	.highlights {

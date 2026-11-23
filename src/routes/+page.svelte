@@ -2,9 +2,11 @@
 	import { enhance, type SubmitFunction } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
 	import SpeedCard from './speed-card.svelte';
 	import { toastFormResult } from '#lib/utils/form-toast.ts';
@@ -21,6 +23,11 @@
 	} from '#lib/utils/format.ts';
 
 	let { data, form }: PageProps = $props();
+
+	type RowItem = PageProps['data']['overview']['attention'][number];
+	type RowLive = PageProps['data']['live']['engine']['syncing'][number];
+	type RowCopy = PageProps['data']['overview']['firstCopies'][number];
+	type RowEntry = PageProps['data']['problems']['open'][number];
 
 	// The frame refreshes the live status on a timer; this page's load depends on it too.
 	const engine = $derived(data.live.engine);
@@ -62,6 +69,22 @@
 	}
 </script>
 
+{#snippet problemList(entries: typeof data.problems.open)}
+	<div class="problems">
+		<DataTable
+			columns={['When', 'What']}
+			rows={entries}
+			key={(entry: RowEntry) => entry.id}
+			compact
+		>
+			{#snippet cells(entry: RowEntry)}
+				<td class="nowrap">{formatDateTime(entry.at)}</td>
+				<td>{entry.summary}{entry.detail === null ? '' : `: ${entry.detail}`}</td>
+			{/snippet}
+		</DataTable>
+	</div>
+{/snippet}
+
 <PageHeader title="Dashboard" lede="Whether every mailbox is backed up, and what is happening now.">
 	{#snippet actions()}
 		{#if data.remote === null}
@@ -90,7 +113,20 @@
 	{/snippet}
 </PageHeader>
 
-{#if !setupDone}
+{#if data.remoteAccess !== null}
+	<a class="remote-note" href={resolve('/settings')}>
+		<Badge tone="info">Remote access is on</Badge>
+		<span class="muted small"
+			>{plural(data.remoteAccess.accounts, 'account', 'accounts')} can sign in from {plural(
+				data.remoteAccess.allowed,
+				'allowed address or range',
+				'allowed addresses or ranges'
+			)}. Turn it off in Settings when it is no longer needed.</span
+		>
+	</a>
+{/if}
+
+{#if !setupDone && data.remote === null}
 	<Card title="Set up Lookstow" tone="warn">
 		<ol class="steps">
 			<li class:done={data.setup.ids}>
@@ -146,49 +182,40 @@
 
 {#if overview.attention.length > 0}
 	<Card title="Needs attention" tone="bad">
-		<table>
-			<thead
-				><tr><th>Mailbox</th><th>What is wrong</th><th>What happens next</th><th></th></tr></thead
-			>
-			<tbody>
-				{#each overview.attention as item (item.id)}
-					<tr>
-						<td>
-							<a href={resolve('/mailboxes/[id]', { id: item.id })}>{item.address}</a>
-							{#if item.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
-						</td>
-						<td>{item.problem}</td>
-						<td>{item.what}</td>
-						<td>
-							{#if data.remote === null}
-								<form
-									method="POST"
-									action="?/recheck"
-									use:enhance={starting('check-again', `Checking ${item.address} again…`)}
-								>
-									<input type="hidden" name="mailboxId" value={item.id} />
-									<Button
-										type="submit"
-										size="sm"
-										variant="secondary"
-										disabled={pending.current !== null}>Check again now</Button
-									>
-								</form>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<DataTable
+			columns={['Mailbox', 'What is wrong', 'What happens next', '']}
+			rows={overview.attention}
+			key={(item: RowItem) => item.id}
+			label={(item: RowItem) => item.address}
+			href={(item: RowItem) => resolve('/mailboxes/[id]', { id: item.id })}
+		>
+			{#snippet first(item: RowItem)}
+				{#if item.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
+			{/snippet}
+			{#snippet cells(item: RowItem)}
+				<td>{item.problem}</td>
+				<td>{item.what}</td>
+				<td>
+					{#if data.remote === null}
+						<form
+							method="POST"
+							action="?/recheck"
+							use:enhance={starting('check-again', `Checking ${item.address} again…`)}
+						>
+							<input type="hidden" name="mailboxId" value={item.id} />
+							<Button
+								type="submit"
+								size="sm"
+								variant="secondary"
+								disabled={pending.current !== null}>Check again now</Button
+							>
+						</form>
+					{/if}
+				</td>
+			{/snippet}
+		</DataTable>
 		{#if data.problems.open.length > 0}
-			<ul class="problems">
-				{#each data.problems.open as entry (entry.id)}
-					<li>
-						<span class="muted small">{formatDateTime(entry.at)}</span>
-						{entry.summary}{entry.detail === null ? '' : `: ${entry.detail}`}
-					</li>
-				{/each}
-			</ul>
+			{@render problemList(data.problems.open)}
 		{/if}
 	</Card>
 {/if}
@@ -216,26 +243,23 @@
 		{/if}
 	</p>
 	{#if engine.syncing.length > 0}
-		<table>
-			<thead>
-				<tr><th>Mailbox</th><th>Folder</th><th>Stored this run</th><th>Started</th></tr>
-			</thead>
-			<tbody>
-				{#each engine.syncing as live (live.mailboxId)}
-					<tr>
-						<td>
-							<a href={resolve('/mailboxes/[id]', { id: live.mailboxId })}>{live.address}</a>
-							{#if archives.has(live.mailboxId)}<span class="muted small">(online archive)</span
-								>{/if}
-							{#if live.firstCopy}<Badge tone="info">First copy</Badge>{/if}
-						</td>
-						<td>{live.folder === '' ? 'Listing folders' : live.folder}</td>
-						<td>{plural(live.stored, 'message')}, {formatBytes(live.bytes)}</td>
-						<td>{formatRelative(live.startedAt)}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<DataTable
+			columns={['Mailbox', 'Folder', 'Stored this run', 'Started']}
+			rows={engine.syncing}
+			key={(live: RowLive) => live.mailboxId}
+			label={(live: RowLive) => live.address}
+			href={(live: RowLive) => resolve('/mailboxes/[id]', { id: live.mailboxId })}
+		>
+			{#snippet first(live: RowLive)}
+				{#if archives.has(live.mailboxId)}<span class="muted small">(online archive)</span>{/if}
+				{#if live.firstCopy}<Badge tone="info">First copy</Badge>{/if}
+			{/snippet}
+			{#snippet cells(live: RowLive)}
+				<td>{live.folder === '' ? 'Listing folders' : live.folder}</td>
+				<td>{plural(live.stored, 'message')}, {formatBytes(live.bytes)}</td>
+				<td>{formatRelative(live.startedAt)}</td>
+			{/snippet}
+		</DataTable>
 	{/if}
 </Card>
 
@@ -246,40 +270,40 @@
 			changed. Items Microsoft will not send are listed on the mailbox's page and do not hold the
 			first copy up.
 		</p>
-		<table>
-			<thead><tr><th>Mailbox</th><th>Folders copied</th><th></th></tr></thead>
-			<tbody>
-				{#each overview.firstCopies as copy (copy.id)}
-					<tr>
-						<td>
-							<a href={resolve('/mailboxes/[id]', { id: copy.id })}>{copy.address}</a>
-							{#if copy.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
-						</td>
-						<td>
-							{#if copy.foldersTotal === 0}
-								Listing folders
-							{:else}
-								{formatCount(copy.foldersDone)} of {formatCount(copy.foldersTotal)}
-								<span class="muted small"
-									>({formatPercent((copy.foldersDone / copy.foldersTotal) * 100)})</span
-								>
-							{/if}
-						</td>
-						<td>
-							{#if copy.syncing}<Badge tone="info">Copying now</Badge>{:else}<span
-									class="muted small">Waiting for its turn</span
-								>{/if}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<DataTable
+			columns={['Mailbox', 'Folders copied', '']}
+			rows={overview.firstCopies}
+			key={(copy: RowCopy) => copy.id}
+			label={(copy: RowCopy) => copy.address}
+			href={(copy: RowCopy) => resolve('/mailboxes/[id]', { id: copy.id })}
+		>
+			{#snippet first(copy: RowCopy)}
+				{#if copy.kind === 'archive'}<span class="muted small">(online archive)</span>{/if}
+			{/snippet}
+			{#snippet cells(copy: RowCopy)}
+				<td>
+					{#if copy.foldersTotal === 0}
+						Listing folders
+					{:else}
+						{formatCount(copy.foldersDone)} of {formatCount(copy.foldersTotal)}
+						<span class="muted small"
+							>({formatPercent((copy.foldersDone / copy.foldersTotal) * 100)})</span
+						>
+					{/if}
+				</td>
+				<td>
+					{#if copy.syncing}<Badge tone="info">Copying now</Badge>{:else}<span class="muted small"
+							>Waiting for its turn</span
+						>{/if}
+				</td>
+			{/snippet}
+		</DataTable>
 	</Card>
 {/if}
 
 <details class="more">
 	<summary>Details: discovery, index copy, completeness checks, backup drive and the queue</summary>
-	<dl class="facts">
+	<DetailView>
 		<dt>Discovery</dt>
 		<dd>
 			{#if engine.discovery.running}
@@ -360,7 +384,7 @@
 			{engine.throttled.lastMinute} in the last minute, {engine.throttled.last15Minutes} in 15 minutes.
 			Lookstow slows down by itself when Microsoft asks it to.
 		</dd>
-	</dl>
+	</DetailView>
 </details>
 
 <details class="more">
@@ -373,19 +397,25 @@
 		<summary
 			>Earlier problems ({data.problems.cleared.length}), since cleared or not about a mailbox</summary
 		>
-		<ul class="problems">
-			{#each data.problems.cleared as entry (entry.id)}
-				<li>
-					<span class="muted small">{formatDateTime(entry.at)}</span>
-					{entry.summary}{entry.detail === null ? '' : `: ${entry.detail}`}
-				</li>
-			{/each}
-		</ul>
+		{@render problemList(data.problems.cleared)}
 		<p><a href={resolve('/activity')}>All activity</a></p>
 	</details>
 {/if}
 
 <style>
+	.remote-note {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.remote-note:hover span {
+		text-decoration: underline;
+	}
+
 	.tiles {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -440,27 +470,12 @@
 		font-weight: var(--font-weight-medium);
 	}
 
-	.facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-1) var(--space-4);
-		margin: var(--space-4) 0 0;
-	}
-
-	.facts dt {
-		color: var(--colour-text-muted);
-	}
-
-	.facts dd {
-		margin: 0;
-	}
-
 	.problems {
-		list-style: none;
 		margin: var(--space-3) 0;
-		padding: 0;
-		display: grid;
-		gap: var(--space-2);
+	}
+
+	.nowrap {
+		white-space: nowrap;
 	}
 
 	form {

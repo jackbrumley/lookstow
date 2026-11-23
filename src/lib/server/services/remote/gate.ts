@@ -59,7 +59,7 @@ export function remoteGate(
 		event.locals.remoteAiUser = agent.username;
 		return null;
 	}
-	const name = sessionUser(event.cookies.get(SESSION_COOKIE));
+	const name = sessionUser(db, event.cookies.get(SESSION_COOKIE));
 	const account = remote.accounts.find((each) => each.username === name && !each.disabled);
 	event.locals.remoteUser = account?.username ?? null;
 	event.locals.remoteMayExport = account?.evidencePacks ?? false;

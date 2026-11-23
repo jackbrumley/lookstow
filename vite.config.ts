@@ -45,6 +45,8 @@ export default defineConfig({
 		// Set before env.ts reads them, so tests get a fresh in-memory database.
 		env: {
 			DATABASE_PATH: ':memory:',
+			// Times show in the server's zone; tests pin it so they read the same on every computer.
+			TZ: 'UTC',
 			SECRETS_KEY: Buffer.alloc(32, 1).toString('base64')
 		},
 		include: ['src/**/*.test.ts', 'tests/**/*.test.ts']

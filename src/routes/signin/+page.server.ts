@@ -22,7 +22,7 @@ export const actions = {
 		const password = data.get('password');
 		const next = safeNext(field(data, 'next'));
 		if (username === '' || typeof password !== 'string' || password === '') {
-			return refused('Enter your name and password.');
+			return refused('Enter your username and password.');
 		}
 		const result = await signIn(database, cookies, username, password, getClientAddress());
 		if (!result.ok) return refused(result.message, 401);

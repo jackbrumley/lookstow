@@ -3,7 +3,7 @@ import { openDatabase } from '../../database/connection.ts';
 import { aiCaller, aiToolsWanted } from '../ai/access.ts';
 import { readRemote, saveRemote, type RemoteSettings } from '../settings/settings.ts';
 import { accountForAiToken, bearerToken, makeAiToken } from './ai-tokens.ts';
-import { addAccount, newAccountAiToken, setAccountAiTools } from './manage.ts';
+import { addAccount, newAccountAiToken, setAccountAiTools, updateAccount } from './manage.ts';
 import { isAiPath, remoteAiMayOpen } from '../../../domain/remote.ts';
 
 describe('the AI tools on the remote address', () => {
@@ -64,6 +64,32 @@ describe('the AI tools on the remote address', () => {
 		expect(aiToolsWanted(db)).toBe(false);
 		saveRemote(db, { ...readRemote(db), enabled: true });
 		expect(aiToolsWanted(db)).toBe(true);
+	});
+
+	it('are set with the rest of an account in its Edit window, only what changed', async () => {
+		const db = openDatabase(':memory:');
+		await addAccount(db, 'ann', 'correct horse battery', 'correct horse battery');
+		const ann = () => readRemote(db).accounts[0];
+
+		const same = updateAccount(db, 'ann', {
+			canSignIn: true,
+			evidencePacks: false,
+			aiTools: false
+		});
+		expect(same).toEqual({ message: 'Nothing changed for ann.', token: null });
+
+		const on = updateAccount(db, 'ann', { canSignIn: false, evidencePacks: true, aiTools: true });
+		expect(on.token).toMatch(/^lksr_/);
+		expect(ann()).toMatchObject({ disabled: true, evidencePacks: true, aiTools: true });
+		const hint = ann()?.aiTokenHint;
+
+		// Saving again with AI tools still on keeps the token: no new one to send.
+		const again = updateAccount(db, 'ann', { canSignIn: true, evidencePacks: true, aiTools: true });
+		expect(again.token).toBeNull();
+		expect(ann()).toMatchObject({ disabled: false, aiTokenHint: hint });
+		expect(() =>
+			updateAccount(db, 'nobody', { canSignIn: true, evidencePacks: false, aiTools: false })
+		).toThrow();
 	});
 
 	it('reads a bearer token', () => {

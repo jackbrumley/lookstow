@@ -79,13 +79,9 @@ export async function saveRemoteAccess(
 	if (!Number.isInteger(change.port) || change.port < 1024 || change.port > 65_535) {
 		throw new Error('Choose a port from 1024 to 65535 (8443 is usual).');
 	}
+	// On with nobody allowed, or no account yet, is fine: everyone is refused until there is one,
+	// and Settings says so.
 	const remote = readRemote(db);
-	if (change.enabled && change.allowList.length === 0) {
-		throw new Error('Add at least one address or range that may connect before turning it on.');
-	}
-	if (change.enabled && !remote.accounts.some((account) => !account.disabled)) {
-		throw new Error('Add an account before turning remote access on.');
-	}
 	saveRemote(db, { ...remote, ...change });
 	if (change.enabled && remote.certificatePem === null) newRemoteCertificate(db, secretsKey);
 	const problem = await applyRemote(db, secretsKey);
@@ -151,7 +147,7 @@ export async function addAccount(
 	now = Date.now()
 ): Promise<string> {
 	if (!validUsername(username)) {
-		throw new Error('Use 2 to 40 letters, digits, dots, dashes or underscores for the name.');
+		throw new Error('Use 2 to 40 letters, digits, dots, dashes or underscores for the username.');
 	}
 	checkPassword(password, confirm);
 	const remote = readRemote(db);
@@ -184,7 +180,7 @@ function existing(remote: RemoteSettings, username: string): RemoteSettings['acc
 	return account;
 }
 
-export function setAccountDisabled(db: Queryable, username: string, disabled: boolean): string {
+function setAccountDisabled(db: Queryable, username: string, disabled: boolean): string {
 	const remote = readRemote(db);
 	existing(remote, username);
 	withAccounts(
@@ -192,13 +188,13 @@ export function setAccountDisabled(db: Queryable, username: string, disabled: bo
 		remote,
 		remote.accounts.map((each) => (each.username === username ? { ...each, disabled } : each))
 	);
-	if (disabled) endSessionsOf(username);
+	if (disabled) endSessionsOf(db, username);
 	note(db, `Remote account ${username} was ${disabled ? 'disabled' : 'enabled'}`);
 	return disabled ? `${username} is disabled and signed out.` : `${username} may sign in again.`;
 }
 
 /** Lets the account make and download evidence packs, or stops it. */
-export function setAccountEvidencePacks(db: Queryable, username: string, allowed: boolean): string {
+function setAccountEvidencePacks(db: Queryable, username: string, allowed: boolean): string {
 	const remote = readRemote(db);
 	existing(remote, username);
 	withAccounts(
@@ -249,9 +245,39 @@ export function setAccountAiTools(
 	);
 	return {
 		message: allowed
-			? `${username} may use the AI tools. Send them the setup below.`
+			? `${username} may use the AI tools. Send them the setup shown.`
 			: `${username} may no longer use the AI tools; their token has stopped working.`,
 		token: made?.token ?? null
+	};
+}
+
+/**
+ * The account's settings from its Edit window, all at once: whether it may sign in, make evidence
+ * packs and use the AI tools. Only what changed is applied (and logged); turning the AI tools on
+ * makes its token, returned to show once.
+ */
+export function updateAccount(
+	db: Queryable,
+	username: string,
+	change: { canSignIn: boolean; evidencePacks: boolean; aiTools: boolean }
+): { message: string; token: string | null } {
+	const account = existing(readRemote(db), username);
+	const messages: string[] = [];
+	let token: string | null = null;
+	if (account.disabled === change.canSignIn) {
+		messages.push(setAccountDisabled(db, username, !change.canSignIn));
+	}
+	if (account.evidencePacks !== change.evidencePacks) {
+		messages.push(setAccountEvidencePacks(db, username, change.evidencePacks));
+	}
+	if (account.aiTools !== change.aiTools) {
+		const changed = setAccountAiTools(db, username, change.aiTools);
+		messages.push(changed.message);
+		token = changed.token;
+	}
+	return {
+		message: messages.length === 0 ? `Nothing changed for ${username}.` : messages.join(' '),
+		token
 	};
 }
 
@@ -296,7 +322,7 @@ export async function resetPassword(
 		remote,
 		remote.accounts.map((each) => (each.username === username ? { ...each, passwordHash } : each))
 	);
-	endSessionsOf(username);
+	endSessionsOf(db, username);
 	note(db, `The password of remote account ${username} was changed`);
 	return `Changed ${username}'s password and signed them out.`;
 }
@@ -309,7 +335,7 @@ export function deleteAccount(db: Queryable, username: string): string {
 		remote,
 		remote.accounts.filter((each) => each.username !== username)
 	);
-	endSessionsOf(username);
+	endSessionsOf(db, username);
 	note(db, `Remote account ${username} was deleted`);
 	return `Deleted ${username} and signed them out.`;
 }

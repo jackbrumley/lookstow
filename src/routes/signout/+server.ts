@@ -14,6 +14,6 @@ export const POST: RequestHandler = ({ cookies, locals }) => {
 			summary: `${locals.remoteUser} signed out`
 		});
 	}
-	signOut(cookies);
+	signOut(database, cookies);
 	redirect(303, locals.isLocal ? '/' : '/signin');
 };

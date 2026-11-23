@@ -27,6 +27,8 @@ export const load = (({ url, depends, locals }) => {
 		// frame's banners and engine state are never left over from an earlier page.
 		path: url.pathname,
 		version: APP_VERSION,
+		// Every time is shown in this computer's time zone (utils/format.ts).
+		timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 		live: signedOut ? withoutNames(live) : live,
 		indexing: signedOut ? null : indexingText(engine.indexing()),
 		// A newer release: the sidebar's badge, and the reminder until someone answers it.

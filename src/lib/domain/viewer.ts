@@ -31,7 +31,10 @@ export type MessageView = {
 	from: string;
 	to: string;
 	cc: string;
+	/** The Date header as written (shown on hover). */
 	date: string;
+	/** The same as an exact time (ISO 8601, UTC), shown in local time; null if unreadable. */
+	sentAt: string | null;
 	hasHtml: boolean;
 	attachments: ViewAttachment[];
 };

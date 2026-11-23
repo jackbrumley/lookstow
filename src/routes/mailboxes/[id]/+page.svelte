@@ -2,9 +2,11 @@
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
+	import DetailView from '#lib/ui/detail-view.svelte';
 	import Badge from '#lib/ui/badge.svelte';
 	import Button from '#lib/ui/button.svelte';
 	import Card from '#lib/ui/card.svelte';
+	import DataTable from '#lib/ui/data-table.svelte';
 	import FormModal from '#lib/ui/form-modal.svelte';
 	import ExistingBackupChoice from '#lib/ui/existing-backup-choice.svelte';
 	import PageHeader from '#lib/ui/page-header.svelte';
@@ -20,6 +22,11 @@
 	import { stateTone } from '#lib/utils/mailbox-tone.ts';
 
 	let { data, form }: PageProps = $props();
+
+	type RowFolder = PageProps['data']['mailbox']['folders'][number];
+	type RowFailure = PageProps['data']['failures']['items'][number];
+	type RowRun = PageProps['data']['mailbox']['recentRuns'][number];
+	type RowEntry = PageProps['data']['activity'][number];
 
 	$effect(() => {
 		toastFormResult(form);
@@ -115,7 +122,7 @@
 </PageHeader>
 
 <Card>
-	<dl class="facts">
+	<DetailView>
 		<dt>State</dt>
 		<dd><Badge tone={stateTone(mailbox.state)}>{STATE_LABELS[mailbox.state]}</Badge></dd>
 		{#if mailbox.lastSyncError !== null}
@@ -170,60 +177,52 @@
 			<dt>Gone from Microsoft 365</dt>
 			<dd>{formatDateTime(mailbox.goneAt)}. The backup is kept.</dd>
 		{/if}
-	</dl>
+	</DetailView>
 </Card>
 
 <Card title="Folders">
 	{#if mailbox.folders.length === 0}
 		<p class="muted">No folders yet: they are listed on the first sync.</p>
 	{:else}
-		<table>
-			<thead
-				><tr
-					><th>Folder</th><th>Messages</th><th>Microsoft says</th><th>First copy</th><th
-						>Last synced</th
-					></tr
-				></thead
-			>
-			<tbody>
-				{#each mailbox.folders as folder (folder.path)}
-					<tr>
-						<td>{folder.path}</td>
-						<td>{formatCount(folder.itemCount)}</td>
-						<td>
-							{#if folder.gap.kind === 'from-listing'}
-								{formatCount(folder.sourceCount ?? 0)}
-								<span class="muted small"
-									>(one part only; its full listing {folder.gap.listedAt === null
-										? 'is due'
-										: `on ${formatDateTime(folder.gap.listedAt)} found ${formatCount(folder.gap.listed ?? 0)}`})</span
-								>
-							{:else if folder.sourceCount === null}
-								<span class="muted">Not compared</span>
-							{:else if folder.gap.kind === 'needs-look'}
-								<Badge tone="warn">{formatCount(folder.sourceCount)}</Badge>
-								<span class="muted small">(needs a look)</span>
-							{:else if folder.gap.kind === 'checking'}
-								<Badge tone="info">{formatCount(folder.sourceCount)}</Badge>
-								<span class="muted small">(checking)</span>
-							{:else}
-								{formatCount(folder.sourceCount)}
-								{#if folder.gap.kind === 'explained'}
-									<span class="muted small">{explainedText(folder.gap)}</span>
-								{/if}
-								{#if folder.listedCount !== null && folder.listedCount !== folder.sourceCount}
-									<span class="muted small"
-										>(last full listing: {formatCount(folder.listedCount)})</span
-									>
-								{/if}
-							{/if}
-						</td>
-						<td>{folder.firstCopyDone ? 'Done' : 'In progress'}</td>
-						<td>{formatRelative(folder.lastSyncedAt)}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<DataTable
+			columns={['Folder', 'Messages', 'Microsoft says', 'First copy', 'Last synced']}
+			rows={mailbox.folders}
+			key={(folder: RowFolder) => folder.path}
+		>
+			{#snippet cells(folder: RowFolder)}
+				<td>{folder.path}</td>
+				<td>{formatCount(folder.itemCount)}</td>
+				<td>
+					{#if folder.gap.kind === 'from-listing'}
+						{formatCount(folder.sourceCount ?? 0)}
+						<span class="muted small"
+							>(one part only; its full listing {folder.gap.listedAt === null
+								? 'is due'
+								: `on ${formatDateTime(folder.gap.listedAt)} found ${formatCount(folder.gap.listed ?? 0)}`})</span
+						>
+					{:else if folder.sourceCount === null}
+						<span class="muted">Not compared</span>
+					{:else if folder.gap.kind === 'needs-look'}
+						<Badge tone="warn">{formatCount(folder.sourceCount)}</Badge>
+						<span class="muted small">(needs a look)</span>
+					{:else if folder.gap.kind === 'checking'}
+						<Badge tone="info">{formatCount(folder.sourceCount)}</Badge>
+						<span class="muted small">(checking)</span>
+					{:else}
+						{formatCount(folder.sourceCount)}
+						{#if folder.gap.kind === 'explained'}
+							<span class="muted small">{explainedText(folder.gap)}</span>
+						{/if}
+						{#if folder.listedCount !== null && folder.listedCount !== folder.sourceCount}
+							<span class="muted small">(last full listing: {formatCount(folder.listedCount)})</span
+							>
+						{/if}
+					{/if}
+				</td>
+				<td>{folder.firstCopyDone ? 'Done' : 'In progress'}</td>
+				<td>{formatRelative(folder.lastSyncedAt)}</td>
+			{/snippet}
+		</DataTable>
 		{#if open.length > 0}
 			<div class="differences-head">
 				<h3>Differences from Microsoft</h3>
@@ -273,28 +272,24 @@
 			copied; these are tried again after 15 minutes, 1 hour, 4 hours and then daily, five times in
 			all. They also explain why a folder's count from Microsoft can be higher than what is stored.
 		</p>
-		<table>
-			<thead
-				><tr><th>Folder</th><th>Subject</th><th>Received</th><th>Tries</th><th>Problem</th></tr
-				></thead
-			>
-			<tbody>
-				{#each data.failures.items as failure (failure.graphId)}
-					<tr>
-						<td>{failure.folderPath}</td>
-						<td>{failure.subject === '' ? '—' : failure.subject}</td>
-						<td>{formatDateTime(failure.receivedAt)}</td>
-						<td>
-							{failure.attempts}
-							{#if failure.terminal}<Badge tone="bad">Stopped</Badge>{:else}<span
-									class="small muted">next {formatRelative(failure.nextTryAt)}</span
-								>{/if}
-						</td>
-						<td class="small">{failure.lastError}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<DataTable
+			columns={['Folder', 'Subject', 'Received', 'Tries', 'Problem']}
+			rows={data.failures.items}
+			key={(failure: RowFailure) => failure.graphId}
+		>
+			{#snippet cells(failure: RowFailure)}
+				<td>{failure.folderPath}</td>
+				<td>{failure.subject === '' ? '—' : failure.subject}</td>
+				<td>{formatDateTime(failure.receivedAt)}</td>
+				<td>
+					{failure.attempts}
+					{#if failure.terminal}<Badge tone="bad">Stopped</Badge>{:else}<span class="small muted"
+							>next {formatRelative(failure.nextTryAt)}</span
+						>{/if}
+				</td>
+				<td class="small">{failure.lastError}</td>
+			{/snippet}
+		</DataTable>
 	</Card>
 {/if}
 
@@ -302,36 +297,39 @@
 	{#if mailbox.recentRuns.length === 0}
 		<p class="muted">Not synced yet.</p>
 	{:else}
-		<table>
-			<thead
-				><tr><th>Started</th><th>Result</th><th>Stored</th><th>Deleted at source</th></tr></thead
-			>
-			<tbody>
-				{#each mailbox.recentRuns as run (run.id)}
-					<tr>
-						<td>{formatDateTime(run.startedAt)}</td>
-						<td>
-							<Badge tone={run.outcome === 'ok' ? 'ok' : run.outcome === 'running' ? 'info' : 'bad'}
-								>{run.outcome}</Badge
-							>
-							{#if run.error !== null}<div class="small error">{run.error}</div>{/if}
-						</td>
-						<td>{formatCount(run.added)} ({formatBytes(run.byteCount)})</td>
-						<td>{formatCount(run.removed)}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		<DataTable
+			columns={['Started', 'Result', 'Stored', 'Deleted at source']}
+			rows={mailbox.recentRuns}
+			key={(run: RowRun) => run.id}
+		>
+			{#snippet cells(run: RowRun)}
+				<td>{formatDateTime(run.startedAt)}</td>
+				<td>
+					<Badge tone={run.outcome === 'ok' ? 'ok' : run.outcome === 'running' ? 'info' : 'bad'}
+						>{run.outcome}</Badge
+					>
+					{#if run.error !== null}<div class="small error">{run.error}</div>{/if}
+				</td>
+				<td>{formatCount(run.added)} ({formatBytes(run.byteCount)})</td>
+				<td>{formatCount(run.removed)}</td>
+			{/snippet}
+		</DataTable>
 	{/if}
 </Card>
 
 {#if data.activity.length > 0}
 	<Card title="Activity">
-		<ul class="activity">
-			{#each data.activity as entry (entry.id)}
-				<li><span class="muted small">{formatDateTime(entry.at)}</span> {entry.summary}</li>
-			{/each}
-		</ul>
+		<DataTable
+			columns={['When', 'What']}
+			rows={data.activity}
+			key={(entry: RowEntry) => entry.id}
+			compact
+		>
+			{#snippet cells(entry: RowEntry)}
+				<td class="nowrap">{formatDateTime(entry.at)}</td>
+				<td>{entry.summary}</td>
+			{/snippet}
+		</DataTable>
 	</Card>
 {/if}
 
@@ -374,23 +372,6 @@
 </FormModal>
 
 <style>
-	.facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: var(--space-2) var(--space-4);
-		margin: 0;
-	}
-
-	.facts dt {
-		color: var(--colour-text-muted);
-	}
-
-	.facts dd {
-		margin: 0;
-		min-width: 0;
-		overflow-wrap: anywhere;
-	}
-
 	.confirm {
 		display: grid;
 		gap: var(--space-1);
@@ -401,12 +382,8 @@
 		color: var(--colour-bad);
 	}
 
-	.activity {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: grid;
-		gap: var(--space-2);
+	.nowrap {
+		white-space: nowrap;
 	}
 
 	form {

@@ -20,6 +20,31 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.7',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.7 from the Updates page. Expected: the countdown, then the console back by itself',
+				'Open a message. Expected: its Date reads in local time with the zone, e.g. “9 July 2020, 8:59 am AEST”, and hovering it shows the header as written',
+				'Open Settings, Remote access with it off. Expected: a large Off, Turn on…, and if there are accounts, a yellow note that none of them can sign in',
+				'Turn remote access on with no accounts. Expected: it turns on; the dashboard shows a “Remote access is on” badge',
+				'Add an account. Expected: a window shows the address, username and password with Copy; nothing appears inline',
+				"Click the account in the table, then Edit. Expected: three switches (Can sign in, Evidence packs, AI tools); saving updates the account's window and the table",
+				'Sign in from another allowed computer, close the browser, reopen it in a new tab, and update Lookstow. Expected: still signed in each time; the sidebar shows “Signed in as” at the bottom',
+				'Open a link to a message from Outlook or Teams on that computer. Expected: it opens the message without asking to sign in again',
+				'Look through Mailboxes, Search, Activity, Evidence packs and Alerts. Expected: lists are tables where clicking a row opens it; a pack or an alert recipient opens in a window'
+			]
+		},
+		changes: [
+			'Remote accounts are a table: click one to see it, with Edit (switches for Can sign in, Evidence packs and AI tools), New password, New AI token and Delete. Passwords and tokens to send open in a window of their own, never inline',
+			'Remote access shows plainly whether it is on, warns when accounts cannot sign in because it is off, can be turned on before any account exists, and the dashboard shows a badge while it is on',
+			'Signing in remotely is remembered for 7 days (until 48 hours unused), in every tab and through restarts and updates, and links from Outlook or Teams no longer ask to sign in again. The signed-in username sits at the bottom of the sidebar',
+			"Every time shows in the local time of the computer Lookstow runs on; a message's Date header is shown that way, with its zone. Evidence packs name and list messages in local time too",
+			"Lists are the same table everywhere, where clicking a row opens it; evidence packs and alert recipients open in a window, and a pack's check result and a new AI token show in a window instead of inline",
+			'“Name” is now “Username” for remote accounts and on the sign-in page'
+		]
+	},
+	{
 		version: '0.13.6',
 		testing: {
 			kind: 'steps',
