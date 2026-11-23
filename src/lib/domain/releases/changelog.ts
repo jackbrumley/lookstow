@@ -20,6 +20,29 @@ export type Release = {
 
 export const CHANGELOG = [
 	{
+		version: '0.13.5',
+		testing: {
+			kind: 'steps',
+			steps: [
+				'Update to 0.13.5 from the Updates page. Expected: the countdown, then the console back by itself',
+				"Open a message with an iPhone photo (HEIC) attached. Expected: the photo shows in the message's pictures (the first time in a second or two); View opens it; Download gives the original .HEIC file",
+				'Open Evidence packs in the side bar. Paste some message ids (or links to messages), add one made-up id, and press Check. Expected: how many were found, the made-up one listed as not in the backup, the size and the free space',
+				'Give it a name and press Make the pack. Expected: it shows below with its progress, then Ready with its size and SHA-256; Download saves one .zip',
+				'Unzip it in Windows. Expected: a folder with messages (each .eml opens in Outlook), manifest.csv (opens in Excel), index.html, README.txt and SHA256SUMS.txt; in PowerShell, Get-FileHash on the .zip shows the SHA-256 the page showed',
+				'Ask your AI agent (Claude Code) to make an evidence pack of some messages and give you the download link. Expected: it uses create_evidence_pack and get_evidence_pack, and the pack shows on the page made by AI agent',
+				'In Settings, Remote access, press Add account…, type a name and press Add (Make a password for me is ticked). Expected: a box with the address, name, password and certificate fingerprint, and Copy, which copies it all to send',
+				"Press Allowed / Not allowed in the account's Evidence packs column. Expected: when allowed, that person sees Evidence packs in their side bar remotely; when not, they do not"
+			]
+		},
+		changes: [
+			"Evidence packs: one ZIP file of chosen messages to hand to a lawyer. Paste message ids or links on the Evidence packs page, check what was found, and make the pack. Each message is in it exactly as stored and checked against the fingerprint (SHA-256) taken when it was backed up, with a manifest for Excel, an index page, a README and every file's SHA-256; attachments can also go in as separate files. The ZIP's own SHA-256 shows on the page and in the activity log. Packs are kept 7 days. Downloads of several gigabytes resume if they drop",
+			'AI agents can make evidence packs too (create_evidence_pack), follow them and get a download link (list_evidence_packs, get_evidence_pack)',
+			'Remote accounts can be allowed to make evidence packs in Settings, Remote access (off unless you allow it)',
+			'iPhone photos (HEIC) now show in the message viewer; Download still gives the original file',
+			'Adding a remote account, or giving one a new password, makes a strong password for you and shows the address, name and password once, with a Copy button, ready to send'
+		]
+	},
+	{
 		version: '0.13.4',
 		testing: {
 			kind: 'steps',

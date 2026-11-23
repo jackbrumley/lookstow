@@ -14,6 +14,17 @@ const APP_ENTRIES = {
 	ai: 'src/lib/server/work/ai-thread.ts'
 } as const;
 
+/**
+ * CommonJS code bundled into these ES modules may read `__dirname`, which ES modules lack:
+ * libheif-js (HEIC photos in the viewer) does, though its WebAssembly is inline and it reads no
+ * file. Each bundle defines it as its own folder.
+ */
+const COMMONJS_DIRNAME = [
+	"import { dirname as lookstowDirname } from 'node:path';",
+	"import { fileURLToPath as lookstowFilePath } from 'node:url';",
+	'const __dirname = lookstowDirname(lookstowFilePath(import.meta.url));'
+].join('\n');
+
 /** Bundles every entry into `outDir` as `<name>.js`; shared code would go to chunks/. */
 export async function bundleAppEntries(outDir: string): Promise<void> {
 	await build({
@@ -30,7 +41,11 @@ export async function bundleAppEntries(outDir: string): Promise<void> {
 			minify: false,
 			rolldownOptions: {
 				input: APP_ENTRIES,
-				output: { entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js' }
+				output: {
+					entryFileNames: '[name].js',
+					chunkFileNames: 'chunks/[name]-[hash].js',
+					banner: COMMONJS_DIRNAME
+				}
 			}
 		}
 	});

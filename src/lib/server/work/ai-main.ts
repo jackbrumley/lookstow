@@ -9,6 +9,7 @@ import { parseEml, type ParsedMessage } from '../services/ai/mime.ts';
 import { bodyDocument, viewOf } from '../services/viewer/view-message.ts';
 import { effectiveBackupRoot } from '../services/settings/settings.ts';
 import { PackBuilder } from '../services/evidence/builder.ts';
+import { viewable } from '../services/viewer/heic.ts';
 import { isToAi, type FromAi, type AiAnswer, type AiCall } from './ai-protocol.ts';
 
 /**
@@ -100,16 +101,18 @@ async function answer(call: AiCall): Promise<AiAnswer> {
 			const parsed = await viewed(call.messageId, call.part);
 			if ('error' in parsed) return { name: 'part', value: parsed };
 			const attachment = parsed.attachments[call.index];
+			if (attachment === undefined) return { name: 'part', value: { error: 'No such attachment' } };
+			// Viewing a HEIC photo sends a JPEG copy; a download is always the original.
+			const sent = call.asPicture
+				? await viewable(`${call.messageId}#${String(call.part)}#${String(call.index)}`, attachment)
+				: attachment;
 			return {
 				name: 'part',
-				value:
-					attachment === undefined
-						? { error: 'No such attachment' }
-						: {
-								filename: attachment.filename,
-								contentType: attachment.contentType,
-								data: new Uint8Array(attachment.data)
-							}
+				value: {
+					filename: sent.filename,
+					contentType: sent.contentType,
+					data: new Uint8Array(sent.data)
+				}
 			};
 		}
 		case 'pack':

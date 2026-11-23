@@ -13,7 +13,7 @@ export type AiCall =
 	| { name: 'attachment'; messageId: string; index: number; baseUrl: string }
 	| { name: 'view'; messageId: string; part: number | null }
 	| { name: 'body'; messageId: string; part: number | null }
-	| { name: 'part'; messageId: string; part: number | null; index: number }
+	| { name: 'part'; messageId: string; part: number | null; index: number; asPicture: boolean }
 	| { name: 'pack'; packId: string };
 
 export type ViewReply = { error: string } | { view: MessageView };

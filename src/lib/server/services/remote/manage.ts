@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Queryable } from '../../database/connection.ts';
 import { tlsFingerprint } from '../../crypto/tls-certificate.ts';
@@ -102,6 +103,25 @@ export async function renewCertificate(db: Queryable, secretsKey: Buffer): Promi
 	note(db, 'A new remote access certificate was made');
 	if (problem !== null) throw new Error(problem);
 	return 'Made a new certificate. Browsers warn once more until each person accepts it again.';
+}
+
+/** Letters and digits that cannot be mistaken for each other (no 0 O 1 l I). */
+const PASSWORD_LETTERS = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+/**
+ * A password Lookstow makes for an account: four groups of five (about 115 bits), easy to read
+ * out or paste, such as k7Qm2-9xPtH-wR4ce-Ty8bN.
+ */
+export function generatePassword(): string {
+	const groups: string[] = [];
+	for (let group = 0; group < 4; group += 1) {
+		let text = '';
+		for (let letter = 0; letter < 5; letter += 1) {
+			text += PASSWORD_LETTERS.charAt(randomInt(PASSWORD_LETTERS.length));
+		}
+		groups.push(text);
+	}
+	return groups.join('-');
 }
 
 function checkPassword(password: string, confirm: string): void {

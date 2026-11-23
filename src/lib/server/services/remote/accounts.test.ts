@@ -11,7 +11,7 @@ import {
 	strike
 } from './accounts.ts';
 import { safeNext } from './sign-in.ts';
-import { readAllowList } from './manage.ts';
+import { generatePassword, readAllowList } from './manage.ts';
 
 describe('passwords', () => {
 	it('keeps a salted hash that only the same password matches', async () => {
@@ -22,6 +22,17 @@ describe('passwords', () => {
 		expect(await passwordMatches('correct horse batterY', stored)).toBe(false);
 		expect(await hashPassword('correct horse battery')).not.toBe(stored);
 		expect(await passwordMatches('anything', 'not a hash')).toBe(false);
+	});
+});
+
+describe('a password Lookstow makes', () => {
+	it('is four groups of five letters and digits that cannot be confused, new each time', () => {
+		const made = Array.from({ length: 200 }, () => generatePassword());
+		for (const password of made) {
+			expect(password).toMatch(/^[a-km-zA-HJ-NP-Z2-9]{5}(-[a-km-zA-HJ-NP-Z2-9]{5}){3}$/);
+			expect(password).not.toMatch(/[01lIoO]/);
+		}
+		expect(new Set(made).size).toBe(made.length);
 	});
 });
 

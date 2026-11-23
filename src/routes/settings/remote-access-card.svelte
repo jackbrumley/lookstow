@@ -11,12 +11,15 @@
 	import FormModal from '#lib/ui/form-modal.svelte';
 	import { formatDateTime } from '#lib/utils/format.ts';
 	import type { RemoteView } from '#lib/domain/remote.ts';
+	import { toast } from '#lib/runes/toast.svelte.ts';
 
 	interface Props {
 		remote: RemoteView;
+		/** An account just added or given a new password: shown once, to copy and send. */
+		credentials: { username: string; password: string | null } | null;
 	}
 
-	let { remote }: Props = $props();
+	let { remote, credentials }: Props = $props();
 
 	let accessOpen = $state(false);
 	let addOpen = $state(false);
@@ -25,6 +28,39 @@
 	let deleting = $state<string | null>(null);
 	let passwordOpen = $state(false);
 	let deleteOpen = $state(false);
+	// Lookstow makes the password unless someone wants to type their own.
+	let makeForAdd = $state(true);
+	let makeForNew = $state(true);
+
+	// The details to send, until Done; each new set shows again.
+	let dismissed = $state<unknown>(null);
+	const showing = $derived(credentials !== null && dismissed !== credentials ? credentials : null);
+	const message = $derived(
+		showing === null
+			? ''
+			: [
+					`Lookstow (read-only access to the mail backup): ${remote.address}`,
+					`Name: ${showing.username}`,
+					`Password: ${showing.password ?? '(the one you were given)'}`,
+					remote.fingerprint === null
+						? 'Your browser warns about the certificate the first time; accept it to go on.'
+						: `Your browser warns about the certificate the first time. Its SHA-256 fingerprint is ${remote.fingerprint}.`
+				].join('\n')
+	);
+	let copied = $state(false);
+	let box = $state<HTMLTextAreaElement | null>(null);
+
+	async function copy(): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(message);
+			copied = true;
+			setTimeout(() => (copied = false), 2_000);
+		} catch {
+			// No clipboard here: select it, so Ctrl+C copies it.
+			box?.select();
+			toast.error('Could not copy by itself: the text is selected, press Ctrl+C.');
+		}
+	}
 </script>
 
 <Card title="Remote access" tone={remote.problem === null ? 'plain' : 'warn'}>
@@ -43,6 +79,22 @@
 	</p>
 	{#if remote.problem !== null}
 		<p class="problem" role="alert">{remote.problem}</p>
+	{/if}
+	{#if showing !== null}
+		<div class="send" role="status">
+			<strong>Send this to {showing.username}</strong>
+			{#if showing.password !== null}
+				<span class="muted small"
+					>Shown once: Lookstow keeps only a scrambled form of the password, so it cannot show it
+					again. If it is lost, use New password….</span
+				>
+			{/if}
+			<textarea readonly rows="5" bind:this={box} value={message}></textarea>
+			<div class="send-buttons">
+				<Button size="sm" onclick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</Button>
+				<Button size="sm" variant="ghost" onclick={() => (dismissed = credentials)}>Done</Button>
+			</div>
+		</div>
 	{/if}
 	<p class="muted small">
 		Allowed: {remote.allowList.length === 0 ? 'nobody yet' : remote.allowList.join(', ')}. Port
@@ -178,17 +230,23 @@
 		Name
 		<input name="username" required maxlength="40" autocomplete="off" />
 	</label>
-	<label>
-		Password (at least 12 characters)
-		<input name="password" type="password" required minlength="12" autocomplete="new-password" />
+	<label class="check">
+		<input type="checkbox" name="generate" bind:checked={makeForAdd} />
+		Make a password for me
 	</label>
-	<label>
-		The same password again
-		<input name="confirm" type="password" required minlength="12" autocomplete="new-password" />
-	</label>
+	{#if !makeForAdd}
+		<label>
+			Password (at least 12 characters)
+			<input name="password" type="password" required minlength="12" autocomplete="new-password" />
+		</label>
+		<label>
+			The same password again
+			<input name="confirm" type="password" required minlength="12" autocomplete="new-password" />
+		</label>
+	{/if}
 	<p class="muted small">
-		Give the person the name and password yourself. Five wrong passwords lock the name for 15
-		minutes.
+		Once added, the address, name and password show here to copy and send to the person. Five wrong
+		passwords lock the name for 15 minutes.
 	</p>
 </FormModal>
 
@@ -198,15 +256,23 @@
 	action="?/remotePassword"
 >
 	<input type="hidden" name="username" value={passwordFor ?? ''} />
-	<label>
-		New password (at least 12 characters)
-		<input name="password" type="password" required minlength="12" autocomplete="new-password" />
+	<label class="check">
+		<input type="checkbox" name="generate" bind:checked={makeForNew} />
+		Make a password for me
 	</label>
-	<label>
-		The same password again
-		<input name="confirm" type="password" required minlength="12" autocomplete="new-password" />
-	</label>
-	<p class="muted small">They are signed out everywhere and sign in again with the new one.</p>
+	{#if !makeForNew}
+		<label>
+			New password (at least 12 characters)
+			<input name="password" type="password" required minlength="12" autocomplete="new-password" />
+		</label>
+		<label>
+			The same password again
+			<input name="confirm" type="password" required minlength="12" autocomplete="new-password" />
+		</label>
+	{/if}
+	<p class="muted small">
+		They are signed out everywhere. The new details show here to copy and send.
+	</p>
 </FormModal>
 
 <FormModal
@@ -275,6 +341,26 @@
 		padding: var(--space-3);
 		border-radius: var(--radius-md);
 		font-size: var(--font-size-sm);
+	}
+
+	.send {
+		display: grid;
+		gap: var(--space-2);
+		margin: var(--space-3) 0;
+		padding: var(--space-3);
+		border-radius: var(--radius-md);
+		background: var(--colour-surface-muted, var(--colour-border));
+	}
+
+	.send textarea {
+		font-family: var(--font-mono, monospace);
+		font-size: var(--font-size-sm);
+		resize: vertical;
+	}
+
+	.send-buttons {
+		display: flex;
+		gap: var(--space-2);
 	}
 
 	.fingerprint {

@@ -319,7 +319,10 @@
 	</p>
 </FormModal>
 
-<RemoteAccessCard remote={data.remote} />
+<RemoteAccessCard
+	remote={data.remote}
+	credentials={form !== null && 'credentials' in form ? form.credentials : null}
+/>
 
 <BackupFolderCard
 	root={settings.backup.root}

@@ -111,9 +111,17 @@ export class AiThread {
 		return answer.value;
 	}
 
-	/** The viewer: one attachment's bytes. */
-	async part(messageId: string, part: number | null, index: number): Promise<AttachmentReply> {
-		const answer = await this.#call({ name: 'part', messageId, part, index });
+	/**
+	 * The viewer: one attachment's bytes. `asPicture` (viewing, not downloading) sends a HEIC
+	 * photo as a JPEG copy.
+	 */
+	async part(
+		messageId: string,
+		part: number | null,
+		index: number,
+		asPicture: boolean
+	): Promise<AttachmentReply> {
+		const answer = await this.#call({ name: 'part', messageId, part, index, asPicture });
 		if (answer.name !== 'part') throw new Error('The reading thread answered the wrong call.');
 		return answer.value;
 	}

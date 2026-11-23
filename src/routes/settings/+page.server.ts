@@ -38,7 +38,8 @@ import {
 	resetPassword,
 	saveRemoteAccess,
 	setAccountDisabled,
-	setAccountEvidencePacks
+	setAccountEvidencePacks,
+	generatePassword
 } from '#lib/server/services/remote/manage.ts';
 
 /** Settings: the Microsoft 365 connection, what is backed up, when, and where. */
@@ -80,7 +81,7 @@ function attempt(work: () => ReturnType<typeof done>) {
 }
 
 /** attempt, for work the work thread answers. */
-async function attemptAsync(work: () => Promise<ReturnType<typeof done>>) {
+async function attemptAsync<T extends ReturnType<typeof done>>(work: () => Promise<T>) {
 	try {
 		return await work();
 	} catch (error) {
@@ -100,6 +101,23 @@ function addresses(text: string): string[] {
 function secret(data: FormData, name: string): string {
 	const value = data.get(name);
 	return typeof value === 'string' ? value : '';
+}
+
+/** The password for a remote account: one Lookstow makes (the default), or the one typed. */
+function chosenPassword(data: FormData): { password: string; confirm: string; made: boolean } {
+	if (checked(data, 'generate')) {
+		const password = generatePassword();
+		return { password, confirm: password, made: true };
+	}
+	return { password: secret(data, 'password'), confirm: secret(data, 'confirm'), made: false };
+}
+
+/**
+ * A remote account's sign-in details, shown once to copy and send: a made password is in it (it
+ * is kept only as a hash, so this is the only time it can be shown); a typed one is not.
+ */
+function withCredentials(message: string, username: string, password: string, made: boolean) {
+	return { ...done(message), credentials: { username, password: made ? password : null } };
 }
 
 function whole(data: FormData, name: string): number {
@@ -320,14 +338,14 @@ export const actions = {
 		attemptAsync(async () => done(await renewCertificate(database, env.secretsKey))),
 	remoteAdd: async ({ request }) => {
 		const data = await request.formData();
+		const username = field(data, 'username');
+		const { password, confirm, made } = chosenPassword(data);
 		return attemptAsync(async () =>
-			done(
-				await addAccount(
-					database,
-					field(data, 'username'),
-					secret(data, 'password'),
-					secret(data, 'confirm')
-				)
+			withCredentials(
+				await addAccount(database, username, password, confirm),
+				username,
+				password,
+				made
 			)
 		);
 	},
@@ -339,14 +357,14 @@ export const actions = {
 	},
 	remotePassword: async ({ request }) => {
 		const data = await request.formData();
+		const username = field(data, 'username');
+		const { password, confirm, made } = chosenPassword(data);
 		return attemptAsync(async () =>
-			done(
-				await resetPassword(
-					database,
-					field(data, 'username'),
-					secret(data, 'password'),
-					secret(data, 'confirm')
-				)
+			withCredentials(
+				await resetPassword(database, username, password, confirm),
+				username,
+				password,
+				made
 			)
 		);
 	},

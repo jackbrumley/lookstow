@@ -18,6 +18,23 @@ function lower(name: string): string {
 	return name.toLowerCase();
 }
 
+/** HEIC photos converted for viewing, at most (a 48-megapixel iPhone photo is about 15 MB). */
+const HEIC_PREVIEW_BYTES = 40 * 1024 * 1024;
+
+/** An iPhone photo (HEIC or HEIF), which browsers cannot show: viewed as a JPEG copy. */
+export function isHeic(contentType: string, filename: string): boolean {
+	const type = lower(contentType);
+	const name = lower(filename);
+	return (
+		type === 'image/heic' ||
+		type === 'image/heif' ||
+		type === 'image/heic-sequence' ||
+		type === 'image/heif-sequence' ||
+		name.endsWith('.heic') ||
+		name.endsWith('.heif')
+	);
+}
+
 /** How an attachment can be shown on the page, or null (download only). */
 export function previewKind(
 	contentType: string,
@@ -27,8 +44,8 @@ export function previewKind(
 	const type = lower(contentType);
 	const name = lower(filename);
 	if (IMAGE_TYPES.has(type)) return 'image';
-	// iPhone photos (HEIC): most browsers cannot show them, and converting needs a library not
-	// added yet, so they download.
+	// Converted to JPEG when viewed (viewer/heic.ts); the download is the original file.
+	if (isHeic(type, name)) return bytes <= HEIC_PREVIEW_BYTES ? 'image' : null;
 	if (type === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
 	if (type === 'message/rfc822' || name.endsWith('.eml')) return 'email';
 	if ((type === 'text/plain' || type === 'text/csv') && bytes <= TEXT_PREVIEW_BYTES) return 'text';

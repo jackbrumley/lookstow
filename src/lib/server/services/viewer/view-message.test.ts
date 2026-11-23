@@ -50,7 +50,10 @@ describe('previewing attachments', () => {
 		expect(previewKind('message/rfc822', 'fwd', 10)).toBe('email');
 		expect(previewKind('text/plain', 'a.txt', 10)).toBe('text');
 		expect(previewKind('text/plain', 'a.txt', 3 * 1024 * 1024)).toBeNull();
-		expect(previewKind('image/heic', 'IMG_1.HEIC', 10)).toBeNull();
+		// iPhone photos are viewed as a JPEG copy (viewer/heic.ts), up to 40 MB.
+		expect(previewKind('image/heic', 'IMG_1.HEIC', 10)).toBe('image');
+		expect(previewKind('application/octet-stream', 'IMG_2.heif', 10)).toBe('image');
+		expect(previewKind('image/heic', 'IMG_3.HEIC', 41 * 1024 * 1024)).toBeNull();
 		expect(previewKind('image/svg+xml', 'logo.svg', 10)).toBeNull();
 		expect(previewKind('text/html', 'page.html', 10)).toBeNull();
 		expect(previewKind('application/zip', 'a.zip', 10)).toBeNull();

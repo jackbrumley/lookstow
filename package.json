@@ -1,6 +1,6 @@
 {
 	"name": "lookstow",
-	"version": "0.13.4",
+	"version": "0.13.5",
 	"private": true,
 	"description": "Back up Microsoft 365 mailboxes, shared mailboxes and online archives to a local folder, as a self-updating service for Windows and Linux.",
 	"type": "module",
@@ -38,6 +38,7 @@
 		"@sveltejs/vite-plugin-svelte": "7.3.1",
 		"@tabler/icons-svelte-runes": "3.49.0",
 		"@types/better-sqlite3": "9.6.0",
+		"@types/heic-convert": "2.1.1",
 		"@types/node": "26.6.5",
 		"drizzle-kit": "0.31.11",
 		"drizzle-orm": "0.45.4",
@@ -45,6 +46,7 @@
 		"eslint-config-prettier": "10.1.8",
 		"eslint-plugin-svelte": "3.23.1",
 		"globals": "17.13.0",
+		"heic-convert": "2.1.0",
 		"knip": "6.45.1",
 		"npm-run-all2": "9.0.4",
 		"prettier": "3.9.10",

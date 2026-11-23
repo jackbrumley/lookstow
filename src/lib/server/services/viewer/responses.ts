@@ -65,7 +65,7 @@ export async function attachmentResponse(
 	indexText: string,
 	inline: boolean
 ): Promise<Response> {
-	const found = await aiTools().part(id, partOf(partText), wholeNumber(indexText));
+	const found = await aiTools().part(id, partOf(partText), wholeNumber(indexText), inline);
 	if ('error' in found) error(404, found.error);
 	const kind = previewKind(found.contentType, found.filename, found.data.length);
 	const shown = inline && kind !== null && kind !== 'email';
